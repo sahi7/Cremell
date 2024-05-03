@@ -48,3 +48,6 @@ class CustomUser(AbstractUser):
 
     def __str__(self):
         return self.username
+
+
+# How can this models be used with django all-auth and serializers in DRF
