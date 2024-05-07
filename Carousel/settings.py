@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
+import os
 from pathlib import Path
 from dotenv import load_dotenv
 from django.utils.translation import gettext_lazy as _
@@ -40,6 +41,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sites',
+
+    # CRE App
+    'CRE.apps.CreConfig',
 
     # django-allauth
     'allauth',
@@ -50,6 +55,10 @@ INSTALLED_APPS = [
 
     # Third Party
     'rest_framework',
+    'rest_framework.authtoken', # required since we'll use TokenAuthentication instead of Django's default SessionAuthentication
+    
+    'dj_rest_auth',
+    'dj_rest_auth.registration',
 ]
 
 MIDDLEWARE = [
@@ -104,12 +113,15 @@ REST_FRAMEWORK = {
 
 WSGI_APPLICATION = 'Carousel.wsgi.application'
 # Load environment variables from .env file
-load_dotenv()
+try:
+    load_dotenv()
+except UnicodeDecodeError as e:
+    print(f"Error loading .env file: {e}")
 
 
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
-
+# Grant OWNER permission to user on DB 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -139,6 +151,8 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+
+SITE_ID = 1
 
 
 # Internationalization
