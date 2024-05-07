@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 from dotenv import load_dotenv
+from django.utils.translation import gettext_lazy as _
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -152,6 +153,20 @@ USE_I18N = True
 USE_TZ = True
 
 AUTH_USER_MODEL = 'CRE.CustomUser'
+
+LANGUAGES = [
+    ('en', _('English')),
+    ('fr', _('French')),
+    # Add more languages as needed
+]
+
+LANGUAGE_CODE = 'en'
+
+USE_I18N = True
+
+LOCALE_PATHS = [
+    os.path.join(BASE_DIR, 'locale'),
+]
 
 
 # Static files (CSS, JavaScript, Images)

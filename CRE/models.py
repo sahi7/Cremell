@@ -1,12 +1,13 @@
 import uuid
 from django.contrib.auth.models import AbstractUser
+from django.utils.translation import gettext_lazy as _
 from django.db import models
 
 class CustomUser(AbstractUser):
     GENDER_CHOICES = (
-        ('male', 'Male'),
-        ('female', 'Female'),
-        ('other', 'Other'),
+        ('male', _('Male')),
+        ('female', _('Female')),
+        ('other', _('Other')),
     )
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES)
     date_of_birth = models.DateField()
@@ -25,15 +26,15 @@ class CustomUser(AbstractUser):
 
     # Role-specific details
     ROLE_CHOICES = (
-        ('manager', 'Manager'),
-        ('chef', 'Chef'),
-        ('server', 'Server'),
-        ('bartender', 'Bartender'),
+        ('manager', _('Manager')),
+        ('chef', _('Chef')),
+        ('server', _('Server')),
+        ('bartender', _('Bartender')),
     )
     STATUS_CHOICES = (
-        ('active', 'Active'),
-        ('suspended', 'Suspended'),
-        ('on_leave', 'On Leave'),
+        ('active', _('Active')),
+        ('suspended', _('Suspended')),
+        ('on_leave', _('On Leave')),
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
@@ -48,6 +49,10 @@ class CustomUser(AbstractUser):
 
     def __str__(self):
         return self.username
+
+    class Meta:
+        verbose_name = _('User')
+        verbose_name_plural = _('Users')
 
 
 # How can this models be used with django all-auth and serializers in DRF
