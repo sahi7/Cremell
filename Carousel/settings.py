@@ -188,3 +188,26 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# SMTP Settings
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = os.getenv('SMTP_SERVER')                   # smtp-relay.sendinblue.com
+EMAIL_USE_TLS = False                               # False
+EMAIL_PORT = os.getenv('SMTP_PORT')                 # 587
+EMAIL_HOST_USER = os.getenv('SMTP_LOGIN')               # your email address
+EMAIL_HOST_PASSWORD = os.getenv('SMTP_PASSWORD')       # your password
+DEFAULT_FROM_EMAIL = os.getenv('SMTP_LOGIN')  # email ending with @sendinblue.com
+
+print(f"EMAIL_HOST: {EMAIL_HOST}, EMAIL_PORT: {EMAIL_PORT}, EMAIL_HOST_USER: {EMAIL_HOST_USER}, EMAIL_HOST_PASSWORD: {EMAIL_HOST_PASSWORD}")
+
+# django-allauth
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_EMAIL_VERIFICATION = "mandatory" # make email verification mandatory on sign-up
+
+# <EMAIL_CONFIRM_REDIRECT_BASE_URL>/<key>
+EMAIL_CONFIRM_REDIRECT_BASE_URL = \
+    "http://localhost:8000/email/confirm/"
+
+# <PASSWORD_RESET_CONFIRM_REDIRECT_BASE_URL>/<uidb64>/<token>/
+PASSWORD_RESET_CONFIRM_REDIRECT_BASE_URL = \
+    "http://localhost:8000/password-reset/confirm/"
