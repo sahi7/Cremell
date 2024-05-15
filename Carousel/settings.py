@@ -52,6 +52,7 @@ INSTALLED_APPS = [
 
     # Optional -- requires install using `django-allauth[socialacocunt]`.
     'allauth.socialaccount',
+    'allauth.socialaccount.providers.google',
 
     # Third Party
     'rest_framework',
@@ -210,4 +211,22 @@ EMAIL_CONFIRM_REDIRECT_BASE_URL = \
 
 # <PASSWORD_RESET_CONFIRM_REDIRECT_BASE_URL>/<uidb64>/<token>/
 PASSWORD_RESET_CONFIRM_REDIRECT_BASE_URL = \
-    "http://localhost:8000/password-reset/confirm/"
+    "http://localhost:8000/password/reset/confirm/"
+
+SOCIALACCOUNT_PROVIDERS = {
+    "google": {
+        "APP": {
+            "client_id": os.getenv('GOOGLE_CLIENT_ID'),  
+            "secret": os.getenv('GOOGLE_CLIENT_SECRET'),        
+            "key": "",                               
+        },
+        "SCOPE": [
+            "profile",
+            "email",
+        ],
+        "AUTH_PARAMS": {
+            "access_type": "online",
+        },
+        "VERIFIED_EMAIL": True,
+    },
+}

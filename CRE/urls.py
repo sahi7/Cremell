@@ -23,4 +23,8 @@ urlpatterns = [
         name="password_reset_confirm",
     ),
     path("password/reset/confirm/", PasswordResetConfirmView.as_view(), name="password_reset_confirm"),
+
+    # Social auth 
+    path("signup/", signup, name="socialaccount_signup"),
+    path("google/", GoogleLogin.as_view(), name="google_login"),
 ]
