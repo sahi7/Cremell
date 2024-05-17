@@ -6,6 +6,9 @@ from CRE.views import email_confirm_redirect, password_reset_confirm_redirect
 from django.urls import path
 from . import views
 
+from allauth.socialaccount.views import signup
+from CRE.views import GoogleLogin
+
 urlpatterns = [
     path("register/", RegisterView.as_view(), name="rest_register"),
     path("login/", LoginView.as_view(), name="rest_login"),
