@@ -5,12 +5,14 @@ from dj_rest_auth.views import LoginView, LogoutView, UserDetailsView, PasswordR
 from CRE.views import email_confirm_redirect, password_reset_confirm_redirect
 from django.urls import path
 from . import views
+from .views import CustomRegisterView
 
 from allauth.socialaccount.views import signup
 from CRE.views import GoogleLogin
 
 urlpatterns = [
-    path("register/", RegisterView.as_view(), name="rest_register"),
+    # path("register/", RegisterView.as_view(), name="rest_register"),
+    path("register/", CustomRegisterView.as_view(), name='custom_registration'),
     path("login/", LoginView.as_view(), name="rest_login"),
     path("logout/", LogoutView.as_view(), name="rest_logout"),
     path("user/", UserDetailsView.as_view(), name="rest_user_details"),
