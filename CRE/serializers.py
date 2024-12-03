@@ -3,7 +3,7 @@ from allauth.account.adapter import get_adapter
 from allauth.account.utils import setup_user_email
 from dj_rest_auth.registration.serializers import RegisterSerializer
 from dj_rest_auth.serializers import UserDetailsSerializer
-from .models import CustomUser
+from .models import CustomUser, Country, RegionOrState
 
 class CustomRegisterSerializer(RegisterSerializer):
     first_name = serializers.CharField(required=True)
@@ -65,3 +65,22 @@ class CustomUserDetailsSerializer(UserDetailsSerializer):
             'country', 'role', 'status', 'salary', 'hire_date', 'bio'
         )
         read_only_fields = ('email', )
+
+class CountrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Country
+        fields = ['id', 'name', 'iso_code', 'currency', 'timezone', 'language']
+
+class RegionOrStateSerializer(serializers.ModelSerializer):
+    country = CountrySerializer()  # This serializer will link to the Country model via a Foreign Key relationship
+
+    class Meta:
+        model = RegionOrState
+        fields = ['id', 'country', 'name', 'type']
+
+class CitySerializer(serializers.ModelSerializer):
+    region_or_state = RegionOrStateSerializer() 
+
+    class Meta:
+        model = City
+        fields = ['id', 'region_or_state', 'name', 'postal_code']
