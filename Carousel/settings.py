@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 import os
 from pathlib import Path
+from datetime import timedelta
 from dotenv import load_dotenv
 from django.utils.translation import gettext_lazy as _
 
@@ -42,9 +43,10 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.sites',
-
-    # CRE App
-    'CRE.apps.CreConfig',
+    
+    'CRE.apps.CreConfig',   # CRE App
+    'notifications.apps.NotificationsConfig',     # notifications App
+    'analytics.apps.AnalyticsConfig',       # analytics App
 
     # django-allauth
     'allauth',
@@ -60,6 +62,8 @@ INSTALLED_APPS = [
     
     'dj_rest_auth',
     'dj_rest_auth.registration',
+
+    'rest_framework_simplejwt',
 ]
 
 MIDDLEWARE = [
@@ -103,9 +107,30 @@ AUTHENTICATION_BACKENDS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework.authentication.TokenAuthentication',
+        # 'rest_framework.authentication.TokenAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
         # Add other authentication classes as needed
     ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+}
+
+REST_USE_JWT = True  # Enable JWT support for dj-rest-auth
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'AUTH_COOKIE': '__cess_token',  # Name of the access token cookie
+    'AUTH_COOKIE_SECURE': False,  # Set to True in production (requires HTTPS)
+    'AUTH_COOKIE_HTTP_ONLY': True,  # Prevent JavaScript access
+    'AUTH_COOKIE_PATH': '/',  # Global path for the cookie
+    'AUTH_COOKIE_SAMESITE': 'Lax',  # CSRF protection
+    'REFRESH_COOKIE': '__fresh_token',  # Name of the refresh token cookie
+    'REFRESH_COOKIE_PATH': '/',  # Global path for refresh cookie
+    'REFRESH_COOKIE_SECURE': False,  # Set to True in production
+    'REFRESH_COOKIE_HTTP_ONLY': True,  # Prevent JavaScript access
+    'REFRESH_COOKIE_SAMESITE': 'Lax',
 }
 
 WSGI_APPLICATION = 'Carousel.wsgi.application'

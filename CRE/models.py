@@ -139,6 +139,9 @@ class Country(models.Model):
     # usa = Country.objects.create(name="United States", code="USA")
     name = models.CharField(max_length=100, unique=True)
     code = models.CharField(max_length=3, unique=True)  # ISO 3166-1 alpha-3 code
+    currency = models.CharField(max_length=50, blank=True, null=True)
+    timezone = models.CharField(max_length=100, blank=True, null=True)
+    language = models.CharField(max_length=50, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
