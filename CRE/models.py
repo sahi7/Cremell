@@ -20,59 +20,17 @@ class CustomUserManager(BaseUserManager):
         extra_fields.setdefault('is_superuser', True)
         return self.create_user(email, username, phone_number, password, **extra_fields)
 
-    def create_regional_president(self, email, phone_number, password=None, **extra_fields):
-        extra_fields.setdefault('role', 'regional_president')
-        extra_fields.setdefault('is_staff', True)
+    def create_user_with_role(self, role, email, phone_number, password=None, **extra_fields):
+        if not email and not phone_number:
+            raise ValueError(_('The Email or Phone number field must be set'))
+        extra_fields.setdefault('role', role)
+        if role in ['regional_president', 'regional_director', 'country_manager']:
+            extra_fields.setdefault('is_staff', True)
         return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
 
-    def create_regional_director(self, email, phone_number, password=None, **extra_fields):
-        extra_fields.setdefault('role', 'regional_director')
-        extra_fields.setdefault('is_staff', True)
-        return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
-
-    def create_country_manager(self, email, phone_number, password=None, **extra_fields):
-        extra_fields.setdefault('role', 'country_manager')
-        extra_fields.setdefault('is_staff', True)
-        return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
-
-    def create_restaurant_manager(self, email, phone_number, password=None, **extra_fields):
-        extra_fields.setdefault('role', 'restaurant_manager')
-        extra_fields.setdefault('is_staff', True)
-        return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
-
-    def create_shift_leader(self, email, phone_number, password=None, **extra_fields):
-        extra_fields.setdefault('role', 'shift_leader')
-        return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
-
-    def create_cook(self, email, phone_number, password=None, **extra_fields):
-        extra_fields.setdefault('role', 'cook')
-        return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
-
-    def create_delivery_man(self, email, phone_number, password=None, **extra_fields):
-        extra_fields.setdefault('role', 'delivery_man')
-        return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
-
-    def create_cashier(self, email, phone_number, password=None, **extra_fields):
-        extra_fields.setdefault('role', 'cashier')
-        return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
-
-    def create_utility_worker(self, email, phone_number, password=None, **extra_fields):
-        extra_fields.setdefault('role', 'utility_worker')
-        return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
-
-    def create_cleaner(self, email, phone_number, password=None, **extra_fields):
-        extra_fields.setdefault('role', 'cleaner')
-        return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
-
-    def create_food_runner(self, email, phone_number, password=None, **extra_fields):
-        extra_fields.setdefault('role', 'food_runner')
-        return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
-
-    # regional_president = CustomUser.objects.create_regional_president(
-    #     email="president@example.com",
-    #     phone_number="+123456789",
-    #     password="securepassword"
-    # )
+    # Role-specific convenience method
+    def create_delivery_man(self, email=None, phone_number=None, password=None, **extra_fields):
+        return self.create_user_with_role('delivery_man', email=email, phone_number=phone_number, password=password, **extra_fields)
 
 class CustomUser(AbstractUser):
     GENDER_CHOICES = (
@@ -98,7 +56,7 @@ class CustomUser(AbstractUser):
     # Role-specific details
     ROLE_CHOICES = (
         ('regional_president', _('Regional President')),
-        ('regional_director', _('Regional Director')),
+        ('regional_director', _('Regional Director')), 
         ('country_manager', _('Country Manager')),
         ('restaurant_manager', _('Restaurant Manager')),
         ('shift_leader', _('Shift Leader')),
@@ -135,13 +93,31 @@ class CustomUser(AbstractUser):
         verbose_name_plural = _('Users')
 
 
+class Company(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+    about = models.TextField(blank=True, null=True)
+    contact_email = models.EmailField(blank=True, null=True)
+    contact_phone = models.CharField(max_length=15, blank=True, null=True)
+    created_by = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="company"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+
 class Country(models.Model):
     # usa = Country.objects.create(name="United States", code="USA")
     name = models.CharField(max_length=100, unique=True)
     code = models.CharField(max_length=3, unique=True)  # ISO 3166-1 alpha-3 code
-    currency = models.CharField(max_length=50, blank=True, null=True)
+    currency = models.CharField(max_length=100, blank=True, null=True)
     timezone = models.CharField(max_length=100, blank=True, null=True)
-    language = models.CharField(max_length=50, blank=True, null=True)
+    language = models.CharField(max_length=100, blank=True, null=True)
+    continent = models.CharField(max_length=100, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -154,7 +130,7 @@ class RegionOrState(models.Model):
     name = models.CharField(max_length=100)
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='regions_or_states')
     type = models.CharField(
-        max_length=50,
+        max_length=100,
         choices=(
             ('region', _('Region')),
             ('state', _('State/Province')),
@@ -185,11 +161,14 @@ class City(models.Model):
         return self.name
 
 
-class Branch(models.Model):
-    # la_branch = Branch.objects.create(name="Downtown LA", address="123 LA Street", city=los_angeles)
+class Restaurant(models.Model):
     name = models.CharField(max_length=100)
+    company = models.ForeignKey(
+        Company, null=True, blank=True, on_delete=models.CASCADE, related_name='restaurants'
+    )  # Company is optional for standalone restaurants
     address = models.TextField()
-    city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='branches')
+    city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='restaurants')
+    country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='restaurants')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -197,17 +176,18 @@ class Branch(models.Model):
         return self.name
 
 
-class Restaurant(models.Model):
-    name = models.CharField(max_length=100)
-    country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='restaurants')
-    regions_or_states = models.ManyToManyField(RegionOrState, related_name='restaurants', blank=True)
-    cities = models.ManyToManyField(City, related_name='restaurants', blank=True)
-    branches = models.ManyToManyField(Branch, related_name='restaurants', blank=True)
+class Branch(models.Model):
+    restaurant = models.ForeignKey(Restaurant, on_delete=models.CASCADE, related_name='branches')
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='branches')  # Required, as branches belong to a company
+    name = models.CharField(max_length=100)  # Name of the branch (e.g., "Downtown Branch")
+    address = models.TextField()
+    city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='branches')
+    country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='branches')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return self.name  
+        return f"{self.name} - {self.restaurant.name}" 
 
 
 class Menu(models.Model):

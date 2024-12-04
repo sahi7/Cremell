@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'CRE.apps.CreConfig',   # CRE App
     'notifications.apps.NotificationsConfig',     # notifications App
     'analytics.apps.AnalyticsConfig',       # analytics App
+    'subscriptions.apps.SubscriptionsConfig',
 
     # django-allauth
     'allauth',

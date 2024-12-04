@@ -16,6 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from CRE.views import RegistrationView
 
 urlpatterns = [
     path('api/auth/', include('CRE.urls')),
@@ -23,4 +24,7 @@ urlpatterns = [
 
     # allauth
     path('accounts/', include('allauth.urls')),
+
+    # CRE 
+    path('register/', RegistrationView.as_view(), name='user-register'),
 ]
