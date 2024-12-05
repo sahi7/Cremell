@@ -18,6 +18,9 @@ from django.contrib import admin
 from django.urls import path, include
 from CRE.views import RegistrationView
 
+def api_path(route, view, name=None):
+    return path(f'api/{route}', view, name=name)
+
 urlpatterns = [
     path('api/auth/', include('CRE.urls')),
     path('admin/', admin.site.urls),
@@ -26,5 +29,5 @@ urlpatterns = [
     path('accounts/', include('allauth.urls')),
 
     # CRE 
-    path('register/', RegistrationView.as_view(), name='user-register'),
+    api_path('register/', RegistrationView.as_view(), name='user-register'),
 ]

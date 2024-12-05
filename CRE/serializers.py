@@ -78,7 +78,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         # Assign role and use custom manager method to create the user
-        role = validated_data.get('role')
+        role = self.context.get('role')
+        if not role:
+            raise serializers.ValidationError(_("A role must be specified in the context to create a user."))
         email = validated_data.get('email')
         phone_number = validated_data.get('phone_number')
         password = validated_data.get('password')
@@ -109,65 +111,26 @@ class CitySerializer(serializers.ModelSerializer):
 
 # Company registration serializer
 class CompanySerializer(serializers.ModelSerializer):
-    user = UserSerializer()
-    name = serializers.CharField(max_length=255)
-    about = serializers.CharField(max_length=1000, required=False)
-    contact_email = serializers.EmailField(required=False)
-    contact_phone = serializers.CharField(max_length=15, required=False)
-    
+    created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
+
     class Meta:
         model = Company
-        fields = ['name', 'about', 'contact_email', 'contact_phone', 'user']
+        fields = ['name', 'about', 'contact_email', 'contact_phone', 'created_by']
 
     def create(self, validated_data):
-        user_data = validated_data.pop('user')
-        company = Company.objects.create(**validated_data)  # Create company
-
-        # Create user as company admin
-        user = CustomUser.objects.create_user_with_role('company_admin', user_data['email'], 
-                                                         user_data['phone_number'], user_data['password'])
-        # Create the first restaurant (main branch) for the company
-        restaurant = Restaurant.objects.create(
-            name=f"{company.name} Main Restaurant",
-            company=company,
-            address=validated_data.get('about', ''),
-            # city=validated_data.get('contact_email', ''),  # example fields, adapt as necessary
-            # country=validated_data.get('contact_phone', '')  # example fields, adapt as necessary
-        )
-
-        # Set the user as the creator of the restaurant
-        restaurant.created_by = user
-        restaurant.save()
-
-        return company
+        return Company.objects.create(**validated_data)
 
 # Restaurant registration serializer
 class RestaurantSerializer(serializers.ModelSerializer):
-    user = UserSerializer()
-    name = serializers.CharField(max_length=255)
-    address = serializers.CharField(max_length=1000)
-    city = serializers.PrimaryKeyRelatedField(queryset=City.objects.all())
-    country = serializers.PrimaryKeyRelatedField(queryset=Country.objects.all())
+    created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    # company = serializers.PrimaryKeyRelatedField(queryset=Company.objects.all())
 
     class Meta:
         model = Restaurant
-        fields = ['name', 'address', 'city', 'country', 'user']
+        fields = ['name', 'address', 'city', 'country', 'company', 'created_by']
 
     def create(self, validated_data):
-        user_data = validated_data.pop('user')
-        
-        # Create the user as restaurant owner
-        user = CustomUser.objects.create_user_with_role('restaurant_owner', user_data['email'], 
-                                                         user_data['phone_number'], user_data['password'])
-        
-        # Create restaurant
-        restaurant = Restaurant.objects.create(**validated_data)
-
-        # Associate the user as the restaurant owner
-        restaurant.created_by = user
-        restaurant.save()
-
-        return restaurant
+        return Restaurant.objects.create(**validated_data)
 
 # General Registration Serializer that will dynamically decide between company and restaurant registration
 class RegistrationSerializer(serializers.Serializer):
@@ -177,19 +140,47 @@ class RegistrationSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         # Check if either company_data or restaurant_data is provided
-        if 'company_data' in attrs and 'restaurant_data' in attrs:
-            raise serializers.ValidationError(_("Please provide either company data or restaurant data, not both."))
+        if 'user_data' not in attrs :
+            raise serializers.ValidationError(_("Please provide user information"))
+        if 'company_data' in attrs and 'restaurant_data' not in attrs :
+            raise serializers.ValidationError(_("Main Restaurant branch must be added for Brands"))
+        if 'company_data' not in attrs and 'restaurant_data' not in attrs:
+            raise serializers.ValidationError(_("You must provide either 'company data' or 'restaurant data' data."))
         return attrs
 
     def create(self, validated_data):
+        # Create the user first
+        company = None
+        role = self.context.get('role', 'user')
+        user_data = validated_data.pop('user_data')
+        user = CustomUser.objects.create_user_with_role(
+            role=role,
+            email=user_data['email'],
+            phone_number=user_data['phone_number'],
+            password=user_data['password'],
+            first_name=user_data.get('first_name'),
+            last_name=user_data.get('last_name')
+        )
+
         if 'company_data' in validated_data:
             company_data = validated_data.pop('company_data')
+            company_data['created_by'] = user
             company = CompanySerializer().create(company_data)
+
+            # Create the restaurant if provided
+            if 'restaurant_data' in validated_data:
+                restaurant_data = validated_data.pop('restaurant_data')
+                restaurant_data['created_by'] = user
+                if company:
+                    restaurant_data['company'] = company    
+                restaurant = RestaurantSerializer().create(restaurant_data)
+
             return company
 
         elif 'restaurant_data' in validated_data:
             restaurant_data = validated_data.pop('restaurant_data')
-            restaurant = RestaurantSerializer().create(restaurant_data)
+            restaurant_data['created_by'] = user
+            restaurant = Restaurant.objects.create(**restaurant_data)
             return restaurant
 
         else:

@@ -1,9 +1,11 @@
 from django.conf import settings
 from django.http import HttpResponseRedirect
+from django.utils.translation import gettext_lazy as _
 
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 
 from dj_rest_auth.registration.views import SocialLoginView
 from dj_rest_auth.registration.views import RegisterView
@@ -39,9 +41,10 @@ class RegistrationView(APIView):
     """
     Handle registration for both single restaurants and companies.
     """
+    permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
-        serializer = RegistrationSerializer(data=request.data)
+        serializer = RegistrationSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             # Create either company or restaurant based on the data
             user_type = 'company' if 'company_data' in request.data else 'restaurant'

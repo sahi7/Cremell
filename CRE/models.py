@@ -23,8 +23,11 @@ class CustomUserManager(BaseUserManager):
     def create_user_with_role(self, role, email, phone_number, password=None, **extra_fields):
         if not email and not phone_number:
             raise ValueError(_('The Email or Phone number field must be set'))
+        if not role:
+            raise ValueError(_('A role must be specified when creating a user'))
         extra_fields.setdefault('role', role)
-        if role in ['regional_president', 'regional_director', 'country_manager']:
+        email = self.normalize_email(email) if email else None
+        if role in ['company_admin', 'restaurant_owner', 'country_manager']:
             extra_fields.setdefault('is_staff', True)
         return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
 
@@ -55,8 +58,8 @@ class CustomUser(AbstractUser):
 
     # Role-specific details
     ROLE_CHOICES = (
-        ('regional_president', _('Regional President')),
-        ('regional_director', _('Regional Director')), 
+        ('company_admin', _('Company Admin')),
+        ('restaurant_owner', _('Restaurant Owner')), 
         ('country_manager', _('Country Manager')),
         ('restaurant_manager', _('Restaurant Manager')),
         ('shift_leader', _('Shift Leader')),
@@ -98,10 +101,7 @@ class Company(models.Model):
     about = models.TextField(blank=True, null=True)
     contact_email = models.EmailField(blank=True, null=True)
     contact_phone = models.CharField(max_length=15, blank=True, null=True)
-    created_by = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="company"
+    created_by = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="company"
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -169,6 +169,7 @@ class Restaurant(models.Model):
     address = models.TextField()
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='restaurants')
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='restaurants')
+    created_by = models.OneToOneField(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="restaurant")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -183,6 +184,7 @@ class Branch(models.Model):
     address = models.TextField()
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='branches')
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='branches')
+    created_by = models.OneToOneField(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="branch")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
