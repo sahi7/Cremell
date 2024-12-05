@@ -16,7 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from CRE.views import RegistrationView
+from CRE.views import CheckUserExistsView, RegistrationView
 
 def api_path(route, view, name=None):
     return path(f'api/{route}', view, name=name)
@@ -30,4 +30,5 @@ urlpatterns = [
 
     # CRE 
     api_path('register/', RegistrationView.as_view(), name='user-register'),
+    api_path('check-user/', CheckUserExistsView.as_view(), name='check-user'),
 ]

@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.utils.translation import gettext_lazy as _
+from django.contrib.auth import get_user_model
 
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,7 +15,7 @@ from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 
 from .serializers import CustomRegisterSerializer, RegistrationSerializer
 
-
+CustomUser = get_user_model()
 def email_confirm_redirect(request, key):
     return HttpResponseRedirect(
         f"{settings.EMAIL_CONFIRM_REDIRECT_BASE_URL}{key}/"
@@ -36,19 +37,40 @@ class GoogleLogin(SocialLoginView):
 class CustomRegisterView(RegisterView):
     serializer_class = CustomRegisterSerializer
 
+class CheckUserExistsView(APIView):
+    """
+    API View to check if a user exists based on email or phone number.
+    """
+    permission_classes = [AllowAny]
+    def get(self, request, *args, **kwargs):
+        email = request.query_params.get('email')
+        phone_number = request.query_params.get('phone_number')
+
+        if not email and not phone_number:
+            return Response(
+                {"detail": _("Please provide either 'email' or 'phone_number' as a query parameter.")},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user_exists = CustomUser.objects.filter(
+            email=email if email else None,
+            phone_number=phone_number if phone_number else None
+        ).exists()
+
+        return Response({"user_exists": user_exists}, status=status.HTTP_200_OK)
+
 
 class RegistrationView(APIView):
     """
     Handle registration for both single restaurants and companies.
     """
     permission_classes = [AllowAny]
-
     def post(self, request, *args, **kwargs):
         serializer = RegistrationSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             # Create either company or restaurant based on the data
             user_type = 'company' if 'company_data' in request.data else 'restaurant'
-            serializer.context['role'] = 'company_admin' if user_type == 'company' else 'restaurant_owner'
+            serializer.context['role'] = 1 if user_type == 'company' else 2
             
             # Create and return the user/restaurant/company
             instance = serializer.save()

@@ -27,7 +27,7 @@ class CustomUserManager(BaseUserManager):
             raise ValueError(_('A role must be specified when creating a user'))
         extra_fields.setdefault('role', role)
         email = self.normalize_email(email) if email else None
-        if role in ['company_admin', 'restaurant_owner', 'country_manager']:
+        if role in [1, 2, 3]:
             extra_fields.setdefault('is_staff', True)
         return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
 
@@ -58,17 +58,17 @@ class CustomUser(AbstractUser):
 
     # Role-specific details
     ROLE_CHOICES = (
-        ('company_admin', _('Company Admin')),
-        ('restaurant_owner', _('Restaurant Owner')), 
-        ('country_manager', _('Country Manager')),
-        ('restaurant_manager', _('Restaurant Manager')),
-        ('shift_leader', _('Shift Leader')),
-        ('cook', _('Cook')),
-        ('delivery_man', _('Delivery Man')),
-        ('cashier', _('Cashier')),
-        ('utility_worker', _('Utility Worker')),
-        ('cleaner', _('Cleaner')),
-        ('food_runner', _('Food Runner')),
+        (1, _('Company Admin')),
+        (2, _('Restaurant Owner')), 
+        (3, _('Country Manager')),
+        (4, _('Restaurant Manager')),
+        (5, _('Shift Leader')),
+        (6, _('Cashier')),
+        (7, _('Cook')),
+        (8, _('Food Runner')),
+        (9, _('Cleaner')),
+        (10, _('Delivery Man')),
+        (11, _('Utility Worker')),
     )
     STATUS_CHOICES = (
         ('active', _('Active')),
