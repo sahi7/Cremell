@@ -44,7 +44,8 @@ class CustomUser(AbstractUser):
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES, blank=True, null=True)
     date_of_birth = models.DateField(blank=True, null=True)
     profile_picture = models.ImageField(upload_to='profile_pictures/', blank=True, null=True)
-    is_active = models.BooleanField(default=True)
+    company = models.ForeignKey('Company', null=True, blank=True, on_delete=models.CASCADE, related_name='employees')
+    restaurants = models.ManyToManyField('Restaurant', related_name='employees', blank=True)
 
     # Contact Information
     email = models.EmailField(unique=True, blank=True, null=True)
@@ -95,13 +96,20 @@ class CustomUser(AbstractUser):
         verbose_name = _('User')
         verbose_name_plural = _('Users')
 
+STATUS_CHOICES = (
+    ('active', _('Active')),
+    ('inactive', _('Inactive')),
+    ('suspended', _('Suspended')),
+    ('pending', _('Pending Approval')),
+)
 
 class Company(models.Model):
     name = models.CharField(max_length=255, unique=True)
     about = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     contact_email = models.EmailField(blank=True, null=True)
     contact_phone = models.CharField(max_length=15, blank=True, null=True)
-    created_by = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="company"
+    created_by = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="created_company"
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -169,6 +177,8 @@ class Restaurant(models.Model):
     address = models.TextField()
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='restaurants')
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='restaurants')
+    region_or_state = models.ForeignKey(RegionOrState, null=True, on_delete=models.CASCADE, related_name='restaurants')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_by = models.OneToOneField(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="restaurant")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

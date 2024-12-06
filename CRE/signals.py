@@ -10,8 +10,9 @@ SCOPED_MODELS = ["restaurant", "order", "branch"]  # Models managed at a branch 
 # Define group permissions with specific model access
 GROUP_PERMISSIONS = {
     "CompanyAdmin": {"models": GLOBAL_MODELS + SCOPED_MODELS, "actions": ["add", "change", "delete", "view"]},
-    "CountryManager": {"models": SCOPED_MODELS, "actions": ["view", "change"]},
-    "RestaurantManager": {"models": SCOPED_MODELS, "actions": ["view"]},
+    "RestaurantOwner": {"models": GLOBAL_MODELS + SCOPED_MODELS, "actions": ["add", "change", "delete", "view"]},
+    "CountryManager": {"models": SCOPED_MODELS, "actions": ["add", "view", "change"]},
+    "RestaurantManager": {"models": SCOPED_MODELS, "actions": ["add", "change", "view"]},
 }
 
 # Exclude apps that should not be considered for permission assignment
