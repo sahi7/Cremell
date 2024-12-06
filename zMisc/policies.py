@@ -2,51 +2,54 @@ from rest_access_policy import AccessPolicy
 
 class UserAccessPolicy(AccessPolicy):
     statements = [
-        # Company Admin Permissions
+        # Rule 1: Allow CompanyAdmin to perform all actions
         {
-            "action": ["list", "retrieve", "create", "update", "delete"],
+            "action": "*",
             "principal": ["group:CompanyAdmin"],
             "effect": "allow",
         },
-        # Restaurant Owner Permissions
+        # Rule 2: Allow RestaurantOwner to create roles >= 5 (e.g., operational roles)
         {
-            "action": ["create", "list"],
+            "action": ["create"],
             "principal": ["group:RestaurantOwner"],
             "effect": "allow",
-            "condition": "can_manage_restaurant_users"
+            "condition": "can_create_operational_roles",
         },
-        # Country Manager Permissions
+        # Rule 3: Allow CountryManager to manage users in their country
         {
-            "action": ["create", "list", "retrieve"],
+            "action": ["list", "retrieve", "update", "delete"],
             "principal": ["group:CountryManager"],
             "effect": "allow",
-            "condition": "is_in_country"
+            "condition": "is_in_assigned_country",
         },
-        # Restaurant Manager Permissions
+        # Rule 4: Allow RestaurantManager to manage users in their restaurant
         {
-            "action": ["list", "retrieve"],
+            "action": ["list", "retrieve", "update", "delete"],
             "principal": ["group:RestaurantManager"],
             "effect": "allow",
-            "condition": "is_restaurant_manager"
+            "condition": "is_in_assigned_restaurant",
         },
-        # Deny All Other Actions
+        # Default Rule: Deny everything else
         {
             "action": "*",
             "principal": "*",
-            "effect": "deny"
-        }
+            "effect": "deny",
+        },
     ]
 
-    def can_manage_restaurant_users(self, request, view, action) -> bool:
-        # RestaurantOwner can create/manage roles ≥ 5
-        return request.user.role == 2 and action == "create"
+    def can_create_operational_roles(self, request, view, action):
+        """Restrict RestaurantOwner to creating operational roles (>= 5)."""
+        role = request.data.get("role")
+        return role and int(role) >= 5
 
-    def is_in_country(self, request, view, action) -> bool:
-        # Ensure CountryManager is working within their country
+    def is_in_assigned_country(self, request, view, action):
+        """Ensure CountryManager operates within their assigned country."""
         user_country = request.user.country
-        requested_country = request.data.get("country")
-        return user_country == requested_country
+        target_country = request.data.get("country") or view.get_object().country
+        return user_country == target_country
 
-    def is_restaurant_manager(self, request, view, action) -> bool:
-        # Ensure the user is tied to a restaurant they manage
-        return request.user.role == 4 and request.user.restaurant == request.query_params.get("restaurant")
+    def is_in_assigned_restaurant(self, request, view, action):
+        """Ensure RestaurantManager operates within their assigned restaurant."""
+        user_restaurant = request.user.restaurant
+        target_restaurant = request.data.get("restaurant") or view.get_object().restaurant
+        return user_restaurant == target_restaurant

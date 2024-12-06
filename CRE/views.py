@@ -7,13 +7,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.permissions import AllowAny
+from rest_framework.viewsets import ModelViewSet
 
 from dj_rest_auth.registration.views import SocialLoginView
 from dj_rest_auth.registration.views import RegisterView
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 
-from .serializers import CustomRegisterSerializer, RegistrationSerializer
+from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer
+from zMisc.policies import UserAccessPolicy
 
 CustomUser = get_user_model()
 def email_confirm_redirect(request, key):
@@ -77,3 +79,17 @@ class RegistrationView(APIView):
             return Response({"message": _("Registration successful!")}, status=status.HTTP_201_CREATED)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserViewSet(ModelViewSet):
+    queryset = CustomUser.objects.all()
+    serializer_class = UserSerializer
+    access_policy_class = UserAccessPolicy
+
+    def get_queryset(self):
+        # Enforce user-specific filtering
+        if self.request.user.role == 2:  # RestaurantOwner
+            return CustomUser.objects.filter(restaurant=self.request.user.restaurant)
+        elif self.request.user.role == 3:  # CountryManager
+            return CustomUser.objects.filter(country=self.request.user.country)
+        return super().get_queryset()

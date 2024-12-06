@@ -76,7 +76,6 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = ['email', 'phone_number', 'password', 'role', 'first_name', 'last_name']
-        extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
         # Assign role and use custom manager method to create the user
