@@ -6,6 +6,7 @@ from dj_rest_auth.serializers import UserDetailsSerializer
 from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.models import Group
 
 class CustomRegisterSerializer(RegisterSerializer):
     first_name = serializers.CharField(required=True)
@@ -168,6 +169,10 @@ class RegistrationSerializer(serializers.Serializer):
             company_data['created_by'] = user
             company = CompanySerializer().create(company_data)
 
+            # Add the user to the CompanyAdmin group
+            company_admin_group, created = Group.objects.get_or_create(name='CompanyAdmin')
+            user.groups.add(company_admin_group)
+
             # Create the restaurant if provided
             if 'restaurant_data' in validated_data:
                 restaurant_data = validated_data.pop('restaurant_data')
@@ -182,6 +187,11 @@ class RegistrationSerializer(serializers.Serializer):
             restaurant_data = validated_data.pop('restaurant_data')
             restaurant_data['created_by'] = user
             restaurant = Restaurant.objects.create(**restaurant_data)
+
+            # Assign the user to the RestaurantOwner group
+            restaurant_owner_group, created = Group.objects.get_or_create(name='RestaurantOwner')
+            user.groups.add(restaurant_owner_group)
+
             return restaurant
 
         else:
