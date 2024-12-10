@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.viewsets import ModelViewSet
+from rest_framework.exceptions import PermissionDenied
 
 from dj_rest_auth.registration.views import SocialLoginView
 from dj_rest_auth.registration.views import RegisterView
@@ -16,6 +17,7 @@ from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer
 from zMisc.policies import UserAccessPolicy
+from zMisc.utils import check_user_role
 
 CustomUser = get_user_model()
 def email_confirm_redirect(request, key):
@@ -43,7 +45,7 @@ class CheckUserExistsView(APIView):
     """
     API View to check if a user exists based on email or phone number.
     """
-    permission_classes = [AllowAny]
+
     def get(self, request, *args, **kwargs):
         email = request.query_params.get('email')
         phone_number = request.query_params.get('phone_number')
@@ -72,7 +74,7 @@ class RegistrationView(APIView):
         if serializer.is_valid():
             # Create either company or restaurant based on the data
             user_type = 'company' if 'company_data' in request.data else 'restaurant'
-            serializer.context['role'] = 1 if user_type == 'company' else 2
+            serializer.context['role'] = 'company_admin' if user_type == 'company' else 'restaurant_owner'
             
             # Create and return the user/restaurant/company
             instance = serializer.save()
@@ -87,9 +89,13 @@ class UserViewSet(ModelViewSet):
     access_policy_class = UserAccessPolicy
 
     def get_queryset(self):
+
+        # Deny access if the role value is greater than 4
+        check_user_role(self.request.user)
+
         # Enforce user-specific filtering
-        if self.request.user.role == 2:  # RestaurantOwner
-            return CustomUser.objects.filter(restaurant=self.request.user.restaurant)
-        elif self.request.user.role == 3:  # CountryManager
+        if self.request.user.role == 'restaurant_owner':  # RestaurantOwner
+            return CustomUser.objects.filter(restaurants__in=self.request.user.restaurants.all())
+        elif self.request.user.role == 'country_manager':  # CountryManager
             return CustomUser.objects.filter(country=self.request.user.country)
         return super().get_queryset()

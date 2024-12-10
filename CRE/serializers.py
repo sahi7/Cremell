@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from allauth.account.adapter import get_adapter
 from allauth.account.utils import setup_user_email
+from allauth.account.utils import send_email_confirmation
 from dj_rest_auth.registration.serializers import RegisterSerializer
 from dj_rest_auth.serializers import UserDetailsSerializer
 from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState
@@ -162,11 +163,19 @@ class RegistrationSerializer(serializers.Serializer):
             first_name=user_data.get('first_name'),
             last_name=user_data.get('last_name')
         )
+        # Trigger email confirmation
+        send_email_confirmation(self.context.get('request'), user)
+
+        company = None
+        restaurant = None
 
         if 'company_data' in validated_data:
             company_data = validated_data.pop('company_data')
             company_data['created_by'] = user
             company = CompanySerializer().create(company_data)
+
+            user.company = company
+            user.save()
 
             # Add the user to the CompanyAdmin group
             company_admin_group, created = Group.objects.get_or_create(name='CompanyAdmin')
@@ -179,19 +188,20 @@ class RegistrationSerializer(serializers.Serializer):
                 if company:
                     restaurant_data['company'] = company    
                 restaurant = RestaurantSerializer().create(restaurant_data)
-
-            return company
+                user.restaurants.add(restaurant)
 
         elif 'restaurant_data' in validated_data:
             restaurant_data = validated_data.pop('restaurant_data')
             restaurant_data['created_by'] = user
             restaurant = Restaurant.objects.create(**restaurant_data)
 
+            user.restaurants.add(restaurant)
+
             # Assign the user to the RestaurantOwner group
             restaurant_owner_group, created = Group.objects.get_or_create(name='RestaurantOwner')
             user.groups.add(restaurant_owner_group)
 
-            return restaurant
-
         else:
             raise serializers.ValidationError(_("Either company or restaurant data must be provided."))
+
+        return {'user': user, 'company': company, 'restaurant': restaurant}

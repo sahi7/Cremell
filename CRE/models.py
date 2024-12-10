@@ -59,17 +59,17 @@ class CustomUser(AbstractUser):
 
     # Role-specific details
     ROLE_CHOICES = (
-        (1, _('Company Admin')),
-        (2, _('Restaurant Owner')), 
-        (3, _('Country Manager')),
-        (4, _('Restaurant Manager')),
-        (5, _('Shift Leader')),
-        (6, _('Cashier')),
-        (7, _('Cook')),
-        (8, _('Food Runner')),
-        (9, _('Cleaner')),
-        (10, _('Delivery Man')),
-        (11, _('Utility Worker')),
+        ('company_admin', _('Company Admin')),
+        ('restaurant_owner', _('Restaurant Owner')),
+        ('country_manager', _('Country Manager')),
+        ('restaurant_manager', _('Restaurant Manager')),
+        ('shift_leader', _('Shift Leader')),
+        ('cashier', _('Cashier')),
+        ('cook', _('Cook')),
+        ('food_runner', _('Food Runner')),
+        ('cleaner', _('Cleaner')),
+        ('delivery_man', _('Delivery Man')),
+        ('utility_worker', _('Utility Worker')),
     )
     STATUS_CHOICES = (
         ('active', _('Active')),
@@ -83,6 +83,25 @@ class CustomUser(AbstractUser):
     bio = models.TextField(blank=True, null=True)
 
     objects = CustomUserManager()
+
+    def get_role_value(self):
+        """
+        Map the role string to a numeric value for comparison.
+        """
+        role_hierarchy = {
+            'company_admin': 1,
+            'restaurant_owner': 2,
+            'country_manager': 3,
+            'restaurant_manager': 4,
+            'shift_leader': 5,
+            'cashier': 6,
+            'cook': 7,
+            'food_runner': 8,
+            'cleaner': 9,
+            'delivery_man': 10,
+            'utility_worker': 11,
+        }
+        return role_hierarchy.get(self.role, 0)
 
     def save(self, *args, **kwargs):
         if not self.username:  # If username is not set
