@@ -86,7 +86,7 @@ class RegistrationView(APIView):
 class UserViewSet(ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
-    access_policy_class = UserAccessPolicy
+    permission_classes = (UserAccessPolicy, )
 
     def get_queryset(self):
 
