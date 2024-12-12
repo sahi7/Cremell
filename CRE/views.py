@@ -9,6 +9,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.exceptions import PermissionDenied
+from rest_framework_simplejwt.views import TokenBlacklistView
 
 from dj_rest_auth.registration.views import SocialLoginView
 from dj_rest_auth.registration.views import RegisterView
@@ -37,6 +38,13 @@ class GoogleLogin(SocialLoginView):
     callback_url = "http://localhost:8000/"
     client_class = OAuth2Client
 
+
+class LogoutView(TokenBlacklistView):
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            return Response({"detail": _("Successfully logged out")}, status=status.HTTP_200_OK)
+        return response
 
 class CustomRegisterView(RegisterView):
     serializer_class = CustomRegisterSerializer

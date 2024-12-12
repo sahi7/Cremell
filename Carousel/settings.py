@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'dj_rest_auth.registration',
 
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
 ]
 
 MIDDLEWARE = [
@@ -132,6 +133,8 @@ SIMPLE_JWT = {
     'REFRESH_COOKIE_SECURE': False,  # Set to True in production
     'REFRESH_COOKIE_HTTP_ONLY': True,  # Prevent JavaScript access
     'REFRESH_COOKIE_SAMESITE': 'Lax',
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
 }
 
 WSGI_APPLICATION = 'Carousel.wsgi.application'
