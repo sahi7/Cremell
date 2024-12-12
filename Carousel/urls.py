@@ -16,11 +16,13 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from CRE.views import CheckUserExistsView, RegistrationView, UserViewSet
+from CRE.views import CheckUserExistsView, RegistrationView, UserViewSet, BranchViewSet, RestaurantViewSet
 from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
 router.register(r'users', UserViewSet, basename='user')
+router.register(r'branches', BranchViewSet)
+router.register(r'restaurants', RestaurantViewSet)
 
 def api_path(route, view, name=None):
     return path(f'api/{route}', view, name=name)

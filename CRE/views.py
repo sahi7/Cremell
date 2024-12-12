@@ -16,9 +16,12 @@ from dj_rest_auth.registration.views import RegisterView
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 
-from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer
-from zMisc.policies import UserAccessPolicy
+from rest_access_policy import AccessViewSetMixin
+
+from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer
+from zMisc.policies import UserAccessPolicy, RestaurantAccessPolicy, BranchAccessPolicy
 from zMisc.utils import check_user_role
+from .models import Restaurant, Branch
 
 CustomUser = get_user_model()
 def email_confirm_redirect(request, key):
@@ -102,3 +105,39 @@ class UserViewSet(ModelViewSet):
         elif self.request.user.role == 'country_manager':  # CountryManager
             return CustomUser.objects.filter(country=self.request.user.country)
         return super().get_queryset()
+
+class RestaurantViewSet(AccessViewSetMixin, ModelViewSet):
+    queryset = Restaurant.objects.all()
+    serializer_class = RestaurantSerializer
+    access_policy = RestaurantAccessPolicy
+
+
+class BranchViewSet(AccessViewSetMixin, ModelViewSet):
+    queryset = Branch.objects.all()
+    serializer_class = BranchSerializer
+    access_policy = BranchAccessPolicy
+
+    def perform_create(self, serializer):
+        # Here, we make sure that the authenticated user can create a branch
+        # and set the current restaurant for the branch
+        restaurant = self.request.data.get('restaurant')
+        if not Restaurant.objects.filter(id=restaurant).exists():
+            raise serializers.ValidationError("Invalid restaurant ID.")
+        serializer.save(created_by=self.request.user)
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.groups.filter(name="CompanyAdmin").exists() and user.company:
+            return Branch.objects.filter(company=user.company)
+
+        if user.groups.filter(name="CountryManager").exists() and user.country:
+            return Branch.objects.filter(country=user.country)
+
+        if user.groups.filter(name="RestaurantManager").exists():
+            return Branch.objects.filter(restaurant__created_by=user)
+
+        if user.groups.filter(name="RestaurantOwner").exists():
+            return Branch.objects.filter(restaurant__created_by=user)
+
+        return Branch.objects.none()

@@ -4,7 +4,7 @@ from allauth.account.utils import setup_user_email
 from allauth.account.utils import send_email_confirmation
 from dj_rest_auth.registration.serializers import RegisterSerializer
 from dj_rest_auth.serializers import UserDetailsSerializer
-from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState
+from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState, Branch
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group
@@ -205,3 +205,14 @@ class RegistrationSerializer(serializers.Serializer):
             raise serializers.ValidationError(_("Either company or restaurant data must be provided."))
 
         return {'user': user, 'company': company, 'restaurant': restaurant}
+
+class BranchSerializer(serializers.ModelSerializer):
+    created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
+
+    class Meta:
+        model = Branch
+        fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'created_by', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        return super().create(validated_data)
+

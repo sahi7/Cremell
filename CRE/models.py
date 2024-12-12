@@ -208,7 +208,7 @@ class Restaurant(models.Model):
 
 class Branch(models.Model):
     restaurant = models.ForeignKey(Restaurant, on_delete=models.CASCADE, related_name='branches')
-    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='branches')  # Required, as branches belong to a company
+    company = models.ForeignKey(Company, null=True, blank=True, on_delete=models.CASCADE, related_name='branches')  # Required, as branches belong to a company
     name = models.CharField(max_length=100)  # Name of the branch (e.g., "Downtown Branch")
     address = models.TextField()
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='branches')
