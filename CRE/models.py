@@ -84,7 +84,7 @@ class CustomUser(AbstractUser):
 
     objects = CustomUserManager()
 
-    def get_role_value(self):
+    def get_role_value(self, role=None):
         """
         Map the role string to a numeric value for comparison.
         """
@@ -101,7 +101,7 @@ class CustomUser(AbstractUser):
             'delivery_man': 10,
             'utility_worker': 11,
         }
-        return role_hierarchy.get(self.role, 0)
+        return role_hierarchy.get(role or self.role, 0)  # If no role is specified, default to the instance's role
 
     def save(self, *args, **kwargs):
         if not self.username:  # If username is not set
