@@ -97,11 +97,6 @@ class UserViewSet(ModelViewSet):
     permission_classes = (UserAccessPolicy, )
 
     def get_queryset(self):
-
-        # Deny access if the role value is greater than 4
-        check_user_role(self.request.user)
-
-        # Enforce user-specific filtering
         if self.request.user.role == 'restaurant_owner':  # RestaurantOwner
             return CustomUser.objects.filter(restaurants__in=self.request.user.restaurants.all())
         elif self.request.user.role == 'country_manager':  # CountryManager
