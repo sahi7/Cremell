@@ -20,7 +20,6 @@ from rest_access_policy import AccessViewSetMixin
 
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer
 from zMisc.policies import UserAccessPolicy, RestaurantAccessPolicy, BranchAccessPolicy
-from zMisc.utils import check_user_role
 from .models import Restaurant, Branch
 
 CustomUser = get_user_model()
@@ -100,11 +99,65 @@ class UserViewSet(ModelViewSet):
     permission_classes = (UserAccessPolicy, )
 
     def get_queryset(self):
-        if self.request.user.role == 'restaurant_owner':  # RestaurantOwner
-            return CustomUser.objects.filter(restaurants__in=self.request.user.restaurants.all())
-        elif self.request.user.role == 'country_manager':  # CountryManager
-            return CustomUser.objects.filter(country=self.request.user.country)
-        return super().get_queryset()
+        user = self.request.user
+
+        # Company Admin: Return users within the same company
+        if user.groups.filter(name="CompanyAdmin").exists():
+            return CustomUser.objects.filter(companies__in=user.companies.all())
+
+        # Restaurant Owner: Return users associated with their restaurants (including standalone ones)
+        elif user.groups.filter(name="RestaurantOwner").exists():
+            return CustomUser.objects.filter(
+                restaurants__in=user.restaurants.all()
+            ).filter(
+                Q(companies__in=user.companies.all()) | Q(companies__isnull=True)
+            )
+
+        # Country Manager: Return users in the same country (and same company if applicable)
+        elif user.groups.filter(name="CountryManager").exists():
+            return CustomUser.objects.filter(
+                countries__in=user.countries.all(), 
+                companies__in=user.companies.all()  # Ensures they only see users from their company in the same country
+            )
+
+        # Restaurant Manager: Return users associated with their managed restaurants (and same company if applicable)
+        elif user.groups.filter(name="RestaurantManager").exists():
+            return CustomUser.objects.filter(
+                restaurants__managers=user, 
+                companies__in=user.companies.all()  # Ensures they only see users from their company managing the same restaurants
+            )
+
+        # Default: Return all users (if no specific group matched, this could be adjusted as needed)
+        return CustomUser.objects.none()
+
+    def create(self, request, *args, **kwargs):
+        user = self.request.user
+        role_to_create = request.data.get('role')
+
+        # Compare roles: Only allow the creation of a user with a lower role unless the user is a CompanyAdmin
+        if user.groups.filter(name="CompanyAdmin").exists():
+            # CompanyAdmin can create any user
+            pass
+        else:
+            user_role_value = user.get_role_value()
+            role_to_create_value = user.get_role_value(role_to_create)
+
+            # Restrict role creation: New user’s role must be lower than the creator’s role
+            if role_to_create_value <= user_role_value:
+                return Response({"detail": _("You cannot create a user with a higher or equal role.")},
+                                status=status.HTTP_400_BAD_REQUEST)
+
+        context = self.get_serializer_context()
+        context['role'] = role_to_create
+         # Create the serializer instance with the role in the context
+        serializer = self.get_serializer(data=request.data, context=context)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        # After saving the user, we can add the user to the appropriate group based on their role
+        user.add_to_group(role_to_create)
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 class RestaurantViewSet(AccessViewSetMixin, ModelViewSet):
     queryset = Restaurant.objects.all()
@@ -130,12 +183,12 @@ class BranchViewSet(AccessViewSetMixin, ModelViewSet):
 
         if user.groups.filter(name="CompanyAdmin").exists() and user.company:
             return Branch.objects.filter(company=user.company)
-
-        if user.groups.filter(name="CountryManager").exists() and user.country:
-            return Branch.objects.filter(country=user.country)
+        
+        if user.groups.filter(name="CountryManager").exists():
+            return Branch.objects.filter(restaurant__country=user.country)
 
         if user.groups.filter(name="RestaurantManager").exists():
-            return Branch.objects.filter(restaurant__created_by=user)
+            return Branch.objects.filter(restaurant__manager=user)
 
         if user.groups.filter(name="RestaurantOwner").exists():
             return Branch.objects.filter(restaurant__created_by=user)

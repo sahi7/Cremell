@@ -1,5 +1,6 @@
 import uuid
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.contrib.auth.models import Group
 from django.utils.translation import gettext_lazy as _
 from django.conf import settings
 from django.db import models
@@ -44,7 +45,8 @@ class CustomUser(AbstractUser):
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES, blank=True, null=True)
     date_of_birth = models.DateField(blank=True, null=True)
     profile_picture = models.ImageField(upload_to='profile_pictures/', blank=True, null=True)
-    company = models.ForeignKey('Company', null=True, blank=True, on_delete=models.CASCADE, related_name='employees')
+    companies = models.ManyToManyField('Company', related_name="users", blank=True)
+    countries = models.ManyToManyField('Country', related_name="users", blank=True)
     restaurants = models.ManyToManyField('Restaurant', related_name='employees', blank=True)
 
     # Contact Information
@@ -103,6 +105,22 @@ class CustomUser(AbstractUser):
         }
         return role_hierarchy.get(role or self.role, 0)  # If no role is specified, default to the instance's role
 
+    def add_to_group(self, role):
+        """
+        Add the user to the corresponding group based on their role.
+        """
+        group_map = {
+            'company_admin': 'CompanyAdmin',
+            'restaurant_owner': 'RestaurantOwner',
+            'country_manager': 'CountryManager',
+            'restaurant_manager': 'RestaurantManager',
+            'user': 'User',
+        }
+        group_name = group_map.get(role)
+        if group_name:
+            group = Group.objects.get(name=group_name)
+            self.groups.add(group)
+    
     def save(self, *args, **kwargs):
         if not self.username:  # If username is not set
             self.username = uuid.uuid4().hex[:10]  # Generate a random username
@@ -198,6 +216,10 @@ class Restaurant(models.Model):
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='restaurants')
     region_or_state = models.ForeignKey(RegionOrState, null=True, on_delete=models.CASCADE, related_name='restaurants')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    manager = models.ForeignKey( settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="managed_restaurants",
+        help_text="User assigned as the manager of this restaurant",
+    )
     created_by = models.OneToOneField(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="restaurant")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

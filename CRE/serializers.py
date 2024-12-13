@@ -76,19 +76,18 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CustomUser
-        fields = ['email', 'phone_number', 'password', 'role', 'first_name', 'last_name']
+        fields = '__all__'
 
     def create(self, validated_data):
         # Assign role and use custom manager method to create the user
         role = self.context.get('role')
         if not role:
             raise serializers.ValidationError(_("A role must be specified in the context to create a user."))
-        email = validated_data.get('email')
-        phone_number = validated_data.get('phone_number')
-        password = validated_data.get('password')
+        validated_data['role'] = role
         
         # Use the create_user_with_role method to create the user with the role
-        user = CustomUser.objects.create_user_with_role(role, email, phone_number, password)
+        user = CustomUser.objects.create_user_with_role(**validated_data)
+        send_email_confirmation(self.context.get('request'), user)
         
         return user
 
