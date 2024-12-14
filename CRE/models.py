@@ -178,7 +178,8 @@ class RegionOrState(models.Model):
         max_length=100,
         choices=(
             ('region', _('Region')),
-            ('state', _('State/Province')),
+            ('state', _('State')),
+            ('province', _('Province')),
         ),
         default='region'
     )

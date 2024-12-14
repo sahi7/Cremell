@@ -123,9 +123,9 @@ class UserViewSet(ModelViewSet):
         # Restaurant Manager: Return users associated with their managed restaurants (and same company if applicable)
         elif user.groups.filter(name="RestaurantManager").exists():
             return CustomUser.objects.filter(
-                restaurants__managers=user, 
+                restaurants__manager=user, 
                 companies__in=user.companies.all()  # Ensures they only see users from their company managing the same restaurants
-            )
+            ).distinct()
 
         # Default: Return all users (if no specific group matched, this could be adjusted as needed)
         return CustomUser.objects.none()
@@ -163,6 +163,62 @@ class RestaurantViewSet(AccessViewSetMixin, ModelViewSet):
     queryset = Restaurant.objects.all()
     serializer_class = RestaurantSerializer
     access_policy = RestaurantAccessPolicy
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # Company Admin: View all restaurants under their company
+        if user.groups.filter(name="CompanyAdmin").exists():
+            return Restaurant.objects.filter(company__in=user.companies.all())
+
+        # Country Manager: View restaurants in their country for their company
+        elif user.groups.filter(name="CountryManager").exists():
+            return Restaurant.objects.filter(
+                country__in=user.countries.all(),
+                company__in=user.companies.all()
+            )
+
+        # Restaurant Owner: View restaurants they own
+        elif user.groups.filter(name="RestaurantOwner").exists():
+            return Restaurant.objects.filter(
+                Q(created_by=user) 
+            ).distinct()
+
+        # Restaurant Manager: View restaurants they manage
+        elif user.groups.filter(name="RestaurantManager").exists():
+            return Restaurant.objects.filter(manager__in=[user]).distinct()
+
+        # Default: No access for other roles
+        return Restaurant.objects.none()
+
+    def create(self, request, *args, **kwargs):
+        user = request.user
+
+        # Get data from the request
+        data = request.data
+
+        # Validation for role-based creation permissions
+        if user.groups.filter(name="CompanyAdmin").exists():
+            # CompanyAdmin can create restaurants globally
+            pass  # No restrictions for CompanyAdmin
+
+        elif user.groups.filter(name="CountryManager").exists():
+            # Restrict to the country assigned to the CountryManager
+            if data.get('country') not in user.countries.values_list('id', flat=True):
+                return Response({"detail": _("You cannot create restaurants outside your assigned countries.")},
+                                status=status.HTTP_400_BAD_REQUEST)
+
+        else:
+            # Other roles cannot create restaurants
+            return Response({"detail": _("You do not have permission to create a restaurant.")},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        # Pass data to serializer and save
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        restaurant = serializer.save(created_by=user)
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class BranchViewSet(AccessViewSetMixin, ModelViewSet):

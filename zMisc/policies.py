@@ -21,6 +21,11 @@ class UserAccessPolicy(AccessPolicy):
             "principal": ["group:CountryManager"],
             "effect": "allow",
         },
+        {
+            "action": ["list", "retrieve"],
+            "principal": ["group:RestaurantManager"],
+            "effect": "allow",
+        },
     ]
 
 class RestaurantAccessPolicy(AccessPolicy):
@@ -32,7 +37,7 @@ class RestaurantAccessPolicy(AccessPolicy):
         },
         {
             "action": ["create"],
-            "principal": ["*"],
+            "principal": ["group:CompanyAdmin", "group:CountryManager"],
             "effect": "allow",
         },
         {
