@@ -16,7 +16,8 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from CRE.views import CheckUserExistsView, RegistrationView, UserViewSet, BranchViewSet, RestaurantViewSet
+from CRE.views__helper import CheckUserExistsView, UserScopeView
+from CRE.views import RegistrationView, UserViewSet, BranchViewSet, RestaurantViewSet
 from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
@@ -37,6 +38,7 @@ urlpatterns = [
     # CRE 
     api_path('register/', RegistrationView.as_view(), name='user-register'),
     api_path('check-user/', CheckUserExistsView.as_view(), name='check-user'),
+    api_path('user-scope/', UserScopeView.as_view(), name='user-scope'),
 
     path('api/', include(router.urls)),
 ]

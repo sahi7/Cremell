@@ -20,6 +20,7 @@ from rest_access_policy import AccessViewSetMixin
 
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer
 from zMisc.policies import UserAccessPolicy, RestaurantAccessPolicy, BranchAccessPolicy
+from zMisc.permissions import UserCreationPermission
 from .models import Restaurant, Branch
 
 CustomUser = get_user_model()
@@ -51,28 +52,6 @@ class LogoutView(TokenBlacklistView):
 class CustomRegisterView(RegisterView):
     serializer_class = CustomRegisterSerializer
 
-class CheckUserExistsView(APIView):
-    """
-    API View to check if a user exists based on email or phone number.
-    """
-
-    def get(self, request, *args, **kwargs):
-        email = request.query_params.get('email')
-        phone_number = request.query_params.get('phone_number')
-
-        if not email and not phone_number:
-            return Response(
-                {"detail": _("Please provide either 'email' or 'phone_number' as a query parameter.")},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        user_exists = CustomUser.objects.filter(
-            email=email if email else None,
-            phone_number=phone_number if phone_number else None
-        ).exists()
-
-        return Response({"user_exists": user_exists}, status=status.HTTP_200_OK)
-
 
 class RegistrationView(APIView):
     """
@@ -96,7 +75,7 @@ class RegistrationView(APIView):
 class UserViewSet(ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
-    permission_classes = (UserAccessPolicy, )
+    permission_classes = (UserAccessPolicy, UserCreationPermission, )
 
     def get_queryset(self):
         user = self.request.user

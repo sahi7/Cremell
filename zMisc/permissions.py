@@ -1,22 +1,44 @@
-from django.contrib.auth.models import Group, Permission
-from django.apps import apps
+from rest_framework.permissions import BasePermission
+from rest_framework.exceptions import PermissionDenied
+from django.utils.translation import gettext_lazy as _
 
-GLOBAL_MODELS = ["user", "branch", "region"]  # Models managed at a global level
-SCOPED_MODELS = ["menu", "order", "inventory"]  # Models managed at a branch level
+class UserCreationPermission(BasePermission):
+    """
+    Ensure that new users can only be associated with the companies, countries,
+    restaurants, and branches that the creating user is associated with.
+    """
+    
+    def has_permission(self, request, view):
+        # Allow other actions (e.g., GET) without checks
+        if view.action != "create":
+            return True
+        
+        # Only proceed if creating a user
+        user = request.user
 
-GROUP_PERMISSIONS = {
-    "CompanyAdmin": {"models": GLOBAL_MODELS + SCOPED_MODELS, "actions": ["add", "change", "delete", "view"]},
-    "CountryManager": {"models": SCOPED_MODELS, "actions": ["view", "change"]},
-}
+        # Extract related object IDs from the request data
+        requested_companies = request.data.get("companies", [])
+        requested_countries = request.data.get("countries", [])
+        requested_restaurants = request.data.get("restaurants", [])
 
-for group_name, data in GROUP_PERMISSIONS.items():
-    group, created = Group.objects.get_or_create(name=group_name)
-    for model_name in data["models"]:
-        model = apps.get_model(app_label="CRE", model_name=model_name)
-        for action in data["actions"]:
-            codename = f"{action}_{model._meta.model_name}"
-            try:
-                permission = Permission.objects.get(codename=codename)
-                group.permissions.add(permission)
-            except Permission.DoesNotExist:
-                print(f"Permission {codename} not found.")
+        # Validate each relationship
+        if requested_companies:
+            if not self._is_subset(user.companies.values_list('id', flat=True), requested_companies):
+                raise PermissionDenied(_("You can only assign companies you are associated with."))
+
+        if requested_countries:
+            if not self._is_subset(user.countries.values_list('id', flat=True), requested_countries):
+                raise PermissionDenied(_("You can only assign countries you are associated with."))
+
+        if requested_restaurants:
+            if not self._is_subset(user.restaurants.values_list('id', flat=True), requested_restaurants):
+                raise PermissionDenied(_("You can only assign restaurants you are associated with."))
+        
+        return True
+
+    @staticmethod
+    def _is_subset(user_objects, requested_objects):
+        """
+        Check if all requested_objects are in user_objects.
+        """
+        return set(requested_objects).issubset(set(user_objects))

@@ -44,7 +44,11 @@ class RestaurantAccessPolicy(AccessPolicy):
             "action": ["update", "partial_update"],
             "principal": ["group:RestaurantOwner", "group:CompanyAdmin"],
             "effect": "allow",
-            "condition": "is_restaurant_owner",
+        },
+        {
+            "action": ["partial_update"],
+            "principal": ["group:RestaurantManager"],
+            "effect": "allow",
         },
         {
             "action": ["destroy"],
@@ -53,8 +57,6 @@ class RestaurantAccessPolicy(AccessPolicy):
         },
     ]
 
-    def is_restaurant_owner(self, request, view, action):
-        return request.user.groups.filter(name="RestaurantOwner").exists()
 
 class BranchAccessPolicy(AccessPolicy):
     statements = [
