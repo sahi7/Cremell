@@ -235,7 +235,12 @@ class Branch(models.Model):
     name = models.CharField(max_length=100)  # Name of the branch (e.g., "Downtown Branch")
     address = models.TextField()
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='branches')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='branches')
+    manager = models.ForeignKey( settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="branches",
+        help_text="User assigned as the manager of this branch",
+    )
     created_by = models.OneToOneField(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="branch")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

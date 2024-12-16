@@ -21,8 +21,8 @@ from rest_access_policy import AccessViewSetMixin
 
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer
 from zMisc.policies import UserAccessPolicy, RestaurantAccessPolicy, BranchAccessPolicy
-from zMisc.permissions import UserCreationPermission, ManagerScopePermission
-from zMisc.utils import validate_scope
+from zMisc.permissions import UserCreationPermission, ManagerScopePermission, ObjectStatusPermission
+from zMisc.utils import validate_scope, filter_queryset_by_scopes
 from .models import Restaurant, Branch
 
 CustomUser = get_user_model()
@@ -184,6 +184,7 @@ class RestaurantViewSet(ModelViewSet):
         # Validation for role-based creation permissions
         if user.groups.filter(name="CompanyAdmin").exists():
             allowed_scopes['company'] = user.companies.values_list('id', flat=True)
+            
 
         elif user.groups.filter(name="CountryManager").exists():
             # CountryManager: Restricted by country and company
@@ -208,32 +209,87 @@ class RestaurantViewSet(ModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
-class BranchViewSet(AccessViewSetMixin, ModelViewSet):
+class BranchViewSet(ModelViewSet):
     queryset = Branch.objects.all()
     serializer_class = BranchSerializer
-    access_policy = BranchAccessPolicy
+    permission_classes = (ObjectStatusPermission,)
 
     def perform_create(self, serializer):
-        # Here, we make sure that the authenticated user can create a branch
-        # and set the current restaurant for the branch
-        restaurant = self.request.data.get('restaurant')
-        if not Restaurant.objects.filter(id=restaurant).exists():
-            raise serializers.ValidationError("Invalid restaurant ID.")
-        serializer.save(created_by=self.request.user)
+        user = request.user
+
+        # Define allowed scopes for the user
+        allowed_scopes = {}
+
+        # Get data from the request
+        data = request.data
+
+        # Validation for role-based creation permissions
+        if user.groups.filter(name="CompanyAdmin").exists():
+            allowed_scopes['company'] = user.companies.values_list('id', flat=True)
+            allowed_scopes['restaurant'] = user.restaurants.values_list('id', flat=True)
+
+
+        elif user.groups.filter(name="CountryManager").exists():
+            # CountryManager: Restricted by country and company
+            allowed_scopes['country'] = user.countries.values_list('id', flat=True)
+            allowed_scopes['company'] = user.companies.values_list('id', flat=True)
+            allowed_scopes['restaurant'] = user.restaurants.values_list('id', flat=True)
+
+        elif user.groups.filter(name="RestaurantOwner").exists():
+            allowed_scopes['restaurant'] = user.restaurants.values_list('id', flat=True)
+            data['status'] = 'active' # Automatically set status to 'active' when a RestaurantOwner creates a branch
+
+        else:
+            # Other roles cannot create restaurants
+            return Response({"detail": _("You do not have permission to create a branch.")},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            validate_scope(user, data, allowed_scopes)
+        except ValidationError as e:
+            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer.save()
 
     def get_queryset(self):
         user = self.request.user
+        allowed_scopes = {}
 
-        if user.groups.filter(name="CompanyAdmin").exists() and user.company:
-            return Branch.objects.filter(company=user.company)
-        
+        # Define allowed scopes with complex filters for each user role
         if user.groups.filter(name="CountryManager").exists():
-            return Branch.objects.filter(restaurant__country=user.country)
+            allowed_scopes = {
+                'country': Q(country__in=user.countries.all()),  # Only branches in the user's countries
+                'company': Q(company__in=user.companies.all()),  # Only branches in the user's companies
+            }
+        elif user.groups.filter(name="CompanyAdmin").exists():
+            allowed_scopes = {
+                'company': Q(company__in=user.companies.all()),  # CompanyAdmin can see all branches in their company
+            }
+        # elif user.groups.filter(name="RestaurantOwner").exists():
+        #     allowed_scopes = {
+        #         'restaurants': Q(created_by=user),  # RestaurantOwner can only see their own branches
+        #     }
+        elif user.groups.filter(name="RestaurantManager").exists():
+            allowed_scopes = {
+                'restaurants': Q(manager=user),  # RestaurantManager can only see branches they manage
+                'is_active': Q(is_active=True),  # Only active branches for RestaurantManager
+                'company': Q(company__in=user.companies.all())  # Only branches in the user's company
+            }
 
-        if user.groups.filter(name="RestaurantManager").exists():
-            return Branch.objects.filter(restaurant__manager=user)
+        # Apply custom filtering function (if necessary)
+        def custom_filter(queryset, user):
+            return queryset.filter(
+                Q(created_by=user) | Q(manager=user)  # Custom filter for restaurant owner or manager
+            )
 
-        if user.groups.filter(name="RestaurantOwner").exists():
-            return Branch.objects.filter(restaurant__created_by=user)
+        # Add custom filter for a RestaurantOwner or RestaurantManager
+        if user.groups.filter(name="BranchManager").exists() or user.groups.filter(name="RestaurantOwner").exists():
+            allowed_scopes['restaurants'] = custom_filter
 
-        return Branch.objects.none()
+        # Apply filtering with the reusable method
+        try:
+            queryset = filter_queryset_by_scopes(self.queryset, user, allowed_scopes)
+        except PermissionDenied:
+            raise PermissionDenied(_("You do not have permission to access branch."))
+
+        return queryset

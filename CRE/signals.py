@@ -5,14 +5,16 @@ from django.dispatch import receiver
 
 # Define your model groupings
 GLOBAL_MODELS = ["customuser", "company"]  # Models managed at a global level
-SCOPED_MODELS = ["restaurant", "order", "branch"]  # Models managed at a branch level
+SCOPED_MODELS = ["restaurant"]  # Models managed at a restaurant level
+BRANCH_MODELS = ["order", "branch"] # Models managed at a branch level
 
 # Define group permissions with specific model access
 GROUP_PERMISSIONS = {
-    "CompanyAdmin": {"models": GLOBAL_MODELS + SCOPED_MODELS, "actions": ["add", "change", "delete", "view"]},
-    "RestaurantOwner": {"models": GLOBAL_MODELS + SCOPED_MODELS, "actions": ["add", "change", "delete", "view"]},
-    "CountryManager": {"models": SCOPED_MODELS, "actions": ["add", "view", "change"]},
-    "RestaurantManager": {"models": SCOPED_MODELS, "actions": ["add", "change", "view"]},
+    "CompanyAdmin": {"models": GLOBAL_MODELS + SCOPED_MODELS + BRANCH_MODELS, "actions": ["add", "change", "delete", "view"]},
+    "RestaurantOwner": {"models": GLOBAL_MODELS + SCOPED_MODELS + BRANCH_MODELS, "actions": ["add", "change", "delete", "view"]},
+    "CountryManager": {"models": SCOPED_MODELS + BRANCH_MODELS, "actions": ["add", "view", "change"]},
+    "RestaurantManager": {"models": SCOPED_MODELS + BRANCH_MODELS, "actions": ["add", "change", "view"]},
+    "BranchManager": {"models": BRANCH_MODELS, "actions": ["add", "change", "view"]},
 }
 
 # Exclude apps that should not be considered for permission assignment
@@ -34,7 +36,7 @@ def create_groups_and_manage_permissions(sender, **kwargs):
             model_name = model._meta.model_name
             
             # Determine if the model is part of GLOBAL or SCOPED models
-            if model_name in GLOBAL_MODELS + SCOPED_MODELS:
+            if model_name in GLOBAL_MODELS + SCOPED_MODELS + BRANCH_MODELS:
                 for group_name, data in GROUP_PERMISSIONS.items():
                     if model_name in data["models"]:
                         # Create or get the group

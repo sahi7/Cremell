@@ -1,6 +1,8 @@
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
+
 from django.utils.translation import gettext as _
+from django.db.models import Q
 
 def check_user_role(user, max_role_value=4):
     """
@@ -39,3 +41,28 @@ def validate_scope(user, data, allowed_scopes):
                 field: _("You cannot create objects outside your assigned {}.").format(field)
             })
 
+def filter_queryset_by_scopes(queryset, user, allowed_scopes):
+    """
+    Filters the queryset based on user roles and allowed scopes with complex logic.
+    
+    :param queryset: The original queryset to filter.
+    :param user: The current user performing the query.
+    :param allowed_scopes: Dictionary of fields with the corresponding scope to filter.
+    :return: Filtered queryset based on the allowed scopes.
+    """
+    for field, scope in allowed_scopes.items():
+        # Apply complex filtering for specific fields based on the type of scope
+        if isinstance(scope, Q):  # If the scope is a complex Q object
+            queryset = queryset.filter(scope)
+        elif isinstance(scope, tuple):  # Check if scope is a tuple (field, value)
+            queryset = queryset.filter(**{field: scope[0]})
+        elif isinstance(scope, dict):  # Handling more complex nested filters
+            for key, value in scope.items():
+                queryset = queryset.filter(**{key: value})
+        elif callable(scope):  # If scope is a callable function (custom logic)
+            queryset = scope(queryset, user)
+
+        if not queryset.exists():
+            raise PermissionDenied(_("You do not have permission to access this data."))
+
+    return queryset
