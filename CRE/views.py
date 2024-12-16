@@ -9,6 +9,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.views import TokenBlacklistView
 
 from dj_rest_auth.registration.views import SocialLoginView
@@ -20,7 +21,8 @@ from rest_access_policy import AccessViewSetMixin
 
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer
 from zMisc.policies import UserAccessPolicy, RestaurantAccessPolicy, BranchAccessPolicy
-from zMisc.permissions import UserCreationPermission
+from zMisc.permissions import UserCreationPermission, ManagerScopePermission
+from zMisc.utils import validate_scope
 from .models import Restaurant, Branch
 
 CustomUser = get_user_model()
@@ -138,10 +140,10 @@ class UserViewSet(ModelViewSet):
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-class RestaurantViewSet(AccessViewSetMixin, ModelViewSet):
+class RestaurantViewSet(ModelViewSet):
     queryset = Restaurant.objects.all()
     serializer_class = RestaurantSerializer
-    access_policy = RestaurantAccessPolicy
+    permission_classes = (RestaurantAccessPolicy, ManagerScopePermission, )
 
     def get_queryset(self):
         user = self.request.user
@@ -173,24 +175,30 @@ class RestaurantViewSet(AccessViewSetMixin, ModelViewSet):
     def create(self, request, *args, **kwargs):
         user = request.user
 
+        # Define allowed scopes for the user
+        allowed_scopes = {}
+
         # Get data from the request
         data = request.data
 
         # Validation for role-based creation permissions
         if user.groups.filter(name="CompanyAdmin").exists():
-            # CompanyAdmin can create restaurants globally
-            pass  # No restrictions for CompanyAdmin
+            allowed_scopes['company'] = user.companies.values_list('id', flat=True)
 
         elif user.groups.filter(name="CountryManager").exists():
-            # Restrict to the country assigned to the CountryManager
-            if data.get('country') not in user.countries.values_list('id', flat=True):
-                return Response({"detail": _("You cannot create restaurants outside your assigned countries.")},
-                                status=status.HTTP_400_BAD_REQUEST)
+            # CountryManager: Restricted by country and company
+            allowed_scopes['country'] = user.countries.values_list('id', flat=True)
+            allowed_scopes['company'] = user.companies.values_list('id', flat=True)
 
         else:
             # Other roles cannot create restaurants
             return Response({"detail": _("You do not have permission to create a restaurant.")},
                             status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            validate_scope(user, data, allowed_scopes)
+        except ValidationError as e:
+            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
 
         # Pass data to serializer and save
         serializer = self.get_serializer(data=data)

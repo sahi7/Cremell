@@ -42,3 +42,44 @@ class UserCreationPermission(BasePermission):
         Check if all requested_objects are in user_objects.
         """
         return set(requested_objects).issubset(set(user_objects))
+
+class ManagerScopePermission(BasePermission):
+    """
+    Ensures that the specified manager belongs to the requesting user's scope.
+    """
+    def has_permission(self, request, view):
+        # Apply permission checks only for create, update, and partial_update actions
+        if view.action in ['create', 'update', 'partial_update']:
+            manager_id = request.data.get('manager')
+            if manager_id:
+                try:
+                    manager = CustomUser.objects.get(id=manager_id)
+                except CustomUser.DoesNotExist:
+                    raise PermissionDenied(_("The specified manager does not exist."))
+
+                # Check if the manager is part of the RestaurantManager group
+                if not manager.groups.filter(name="RestaurantManager").exists():
+                    raise PermissionDenied(_("The manager must belong to the RestaurantManager group."))
+
+                # Retrieve company or standalone context
+                company_id = request.data.get('company')
+
+                # Validation for standalone restaurants
+                if company_id is None:  # Standalone
+                    if manager.created_by != request.user:
+                        raise PermissionDenied(
+                            _("For standalone restaurants, the manager must be created by the requesting user.")
+                        )
+                    if manager.companies.exists():
+                        raise PermissionDenied(
+                            _("The manager cannot belong to any company for standalone restaurants.")
+                        )
+
+                # Validation for company restaurants
+                else:  # Company-owned
+                    if not manager.companies.filter(id=company_id).exists():
+                        raise PermissionDenied(
+                            _("The manager must belong to the specified company for company-owned restaurants.")
+                        )
+
+        return True

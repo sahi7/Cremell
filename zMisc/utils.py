@@ -1,4 +1,5 @@
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import ValidationError
 from django.utils.translation import gettext as _
 
 def check_user_role(user, max_role_value=4):
@@ -17,26 +18,24 @@ def check_user_role(user, max_role_value=4):
     if role_value is None or role_value > max_role_value:
         raise PermissionDenied(_("You are not authorized to perform this action."))
 
-def get_user_scope(user):
+def validate_scope(user, data, allowed_scopes):
     """
-    Determines the scope (companies, restaurants, countries) based on the user's role.
+    Validates if the request data falls within the allowed scope of the user.
+    
+    Args:
+        user (CustomUser): The request user.
+        data (dict): The data being validated (e.g., request.data).
+        allowed_scopes (dict): A dictionary defining allowed fields and their values.
+        
+    Returns:
+        None: If validation passes.
+        
+    Raises:
+        serializers.ValidationError: If validation fails.
     """
-    if user.groups.filter(name="CompanyAdmin").exists():
-        # CompanyAdmin: Can view all users in their company
-        return user.companies.all(), user.restaurants.none(), user.countries.none()
-    
-    elif user.groups.filter(name="RestaurantOwner").exists():
-        # RestaurantOwner: Can view users associated with their restaurants
-        return user.companies.all(), user.restaurants.all(), user.countries.none()
-    
-    elif user.groups.filter(name="CountryManager").exists():
-        # CountryManager: Can view users in their country and company
-        return user.companies.all(), user.restaurants.none(), user.countries.all()
-    
-    elif user.groups.filter(name="RestaurantManager").exists():
-        # RestaurantManager: Can view users for restaurants they manage
-        return user.companies.all(), user.restaurants.all(), user.countries.none()
-
-    # Default case if no matching group found
-    return user.companies.none(), user.restaurants.none(), user.countries.none()
+    for field, scope in allowed_scopes.items():
+        if field in data and data[field] not in scope:
+            raise ValidationError({
+                field: _("You cannot create objects outside your assigned {}.").format(field)
+            })
 
