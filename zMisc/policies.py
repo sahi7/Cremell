@@ -76,7 +76,7 @@ class BranchAccessPolicy(AccessPolicy):
         },
         # Country Manager: Can view all branches in their country
         {
-            "action": ["list", "retrieve"],
+            "action": ["list", "retrieve", "create", "update"],
             "principal": ["group:CountryManager"],
             "effect": "allow",
             "condition": "is_in_country_manager_country",

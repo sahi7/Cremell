@@ -221,7 +221,7 @@ class Restaurant(models.Model):
         related_name="managed_restaurants",
         help_text="User assigned as the manager of this restaurant",
     )
-    created_by = models.OneToOneField(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="restaurant")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="restaurant")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -241,7 +241,7 @@ class Branch(models.Model):
         related_name="branches",
         help_text="User assigned as the manager of this branch",
     )
-    created_by = models.OneToOneField(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="branch")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="branch")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -213,5 +213,8 @@ class BranchSerializer(serializers.ModelSerializer):
         fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'created_by', 'created_at', 'updated_at']
 
     def create(self, validated_data):
+        request = self.context.get('request')
+        if request and request.user.groups.filter(name="RestaurantOwner").exists():
+            validated_data['status'] = 'active'
         return super().create(validated_data)
 

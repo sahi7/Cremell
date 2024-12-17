@@ -2,6 +2,7 @@ from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -212,16 +213,50 @@ class RestaurantViewSet(ModelViewSet):
 class BranchViewSet(ModelViewSet):
     queryset = Branch.objects.all()
     serializer_class = BranchSerializer
-    permission_classes = (ObjectStatusPermission,)
+    permission_classes = (BranchAccessPolicy, ObjectStatusPermission,)
+
+    def get_queryset(self):
+        user = self.request.user
+        allowed_scopes = {}
+        user_group = user.groups.all()
+        print(user_group)
+        # Define allowed scopes with complex filters for each user role
+        if user.groups.filter(name="CountryManager").exists():
+            allowed_scopes = {
+                'country': Q(country__in=user.countries.all()),  # Only branches in the user's countries
+                'company': Q(company__in=user.companies.all()),  # Only branches in the user's companies
+            }
+        elif user.groups.filter(name="CompanyAdmin").exists():
+            allowed_scopes = {
+                'company': Q(company__in=user.companies.all()),  # CompanyAdmin can see all branches in their company
+            }
+        elif user.groups.filter(name="RestaurantOwner").exists() or user.groups.filter(name="BranchOwner").exists():
+            allowed_scopes = {
+                'restaurants': Q(created_by=user) | Q(manager=user),  # RestaurantOwner can only see their own branches
+            }
+        elif user.groups.filter(name="RestaurantManager").exists():
+            allowed_scopes = {
+                'restaurants': Q(manager=user),  # RestaurantManager can only see branches they manage
+                'status': Q(status="active"),  # Only active branches for RestaurantManager
+                'company': Q(company__in=user.companies.all())  # Only branches in the user's company
+            }
+
+        # Apply filtering with the reusable method
+        try:
+            queryset = filter_queryset_by_scopes(self.queryset, user, allowed_scopes)
+        except PermissionDenied:
+            raise PermissionDenied(_("You do not have permission to access this branch."))
+
+        return queryset
 
     def perform_create(self, serializer):
-        user = request.user
+        user = self.request.user
 
         # Define allowed scopes for the user
         allowed_scopes = {}
 
         # Get data from the request
-        data = request.data
+        data = self.request.data
 
         # Validation for role-based creation permissions
         if user.groups.filter(name="CompanyAdmin").exists():
@@ -237,7 +272,7 @@ class BranchViewSet(ModelViewSet):
 
         elif user.groups.filter(name="RestaurantOwner").exists():
             allowed_scopes['restaurant'] = user.restaurants.values_list('id', flat=True)
-            data['status'] = 'active' # Automatically set status to 'active' when a RestaurantOwner creates a branch
+            allowed_scopes['country'] = user.countries.values_list('id', flat=True)
 
         else:
             # Other roles cannot create restaurants
@@ -245,51 +280,11 @@ class BranchViewSet(ModelViewSet):
                             status=status.HTTP_403_FORBIDDEN)
 
         try:
+            # print("Allowed Scopes:", allowed_scopes)
             validate_scope(user, data, allowed_scopes)
+            print("Scope validated successfully")
         except ValidationError as e:
+            # print("Scope validation failed:", e.detail)
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
 
         serializer.save()
-
-    def get_queryset(self):
-        user = self.request.user
-        allowed_scopes = {}
-
-        # Define allowed scopes with complex filters for each user role
-        if user.groups.filter(name="CountryManager").exists():
-            allowed_scopes = {
-                'country': Q(country__in=user.countries.all()),  # Only branches in the user's countries
-                'company': Q(company__in=user.companies.all()),  # Only branches in the user's companies
-            }
-        elif user.groups.filter(name="CompanyAdmin").exists():
-            allowed_scopes = {
-                'company': Q(company__in=user.companies.all()),  # CompanyAdmin can see all branches in their company
-            }
-        # elif user.groups.filter(name="RestaurantOwner").exists():
-        #     allowed_scopes = {
-        #         'restaurants': Q(created_by=user),  # RestaurantOwner can only see their own branches
-        #     }
-        elif user.groups.filter(name="RestaurantManager").exists():
-            allowed_scopes = {
-                'restaurants': Q(manager=user),  # RestaurantManager can only see branches they manage
-                'is_active': Q(is_active=True),  # Only active branches for RestaurantManager
-                'company': Q(company__in=user.companies.all())  # Only branches in the user's company
-            }
-
-        # Apply custom filtering function (if necessary)
-        def custom_filter(queryset, user):
-            return queryset.filter(
-                Q(created_by=user) | Q(manager=user)  # Custom filter for restaurant owner or manager
-            )
-
-        # Add custom filter for a RestaurantOwner or RestaurantManager
-        if user.groups.filter(name="BranchManager").exists() or user.groups.filter(name="RestaurantOwner").exists():
-            allowed_scopes['restaurants'] = custom_filter
-
-        # Apply filtering with the reusable method
-        try:
-            queryset = filter_queryset_by_scopes(self.queryset, user, allowed_scopes)
-        except PermissionDenied:
-            raise PermissionDenied(_("You do not have permission to access branch."))
-
-        return queryset

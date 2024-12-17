@@ -50,6 +50,8 @@ def filter_queryset_by_scopes(queryset, user, allowed_scopes):
     :param allowed_scopes: Dictionary of fields with the corresponding scope to filter.
     :return: Filtered queryset based on the allowed scopes.
     """
+    if not allowed_scopes:
+        return queryset.none()
     for field, scope in allowed_scopes.items():
         # Apply complex filtering for specific fields based on the type of scope
         if isinstance(scope, Q):  # If the scope is a complex Q object
