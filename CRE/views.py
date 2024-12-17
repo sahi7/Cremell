@@ -22,7 +22,7 @@ from rest_access_policy import AccessViewSetMixin
 
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer
 from zMisc.policies import UserAccessPolicy, RestaurantAccessPolicy, BranchAccessPolicy
-from zMisc.permissions import UserCreationPermission, ManagerScopePermission, ObjectStatusPermission
+from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
 from zMisc.utils import validate_scope, filter_queryset_by_scopes
 from .models import Restaurant, Branch
 
@@ -144,7 +144,7 @@ class UserViewSet(ModelViewSet):
 class RestaurantViewSet(ModelViewSet):
     queryset = Restaurant.objects.all()
     serializer_class = RestaurantSerializer
-    permission_classes = (RestaurantAccessPolicy, ManagerScopePermission, )
+    permission_classes = (RestaurantAccessPolicy, RManagerScopePermission, )
 
     def get_queryset(self):
         user = self.request.user
@@ -213,13 +213,12 @@ class RestaurantViewSet(ModelViewSet):
 class BranchViewSet(ModelViewSet):
     queryset = Branch.objects.all()
     serializer_class = BranchSerializer
-    permission_classes = (BranchAccessPolicy, ObjectStatusPermission,)
+    permission_classes = (BranchAccessPolicy, ObjectStatusPermission, BManagerScopePermission)
 
     def get_queryset(self):
         user = self.request.user
         allowed_scopes = {}
-        user_group = user.groups.all()
-        print(user_group)
+        # print(user.groups.all())
         # Define allowed scopes with complex filters for each user role
         if user.groups.filter(name="CountryManager").exists():
             allowed_scopes = {

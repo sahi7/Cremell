@@ -1,6 +1,9 @@
 from rest_framework.permissions import BasePermission
 from rest_framework.exceptions import PermissionDenied
 from django.utils.translation import gettext_lazy as _
+from django.contrib.auth import get_user_model
+
+CustomUser = get_user_model()
 
 class UserCreationPermission(BasePermission):
     """
@@ -43,76 +46,67 @@ class UserCreationPermission(BasePermission):
         """
         return set(requested_objects).issubset(set(user_objects))
 
-class ManagerScopePermission(BasePermission):
+class RManagerScopePermission(BasePermission):
     """
-    Ensures that the specified manager belongs to the requesting user's scope,
-    either for a restaurant or a branch.
+    Ensures that the specified manager for a restaurant belongs to the correct scope.
     """
     def has_permission(self, request, view):
-        # Apply permission checks only for create, update, and partial_update actions
         if view.action in ['create', 'update', 'partial_update']:
-            # Determine if the object is a restaurant or a branch
-            if isinstance(view.get_object(), Restaurant):
-                # Restaurant-related checks
-                self._check_manager_for_restaurant(request, view)
-            elif isinstance(view.get_object(), Branch):
-                # Branch-related checks
-                self._check_manager_for_branch(request, view)
-
+            self._check_manager_for_restaurant(request)
         return True
 
-    def _check_manager_for_restaurant(self, request, view):
-        """
-        Checks if the manager belongs to the correct scope for a restaurant.
-        """
+    def _check_manager_for_restaurant(self, request):
         manager_id = request.data.get('manager')
+        company_id = request.data.get('company')
+
         if manager_id:
             try:
                 manager = CustomUser.objects.get(id=manager_id)
             except CustomUser.DoesNotExist:
                 raise PermissionDenied(_("The specified manager does not exist."))
 
-            # Check if the manager is part of the RestaurantManager group
+            # Check if the manager belongs to the RestaurantManager group
             if not manager.groups.filter(name="RestaurantManager").exists():
-                raise PermissionDenied(_("The manager must belong to the RestaurantManager group."))
+                raise PermissionDenied(_("The manager must be a restaurant manager."))
 
-            # Retrieve company or standalone context
-            company_id = request.data.get('company')
+            # If company_id is provided, validate the manager belongs to the company
+            if company_id:
+                if not manager.companies.filter(id=company_id).exists():
+                    raise PermissionDenied(_("The manager must belong to the specified company."))
 
-            # Validation for standalone restaurants
-            if company_id is None:  # Standalone restaurant
+            # For standalone restaurants
+            else:
                 if manager.created_by != request.user:
                     raise PermissionDenied(
-                        _("For standalone restaurants, the manager must be created by the requesting user.")
+                        _("For standalone restaurants, the manager must be created by the owner.")
                     )
                 if manager.companies.exists():
                     raise PermissionDenied(
-                        _("The manager cannot belong to any company for standalone restaurants.")
+                        _("The manager cannot belong to any company.")
                     )
 
-            # Validation for company restaurants
-            else:  # Company-owned restaurant
-                if not manager.companies.filter(id=company_id).exists():
-                    raise PermissionDenied(
-                        _("The manager must belong to the specified company for company-owned restaurants.")
-                    )
+class BManagerScopePermission(BasePermission):
+    """
+    Ensures that the specified manager for a branch belongs to the correct scope.
+    """
+    def has_permission(self, request, view):
+        if view.action in ['create', 'update', 'partial_update']:
+            self._check_manager_for_branch(request)
+        return True
 
-    def _check_manager_for_branch(self, request, view):
-        """
-        Checks if the manager belongs to the correct scope for a branch.
-        """
+    def _check_manager_for_branch(self, request):
         manager_id = request.data.get('manager')
+
         if manager_id:
             try:
                 manager = CustomUser.objects.get(id=manager_id)
             except CustomUser.DoesNotExist:
                 raise PermissionDenied(_("The specified manager does not exist."))
 
-            # Check if the manager is part of the RestaurantManager group
+            # Check if the manager belongs to the BranchManager group
             if not manager.groups.filter(name="BranchManager").exists():
-                raise PermissionDenied(_("The manager must be a branch manager."))
+                raise PermissionDenied(_("The manager must belong to the BranchManager group."))
 
-        return True
 
 class ObjectStatusPermission(BasePermission):
     """
