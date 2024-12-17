@@ -144,7 +144,7 @@ class UserViewSet(ModelViewSet):
 class RestaurantViewSet(ModelViewSet):
     queryset = Restaurant.objects.all()
     serializer_class = RestaurantSerializer
-    permission_classes = (RestaurantAccessPolicy, RManagerScopePermission, )
+    permission_classes = (RestaurantAccessPolicy, RManagerScopePermission, ObjectStatusPermission)
 
     def get_queryset(self):
         user = self.request.user
@@ -213,7 +213,7 @@ class RestaurantViewSet(ModelViewSet):
 class BranchViewSet(ModelViewSet):
     queryset = Branch.objects.all()
     serializer_class = BranchSerializer
-    permission_classes = (BranchAccessPolicy, ObjectStatusPermission, BManagerScopePermission)
+    permission_classes = (BranchAccessPolicy, ObjectStatusPermission, BManagerScopePermission,)
 
     def get_queryset(self):
         user = self.request.user
