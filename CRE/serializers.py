@@ -4,7 +4,7 @@ from allauth.account.utils import setup_user_email
 from allauth.account.utils import send_email_confirmation
 from dj_rest_auth.registration.serializers import RegisterSerializer
 from dj_rest_auth.serializers import UserDetailsSerializer
-from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState, Branch
+from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState, Branch, Menu, MenuCategory, MenuItem
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group
@@ -217,4 +217,30 @@ class BranchSerializer(serializers.ModelSerializer):
         if request and request.user.groups.filter(name="RestaurantOwner").exists():
             validated_data['status'] = 'active'
         return super().create(validated_data)
+
+class MenuCategorySerializer(serializers.ModelSerializer):
+    items = MenuItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = MenuCategory
+        fields = ['id', 'name', 'items']
+
+class MenuItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MenuItem
+        fields = ['id', 'name', 'description', 'price']
+
+class MenuSerializer(serializers.ModelSerializer):
+    categories = MenuCategorySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Menu
+        fields = ['id', 'name', 'categories']
+
+class BranchMenuSerializer(serializers.ModelSerializer):
+    menus = MenuSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Branch
+        fields = ['id', 'name', 'menus']
 

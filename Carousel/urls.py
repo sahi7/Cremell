@@ -17,13 +17,16 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from CRE.views__helper import CheckUserExistsView, UserScopeView
-from CRE.views import RegistrationView, UserViewSet, BranchViewSet, RestaurantViewSet
+from CRE.views import RegistrationView, UserViewSet, BranchViewSet, RestaurantViewSet, BranchMenuDetailView, MenuViewSet, MenuCategoryViewSet, MenuItemViewSet
 from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
 router.register(r'users', UserViewSet, basename='user')
 router.register(r'branches', BranchViewSet)
 router.register(r'restaurants', RestaurantViewSet)
+router.register(r'menus', MenuViewSet)
+router.register(r'menu-categories', MenuCategoryViewSet)
+router.register(r'menu-items', MenuItemViewSet)
 
 def api_path(route, view, name=None):
     return path(f'api/{route}', view, name=name)
@@ -39,6 +42,8 @@ urlpatterns = [
     api_path('register/', RegistrationView.as_view(), name='user-register'),
     api_path('check-user/', CheckUserExistsView.as_view(), name='check-user'),
     api_path('user-scope/', UserScopeView.as_view(), name='user-scope'),
+    api_path('branches/<int:branch_id>/menus/', BranchMenuDetailView.as_view(), name='branch-menus'),
+    api_path('branches/<int:branch_id>/menus/<int:pk>/', BranchMenuDetailView.as_view(), name='menu-detail'),
 
     path('api/', include(router.urls)),
 ]

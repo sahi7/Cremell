@@ -11,6 +11,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
+from rest_framework.generics import get_object_or_404
 from rest_framework_simplejwt.views import TokenBlacklistView
 
 from dj_rest_auth.registration.views import SocialLoginView
@@ -20,11 +21,11 @@ from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 
 from rest_access_policy import AccessViewSetMixin
 
-from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer
+from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer
 from zMisc.policies import UserAccessPolicy, RestaurantAccessPolicy, BranchAccessPolicy
 from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
 from zMisc.utils import validate_scope, filter_queryset_by_scopes
-from .models import Restaurant, Branch
+from .models import Restaurant, Branch, Menu, MenuCategory
 
 CustomUser = get_user_model()
 def email_confirm_redirect(request, key):
@@ -287,3 +288,39 @@ class BranchViewSet(ModelViewSet):
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
 
         serializer.save()
+
+class MenuViewSet(ModelViewSet):
+    queryset = Menu.objects.all()
+    serializer_class = MenuSerializer
+
+class MenuCategoryViewSet(ModelViewSet):
+    queryset = MenuCategory.objects.all()
+    serializer_class = MenuCategorySerializer
+
+class MenuItemViewSet(ModelViewSet):
+    queryset = MenuItem.objects.all()
+    serializer_class = MenuItemSerializer
+
+class BranchMenuDetailView(APIView):
+    def get(self, request, branch_id=None, pk=None):
+        if branch_id and pk:
+            # Fetch the specific menu for the given branch and pk
+            branch = get_object_or_404(Branch, id=branch_id)
+            menu = get_object_or_404(Menu, id=pk, branch=branch)  # Assuming a relationship between menu and branch
+            categories = MenuCategory.objects.filter(menu=menu).prefetch_related('menu_items')
+            data = {
+                "menu": MenuSerializer(menu).data,
+                "categories": MenuCategorySerializer(categories, many=True).data
+            }
+            return Response(data)
+        
+        elif branch_id:
+            # Fetch all menus for the given branch
+            branch = get_object_or_404(Branch, id=branch_id)
+            menus = Menu.objects.filter(branch=branch)
+            serializer = BranchMenuSerializer(menus, many=True)
+            return Response(serializer.data)
+        
+        return Response({"detail": _("Invalid request")}, status=400)
+
+
