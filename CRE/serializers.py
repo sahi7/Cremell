@@ -218,6 +218,13 @@ class BranchSerializer(serializers.ModelSerializer):
             validated_data['status'] = 'active'
         return super().create(validated_data)
 
+
+class MenuItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MenuItem
+        fields = ['id', 'name', 'description', 'price']
+
+
 class MenuCategorySerializer(serializers.ModelSerializer):
     items = MenuItemSerializer(many=True, read_only=True)
 
@@ -225,10 +232,6 @@ class MenuCategorySerializer(serializers.ModelSerializer):
         model = MenuCategory
         fields = ['id', 'name', 'items']
 
-class MenuItemSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = MenuItem
-        fields = ['id', 'name', 'description', 'price']
 
 class MenuSerializer(serializers.ModelSerializer):
     categories = MenuCategorySerializer(many=True, read_only=True)

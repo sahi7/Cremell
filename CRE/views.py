@@ -21,11 +21,12 @@ from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 
 from rest_access_policy import AccessViewSetMixin
 
-from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer
+from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer, MenuSerializer, MenuCategorySerializer
+from .serializers import MenuItemSerializer
 from zMisc.policies import UserAccessPolicy, RestaurantAccessPolicy, BranchAccessPolicy
 from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
 from zMisc.utils import validate_scope, filter_queryset_by_scopes
-from .models import Restaurant, Branch, Menu, MenuCategory
+from .models import Restaurant, Branch, Menu, MenuItem, MenuCategory
 
 CustomUser = get_user_model()
 def email_confirm_redirect(request, key):
