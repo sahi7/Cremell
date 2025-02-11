@@ -5,6 +5,8 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "Carousel.settings")
 import django
 django.setup()
 from CRE.models import Country, RegionOrState, City
+from django.core.exceptions import ObjectDoesNotExist
+from django.db.utils import IntegrityError
 
 # Example function to populate countries
 def populate_countries():
@@ -67,18 +69,50 @@ def populate_regions(geonameId):
         print(f"Error: {e}")
 
 # Example function to populate cities (for a specific state/region)
-def populate_cities(region_name):
-    url = f"http://api.geonames.org/searchJSON?q={region_name}&maxRows=100&username=archilesm"
-    response = requests.get(url)
-    cities = response.json()['geonames']
-    
-    for city in cities:
-        City.objects.create(
-            name=city['name'],
-            region_or_state=RegionOrState.objects.get(name=region_name)
-        )
+import requests
+from django.core.exceptions import ObjectDoesNotExist
 
+def populate_cities(region_name, country_id):
+    # Step 1: Fetch the RegionOrState object from the database
+    try:
+        region = RegionOrState.objects.get(name=region_name)
+    except ObjectDoesNotExist:
+        print(f"Region or State '{region_name}' not found in the database.")
+        return
+
+    # Step 2: Query the GeoNames API with the region_name
+    url = f"http://api.geonames.org/searchJSON?q={region_name}&maxRows=1000&username=archilesm"
+    response = requests.get(url)
+    
+    # Check if the request was successful
+    if response.status_code != 200:
+        print(f"Failed to fetch data from GeoNames API. Status code: {response.status_code}")
+        return
+
+    # Step 3: Parse the JSON response
+    data = response.json()
+    cities = data.get('geonames', [])
+
+    # Step 4: Iterate over the cities and populate the City table
+    for city in cities:
+        # Check if the adminName1 matches the region_name and countryId matches
+        if city.get('adminName1') == region_name and city.get('countryId') == country_id:
+            try:
+                # Use get_or_create to avoid duplicates
+                City.objects.get_or_create(
+                    name=city['name'],
+                    region_or_state=region,
+                    defaults={'name': city['name'], 'region_or_state': region}
+                )
+            except IntegrityError:
+                # Skip if a duplicate entry is found
+                print(f"City '{city['name']}' already exists in region '{region_name}'. Skipping.")
+                continue
+
+    print(f"Successfully populated cities for region '{region_name}'.")
+
+countryId = "2233387"
 # Call functions to populate data
 # populate_countries()
 # populate_regions("2233387")  # Example for CMR
-populate_cities("Douala")  # Example for California
+populate_cities("Littoral", countryId) # Example for California

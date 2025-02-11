@@ -148,6 +148,7 @@ except UnicodeDecodeError as e:
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 # Grant OWNER permission to user on DB 
+# Error: MigrationSchemaMissing: Unable to create the django_migrations table => ALTER DATABASE db OWNER TO db_user;
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -228,7 +229,7 @@ EMAIL_HOST_USER = os.getenv('SMTP_LOGIN')               # your email address
 EMAIL_HOST_PASSWORD = os.getenv('SMTP_PASSWORD')       # your password
 DEFAULT_FROM_EMAIL = os.getenv('SMTP_LOGIN')  # email ending with @sendinblue.com
 
-print(f"EMAIL_HOST: {EMAIL_HOST}, EMAIL_PORT: {EMAIL_PORT}, EMAIL_HOST_USER: {EMAIL_HOST_USER}, EMAIL_HOST_PASSWORD: {EMAIL_HOST_PASSWORD}")
+# print(f"EMAIL_HOST: {EMAIL_HOST}, EMAIL_PORT: {EMAIL_PORT}, EMAIL_HOST_USER: {EMAIL_HOST_USER}, EMAIL_HOST_PASSWORD: {EMAIL_HOST_PASSWORD}")
 
 # django-allauth
 ACCOUNT_EMAIL_REQUIRED = True

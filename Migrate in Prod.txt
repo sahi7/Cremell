@@ -1,0 +1,8 @@
+- create db
+- create user with login
+- grant login and creatdb to user
+- set user to ownver - ALTER DATABASE db OWNER TO db_user;
+- make all migrations before adding this file in CRE > signals.py
+
+
+
