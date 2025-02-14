@@ -119,6 +119,17 @@ class CustomUser(AbstractUser):
         if group_name:
             group = Group.objects.get(name=group_name)
             self.groups.add(group)
+
+    def has_perm(self, perm, obj=None):
+        """
+        Override the has_perm method to restrict access to suspended objects
+        unless the user has a role value <= 3.
+        """
+        if obj and hasattr(obj, 'status') and obj.status == 'suspended':
+            if self.get_role_value() <= 3:
+                return True
+            return False
+        return super().has_perm(perm, obj)
     
     def save(self, *args, **kwargs):
         if not self.username:  # If username is not set

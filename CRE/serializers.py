@@ -128,7 +128,7 @@ class RestaurantSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Restaurant
-        fields = ['name', 'address', 'city', 'country', 'company', 'created_by']
+        fields = ['name', 'address', 'city', 'country', 'company', 'status', 'created_by']
 
     def create(self, validated_data):
         return Restaurant.objects.create(**validated_data)
@@ -210,7 +210,7 @@ class BranchSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Branch
-        fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'created_by', 'created_at', 'updated_at']
+        fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country']
 
     def create(self, validated_data):
         request = self.context.get('request')

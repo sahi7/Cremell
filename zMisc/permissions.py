@@ -119,6 +119,6 @@ class ObjectStatusPermission(BasePermission):
         """
         if obj.status != 'active':
             # Only (CompanyAdmin, CountryManager) can modify the status
-            if not request.user.groups.filter(name__in=["CompanyAdmin", "CountryManager"]).exists():
+            if not request.user.groups.filter(name__in=["CompanyAdmin", "CountryManager", "RestaurantOwner"]).exists():
                 raise PermissionDenied(_("This object is inactive and cannot be modified."))
         return True
