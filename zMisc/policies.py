@@ -67,9 +67,9 @@ class BranchAccessPolicy(AccessPolicy):
             "effect": "allow",
             "condition": "is_owner_of_restaurant",
         },
-        # Restaurant Manager: Limited access to their branches
+        # Restaurant Manager: Limited access to their branches, including creation if they belong to a company
         {
-            "action": ["list", "retrieve", "update", "partial_update"],
+            "action": ["list", "retrieve", "create", "update", "partial_update"],
             "principal": ["group:RestaurantManager"],
             "effect": "allow",
             "condition": "is_manager_of_restaurant",
@@ -92,13 +92,14 @@ class BranchAccessPolicy(AccessPolicy):
     def is_owner_of_restaurant(self, request, view, action):
         """
         Check if the branch is linked to a restaurant created by the current user (for create, update, delete).
+        Also, check if the restaurant is active before allowing branch creation.
         """
         print(f'Action: {action}') 
         if action in ["create", "update", "partial_update", "destroy"]:
             # For creating a branch, check if the restaurant belongs to the current user.
             restaurant = view.request.data.get('restaurant')
             if restaurant:
-                return Restaurant.objects.filter(id=restaurant, created_by=request.user).exists()
+                return Restaurant.objects.filter(id=restaurant, created_by=request.user, status='active').exists()
         elif action in ["list", "retrieve"]:
             return True
         return False  # For non-create actions, allow if already satisfied
@@ -106,6 +107,7 @@ class BranchAccessPolicy(AccessPolicy):
     def is_manager_of_restaurant(self, request, view, action):
         """
         Check if the branch belongs to a restaurant managed by the current user (for update, delete).
+        Also, allow branch creation if the user belongs to a company.
         """
         if action in ["update", "partial_update", "destroy"]:
             restaurant = view.request.data.get('restaurant')
@@ -116,6 +118,9 @@ class BranchAccessPolicy(AccessPolicy):
             restaurant_id = view.kwargs.get('pk')
             if restaurant_id:
                 return Restaurant.objects.filter(id=restaurant_id, created_by=request.user).exists()
+        elif action == "create":
+            # For branch creation, check if the user belongs to a company.
+            return request.user.companies.exists()
         return False
 
     def is_in_country_manager_country(self, request, view, action):
