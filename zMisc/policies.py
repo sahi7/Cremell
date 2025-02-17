@@ -125,7 +125,7 @@ class BranchAccessPolicy(AccessPolicy):
         if action in ["list", "retrieve"]:
             restaurant = view.request.data.get('restaurant')
             if restaurant:
-                return Restaurant.objects.filter(id=restaurant, country=request.user.country).exists()
+                return Restaurant.objects.filter(id=restaurant, country__in=request.user.countries.all()).exists()
         return False
 
 
