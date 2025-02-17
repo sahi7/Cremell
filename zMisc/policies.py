@@ -110,7 +110,7 @@ class BranchAccessPolicy(AccessPolicy):
         if action in ["update", "partial_update", "destroy"]:
             restaurant = view.request.data.get('restaurant')
             if restaurant:
-                return Restaurant.objects.filter(id=restaurant, restaurant_manager=request.user).exists()
+                return Restaurant.objects.filter(id=restaurant, manager=request.user).exists()
         elif action in ["list", "retrieve"]:
             print('yesfff')
             restaurant_id = view.kwargs.get('pk')
