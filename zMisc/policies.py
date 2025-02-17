@@ -87,6 +87,13 @@ class BranchAccessPolicy(AccessPolicy):
             "principal": ["group:CompanyAdmin"],
             "effect": "allow",
         },
+        # Branch Manager: Can manage only the branch they are assigned to
+        {
+            "action": ["list", "retrieve", "update", "partial_update"],
+            "principal": ["group:BranchManager"],
+            "effect": "allow",
+            "condition": "is_manager_of_branch",
+        },
     ]
 
     def is_owner_of_restaurant(self, request, view, action):
@@ -131,6 +138,18 @@ class BranchAccessPolicy(AccessPolicy):
             restaurant = view.request.data.get('restaurant')
             if restaurant:
                 return Restaurant.objects.filter(id=restaurant, country__in=request.user.countries.all()).exists()
+        return False
+
+    def is_manager_of_branch(self, request, view, action):
+        """
+        Check if the branch is managed by the current user (BranchManager).
+        BranchManagers can only view and manage the branch they are assigned to.
+        """
+        if action in ["list", "retrieve", "update", "partial_update"]:
+            # For list/retrieve, ensure the user can only view their branch.
+            branch_id = view.kwargs.get('pk')  # Assuming the branch ID is passed in the URL
+            if branch_id:
+                return Branch.objects.filter(id=branch_id, manager=request.user).exists()
         return False
 
 

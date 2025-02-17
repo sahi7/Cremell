@@ -113,6 +113,7 @@ class CustomUser(AbstractUser):
             'restaurant_owner': 'RestaurantOwner',
             'country_manager': 'CountryManager',
             'restaurant_manager': 'RestaurantManager',
+            'branch_manager': 'BranchManager',
             'user': 'User',
         }
         group_name = group_map.get(role)
