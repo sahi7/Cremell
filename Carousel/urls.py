@@ -23,7 +23,13 @@ from rest_framework.routers import DefaultRouter
 router = DefaultRouter()
 router.register(r'users', UserViewSet, basename='user')
 router.register(r'branches', BranchViewSet)
+
 router.register(r'restaurants', RestaurantViewSet)
+# custom actions will generate the following additional routes:
+#  - GET /api/restaurants/{id}/branches/: List all branches of a restaurant.
+#  - GET /api/restaurants/{id}/employees/: List all employees of a restaurant.
+#  - GET /api/restaurants/{id}/company/: Retrieve the company that owns the restaurant.
+
 router.register(r'menus', MenuViewSet)
 router.register(r'menu-categories', MenuCategoryViewSet)
 router.register(r'menu-items', MenuItemViewSet)

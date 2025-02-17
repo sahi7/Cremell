@@ -22,7 +22,7 @@ from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from rest_access_policy import AccessViewSetMixin
 
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer, MenuSerializer, MenuCategorySerializer
-from .serializers import MenuItemSerializer
+from .serializers import MenuItemSerializer, CompanySerializer
 from zMisc.policies import UserAccessPolicy, RestaurantAccessPolicy, BranchAccessPolicy
 from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
 from zMisc.utils import validate_scope, filter_queryset_by_scopes
@@ -147,6 +147,33 @@ class RestaurantViewSet(ModelViewSet):
     queryset = Restaurant.objects.all()
     serializer_class = RestaurantSerializer
     permission_classes = (RestaurantAccessPolicy, RManagerScopePermission, ObjectStatusPermission)
+
+    # Custom action to list all branches of a restaurant
+    @action(detail=True, methods=['get'])
+    def branches(self, request, pk=None):
+        restaurant = self.get_object()
+        branches = restaurant.branches.all()
+        serializer = BranchSerializer(branches, many=True)
+        return Response(serializer.data)
+
+    # Custom action to list all employees of a restaurant
+    @action(detail=True, methods=['get'])
+    def employees(self, request, pk=None):
+        restaurant = self.get_object()
+        employees = restaurant.employees.all()
+        serializer = UserSerializer(employees, many=True)
+        return Response(serializer.data)
+
+    # Custom action to retrieve the company that owns the restaurant
+    @action(detail=True, methods=['get'])
+    def company(self, request, pk=None):
+        restaurant = self.get_object()
+        company = restaurant.company
+        if company:
+            serializer = CompanySerializer(company)
+            return Response(serializer.data)
+        else:
+            return Response({"detail": "This restaurant is not associated with any company."}, status=status.HTTP_404_NOT_FOUND)
 
     def get_queryset(self):
         user = self.request.user
