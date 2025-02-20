@@ -31,7 +31,7 @@ class UserAccessPolicy(AccessPolicy):
 class RestaurantAccessPolicy(AccessPolicy):
     statements = [
         {
-            "action": ["list", "retrieve"],
+            "action": ["list", "retrieve", "branches", "employees", "company"],
             "principal": ["group:CompanyAdmin", "group:RestaurantOwner", "group:CountryManager"],
             "effect": "allow",
         },

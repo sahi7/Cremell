@@ -7,6 +7,7 @@ from django.db.models import Q
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.exceptions import PermissionDenied
@@ -173,7 +174,7 @@ class RestaurantViewSet(ModelViewSet):
             serializer = CompanySerializer(company)
             return Response(serializer.data)
         else:
-            return Response({"detail": "This restaurant is not associated with any company."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": _("This restaurant is not associated with any company.")}, status=status.HTTP_404_NOT_FOUND)
 
     def get_queryset(self):
         user = self.request.user
@@ -258,7 +259,7 @@ class BranchViewSet(ModelViewSet):
             allowed_scopes = {
                 'company': Q(company__in=user.companies.all()),  # CompanyAdmin can see all branches in their company
             }
-        elif user.groups.filter(name="RestaurantOwner").exists() or user.groups.filter(name="BranchOwner").exists():
+        elif user.groups.filter(name="RestaurantOwner").exists() or user.groups.filter(name="BranchManager").exists():
             allowed_scopes = {
                 'restaurants': Q(created_by=user) | Q(manager=user),  # RestaurantOwner can only see their own branches
             }
@@ -300,7 +301,8 @@ class BranchViewSet(ModelViewSet):
 
         elif user.groups.filter(name="RestaurantOwner").exists():
             allowed_scopes['restaurant'] = user.restaurants.values_list('id', flat=True)
-            allowed_scopes['country'] = user.countries.values_list('id', flat=True)
+            # @TOD0 - RestaurantOwnerdoes not have a country so should raise an error 
+            # allowed_scopes['country'] = user.countries.values_list('id', flat=True)
 
         else:
             # Other roles cannot create restaurants
@@ -312,7 +314,8 @@ class BranchViewSet(ModelViewSet):
             validate_scope(user, data, allowed_scopes)
             print("Scope validated successfully")
         except ValidationError as e:
-            # print("Scope validation failed:", e.detail)
+            print("Scope validation failed:", e.detail)
+            # Does not raise error for RestaurantOwner 
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
 
         serializer.save()
