@@ -62,7 +62,7 @@ class BranchAccessPolicy(AccessPolicy):
     statements = [
         # Restaurant Owner: Full access to manage their restaurant's branches, including creation
         {
-            "action": ["list", "retrieve", "create", "update", "partial_update", "destroy"],
+            "action": ["list", "retrieve", "create", "update", "partial_update", "destroy", "menus", "menu_detail"],
             "principal": ["group:RestaurantOwner"],
             "effect": "allow",
             "condition": "is_owner_of_restaurant",

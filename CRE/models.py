@@ -48,6 +48,7 @@ class CustomUser(AbstractUser):
     companies = models.ManyToManyField('Company', related_name="users", blank=True)
     countries = models.ManyToManyField('Country', related_name="users", blank=True)
     restaurants = models.ManyToManyField('Restaurant', related_name='employees', blank=True)
+    branches = models.ManyToManyField('Branch', related_name='employees', blank=True)
 
     # Contact Information
     email = models.EmailField(unique=True, blank=True, null=True)
@@ -219,7 +220,7 @@ class Restaurant(models.Model):
     region_or_state = models.ForeignKey(RegionOrState, null=True, on_delete=models.CASCADE, related_name='restaurants')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     manager = models.ForeignKey( settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
-        related_name="managed_restaurants",
+        related_name="managed_restaurant",
         help_text="User assigned as the manager of this restaurant",
     )
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="restaurant")
@@ -239,7 +240,7 @@ class Branch(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='branches')
     manager = models.ForeignKey( settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
-        related_name="branches",
+        related_name="managed_branch",
         help_text="User assigned as the manager of this branch",
     )
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="branch")

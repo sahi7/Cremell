@@ -17,12 +17,14 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from CRE.views__helper import CheckUserExistsView, UserScopeView
-from CRE.views import RegistrationView, UserViewSet, BranchViewSet, RestaurantViewSet, BranchMenuDetailView, MenuViewSet, MenuCategoryViewSet, MenuItemViewSet
+from CRE.views import RegistrationView, UserViewSet, BranchViewSet, RestaurantViewSet, MenuViewSet, MenuCategoryViewSet, MenuItemViewSet
 from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
 router.register(r'users', UserViewSet, basename='user')
 router.register(r'branches', BranchViewSet)
+# - GET /api/branches/{id}/menus/: List all menus for a branch.
+# - GET /api/branches/{id}/menus/{menu_id}/: Retrieve details of a specific menu for a branch.
 
 router.register(r'restaurants', RestaurantViewSet)
 # custom actions will generate the following additional routes:
@@ -48,8 +50,5 @@ urlpatterns = [
     api_path('register/', RegistrationView.as_view(), name='user-register'),
     api_path('check-user/', CheckUserExistsView.as_view(), name='check-user'),
     api_path('user-scope/', UserScopeView.as_view(), name='user-scope'),
-    api_path('branches/<int:branch_id>/menus/', BranchMenuDetailView.as_view(), name='branch-menus'),
-    api_path('branches/<int:branch_id>/menus/<int:pk>/', BranchMenuDetailView.as_view(), name='menu-detail'),
-
     path('api/', include(router.urls)),
 ]

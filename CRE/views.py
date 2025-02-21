@@ -245,6 +245,26 @@ class BranchViewSet(ModelViewSet):
     serializer_class = BranchSerializer
     permission_classes = (BranchAccessPolicy, ObjectStatusPermission, BManagerScopePermission,)
 
+    # Custom action to list all menus for a branch
+    @action(detail=True, methods=['get'])
+    def menus(self, request, pk=None):
+        branch = self.get_object()
+        menus = Menu.objects.filter(branch=branch)
+        serializer = MenuSerializer(menus, many=True)
+        return Response(serializer.data)
+
+    # Custom action to retrieve a specific menu for a branch
+    @action(detail=True, methods=['get'], url_path='menus/(?P<menu_id>[^/.]+)')
+    def menu_detail(self, request, pk=None, menu_id=None):
+        branch = self.get_object()
+        menu = get_object_or_404(Menu, id=menu_id, branch=branch)
+        categories = MenuCategory.objects.filter(menu=menu).prefetch_related('menu_items')
+        data = {
+            "menu": MenuSerializer(menu).data,
+            "categories": MenuCategorySerializer(categories, many=True).data
+        }
+        return Response(data)
+
     def get_queryset(self):
         user = self.request.user
         allowed_scopes = {}
@@ -332,26 +352,5 @@ class MenuItemViewSet(ModelViewSet):
     queryset = MenuItem.objects.all()
     serializer_class = MenuItemSerializer
 
-class BranchMenuDetailView(APIView):
-    def get(self, request, branch_id=None, pk=None):
-        if branch_id and pk:
-            # Fetch the specific menu for the given branch and pk
-            branch = get_object_or_404(Branch, id=branch_id)
-            menu = get_object_or_404(Menu, id=pk, branch=branch)  # Assuming a relationship between menu and branch
-            categories = MenuCategory.objects.filter(menu=menu).prefetch_related('menu_items')
-            data = {
-                "menu": MenuSerializer(menu).data,
-                "categories": MenuCategorySerializer(categories, many=True).data
-            }
-            return Response(data)
-        
-        elif branch_id:
-            # Fetch all menus for the given branch
-            branch = get_object_or_404(Branch, id=branch_id)
-            menus = Menu.objects.filter(branch=branch)
-            serializer = BranchMenuSerializer(menus, many=True)
-            return Response(serializer.data)
-        
-        return Response({"detail": _("Invalid request")}, status=400)
 
 
