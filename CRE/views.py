@@ -245,6 +245,14 @@ class BranchViewSet(ModelViewSet):
     serializer_class = BranchSerializer
     permission_classes = (BranchAccessPolicy, ObjectStatusPermission, BManagerScopePermission,)
 
+    # Custom action to list all employees of a branch
+    @action(detail=True, methods=['get'])
+    def employees(self, request, pk=None):
+        branch = self.get_object()
+        employees = branch.employees.all()
+        serializer = UserSerializer(employees, many=True)
+        return Response(serializer.data)
+
     # Custom action to list all menus for a branch
     @action(detail=True, methods=['get'])
     def menus(self, request, pk=None):

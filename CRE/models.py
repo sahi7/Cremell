@@ -65,6 +65,7 @@ class CustomUser(AbstractUser):
         ('restaurant_owner', _('Restaurant Owner')),
         ('country_manager', _('Country Manager')),
         ('restaurant_manager', _('Restaurant Manager')),
+        ('branch_manager', _('Branch Manager')),
         ('shift_leader', _('Shift Leader')),
         ('cashier', _('Cashier')),
         ('cook', _('Cook')),
@@ -95,13 +96,14 @@ class CustomUser(AbstractUser):
             'restaurant_owner': 2,
             'country_manager': 3,
             'restaurant_manager': 4,
-            'shift_leader': 5,
-            'cashier': 6,
-            'cook': 7,
-            'food_runner': 8,
-            'cleaner': 9,
-            'delivery_man': 10,
-            'utility_worker': 11,
+            'branch_manager': 5,
+            'shift_leader': 6,
+            'cashier': 7,
+            'cook': 8,
+            'food_runner': 9,
+            'cleaner': 10,
+            'delivery_man': 11,
+            'utility_worker': 12,
         }
         return role_hierarchy.get(role or self.role, 0)  # If no role is specified, default to the instance's role
 
@@ -296,34 +298,44 @@ class MenuItem(models.Model):
 
 
 class Order(models.Model):
+
     ORDER_STATUS_CHOICES = [
-        ('pending', _("Pending")),
-        ('preparing', _("Preparing")),
-        ('delivered', _("Delivered")),
+        ('received', _("Received")), # Food Runner places the order and sends to kitchen
+        ('preparing', _("Preparing")), # When cook claims order state changes to prepping
+        ('ready', _("Ready to Serve")), # Cook marks the order as completed -> foodrunner claims serve task
+        ('delivered', _("Delivered")), # Foodrunner delivers food on table
+        ('completed', _("Completed")), # Cashier processes payment for the order -> it is marked as completed
         ('canceled', _("Canceled")),
     ]
 
-    branch = models.ForeignKey(
-        'Branch',
-        on_delete=models.CASCADE,
-        related_name='orders',
-        verbose_name=_("Branch")
+    ORDER_TYPE_CHOICES = [
+        ('dine_in', _("Dine-in")),
+        ('takeaway', _("Takeaway")),
+        ('delivery', _("Delivery")),
+    ]
+
+    SOURCE_CHOICES = [
+        ('web', _("Website")),
+        ('app', _("Mobile App")),
+        ('pos', _("POS Terminal")),
+        ('kiosk', _("In-Store Kiosk")),
+    ]
+
+    # Fields
+    status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='received', verbose_name=_("Status"))
+    order_type = models.CharField(max_length=20, choices=ORDER_TYPE_CHOICES, verbose_name=_("Order Type"))
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, verbose_name=_("Source"))
+
+    table_number = models.CharField(max_length=10, blank=True, null=True)  # For dine-in
+    delivery_driver = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='deliveries'
     )
-    customer = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        related_name='orders',
-        blank=True,
-        null=True,
-        verbose_name=_("Customer")
-    )
-    status = models.CharField(
-        max_length=20,
-        choices=ORDER_STATUS_CHOICES,
-        default='pending',
-        verbose_name=_("Status")
-    )
+
+    branch = models.ForeignKey('Branch', on_delete=models.CASCADE, related_name='orders', verbose_name=_("Branch"))
+
+    status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='Received', verbose_name=_("Status"))
     total_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name=_("Total Price"))
+    special_instructions = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
 
@@ -336,18 +348,8 @@ class Order(models.Model):
 
 
 class OrderItem(models.Model):
-    order = models.ForeignKey(
-        'Order',
-        on_delete=models.CASCADE,
-        related_name='order_items',
-        verbose_name=_("Order")
-    )
-    menu_item = models.ForeignKey(
-        'MenuItem',
-        on_delete=models.CASCADE,
-        related_name='order_items',
-        verbose_name=_("Menu Item")
-    )
+    order = models.ForeignKey('Order', on_delete=models.CASCADE, related_name='order_items', verbose_name=_("Order"))
+    menu_item = models.ForeignKey('MenuItem', on_delete=models.CASCADE, related_name='order_items', verbose_name=_("Menu Item"))
     quantity = models.PositiveIntegerField(default=1, verbose_name=_("Quantity"))
     item_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name=_("Item Price"))
 
