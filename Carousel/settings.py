@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'notifications.apps.NotificationsConfig',     # notifications App
     'analytics.apps.AnalyticsConfig',       # analytics App
     'subscriptions.apps.SubscriptionsConfig',
+    'payments.apps.PaymentsConfig',
 
     # django-allauth
     'allauth',
@@ -160,6 +161,18 @@ DATABASES = {
     }
 }
 
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [os.getenv('REDIS_URL')],
+        },
+    },
+}
+
+# Celery configuration
+CELERY_BROKER_URL = os.getenv('REDIS_URL')
+CELERY_RESULT_BACKEND = os.getenv('REDIS_URL')
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators

@@ -3,6 +3,7 @@ from django.http import HttpResponseRedirect
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from django.db.models import Q
+from django.db import transaction
 
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -359,6 +360,32 @@ class MenuCategoryViewSet(ModelViewSet):
 class MenuItemViewSet(ModelViewSet):
     queryset = MenuItem.objects.all()
     serializer_class = MenuItemSerializer
+
+
+class OrderModifyView(APIView):
+    def put(self, request, order_id):
+        with transaction.atomic():
+            order = Order.objects.select_for_update().get(id=order_id)
+            
+            if order.version != request.data.get('expected_version'):
+                return Response({"error": _("Version mismatch")}, status=409)
+                
+            for change in request.data.get('changes', []):
+                if change['action'] == 'add':
+                    OrderItem.objects.create(
+                        order=order,
+                        menu_item_id=change['menu_item'],
+                        quantity=change['quantity'],
+                        item_price=MenuItem.objects.get(id=change['menu_item']).price
+                    )
+                elif change['action'] == 'remove':
+                    OrderItem.objects.filter(id=change['order_item']).delete()
+            
+            order.refresh_from_db()
+            return Response({
+                "version": order.version,
+                "total_price": order.total_price
+            })
 
 
 

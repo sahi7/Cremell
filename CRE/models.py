@@ -321,7 +321,9 @@ class Order(models.Model):
         ('kiosk', _("In-Store Kiosk")),
     ]
 
-    # Fields
+    # Add version for optimistic locking
+    version = models.IntegerField(default=0)
+    
     status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='received', verbose_name=_("Status"))
     order_type = models.CharField(max_length=20, choices=ORDER_TYPE_CHOICES, verbose_name=_("Order Type"))
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, verbose_name=_("Source"))
@@ -336,6 +338,7 @@ class Order(models.Model):
     status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='Received', verbose_name=_("Status"))
     total_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name=_("Total Price"))
     special_instructions = models.TextField(blank=True)
+    modified_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='modified_orders')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
 

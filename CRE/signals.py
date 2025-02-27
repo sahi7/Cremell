@@ -82,3 +82,23 @@ def cleanup_unused_permissions_and_groups():
     for permission in Permission.objects.all():
         if permission.codename not in defined_permissions:
             permission.delete()
+
+
+from .models import Order, OrderItem
+
+@receiver(post_save, sender=Order)
+def handle_order_creation(sender, instance, created, **kwargs):
+    if created:
+        # Create initial task
+        from notifications.tasks import create_initial_task
+        create_initial_task.delay(instance.id)
+
+@receiver(post_save, sender=OrderItem)
+@receiver(post_delete, sender=OrderItem)
+def update_order_total(sender, instance, **kwargs):
+    order = instance.order
+    order.total_price = order.order_items.aggregate(
+        total=Sum(F('item_price') * F('quantity'))
+    )['total'] or 0
+    order.version += 1
+    order.save(update_fields=['total_price', 'version'])
