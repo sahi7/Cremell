@@ -28,7 +28,7 @@ from .serializers import MenuItemSerializer, CompanySerializer
 from zMisc.policies import UserAccessPolicy, RestaurantAccessPolicy, BranchAccessPolicy
 from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
 from zMisc.utils import validate_scope, filter_queryset_by_scopes
-from .models import Restaurant, Branch, Menu, MenuItem, MenuCategory
+from .models import Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem
 
 CustomUser = get_user_model()
 def email_confirm_redirect(request, key):
@@ -350,42 +350,117 @@ class BranchViewSet(ModelViewSet):
         serializer.save()
 
 class MenuViewSet(ModelViewSet):
-    queryset = Menu.objects.all()
-    serializer_class = MenuSerializer
+    """
+    ViewSet for managing Menu objects.
+    Provides CRUD operations for Menu model.
+    """
+    queryset = Menu.objects.all()  # Retrieve all Menu objects
+    serializer_class = MenuSerializer  # Use MenuSerializer for serialization
+
 
 class MenuCategoryViewSet(ModelViewSet):
-    queryset = MenuCategory.objects.all()
-    serializer_class = MenuCategorySerializer
+    """
+    ViewSet for managing MenuCategory objects.
+    Provides CRUD operations for MenuCategory model.
+    """
+    queryset = MenuCategory.objects.all() 
+    serializer_class = MenuCategorySerializer 
+
 
 class MenuItemViewSet(ModelViewSet):
-    queryset = MenuItem.objects.all()
-    serializer_class = MenuItemSerializer
+    """
+    ViewSet for managing MenuItem objects.
+    Provides CRUD operations for MenuItem model.
+    """
+    queryset = MenuItem.objects.all() 
+    serializer_class = MenuItemSerializer  
 
 
 class OrderModifyView(APIView):
+    """
+    API endpoint for modifying orders.
+    Supports adding and removing items from an existing order.
+    Uses optimistic locking to prevent concurrent modifications.
+    """
+
     def put(self, request, order_id):
-        with transaction.atomic():
-            order = Order.objects.select_for_update().get(id=order_id)
-            
-            if order.version != request.data.get('expected_version'):
-                return Response({"error": _("Version mismatch")}, status=409)
+        """
+        Handles PUT requests for order modifications.
+        
+        Args:
+            request (Request): The HTTP request object.
+            order_id (int): The ID of the order to modify.
+        
+        Returns:
+            Response: JSON response with updated order details or error message.
+            {
+                "version": 6,
+                "total_price": "45.00"
+            }
+
+        Accepts:
+            {
+                "expected_version": 5,
+                "changes": [
+                    {"action": "add", "menu_item": 42, "quantity": 2},
+                    {"action": "remove", "order_item": 789}
+                ]
+            }
+        """
+        try:
+            # Start an atomic transaction to ensure data consistency
+            with transaction.atomic():
+                # Lock the order row to prevent concurrent modifications
+                order = Order.objects.select_for_update().get(id=order_id)
                 
-            for change in request.data.get('changes', []):
-                if change['action'] == 'add':
-                    OrderItem.objects.create(
-                        order=order,
-                        menu_item_id=change['menu_item'],
-                        quantity=change['quantity'],
-                        item_price=MenuItem.objects.get(id=change['menu_item']).price
+                # Check for version mismatch (optimistic locking)
+                if order.version != request.data.get('expected_version'):
+                    return Response(
+                        {"error": "Concurrent modification detected"},
+                        status=status.HTTP_409_CONFLICT
                     )
-                elif change['action'] == 'remove':
-                    OrderItem.objects.filter(id=change['order_item']).delete()
-            
-            order.refresh_from_db()
-            return Response({
-                "version": order.version,
-                "total_price": order.total_price
-            })
-
-
+                
+                # Process each change in the request
+                for change in request.data.get('changes', []):
+                    if change['action'] == 'add':
+                        # Add a new item to the order
+                        OrderItem.objects.create(
+                            order=order,
+                            menu_item_id=change['menu_item'],
+                            quantity=change['quantity'],
+                            item_price=MenuItem.objects.get(id=change['menu_item']).price
+                        )
+                    elif change['action'] == 'remove':
+                        # Remove an item from the order
+                        OrderItem.objects.filter(id=change['order_item']).delete()
+                
+                # Refresh the order object to reflect changes
+                order.refresh_from_db()
+                
+                # Return the updated order version and total price
+                return Response({
+                    "version": order.version,
+                    "total_price": order.total_price
+                }, status=status.HTTP_200_OK)
+        
+        except Order.DoesNotExist:
+            # Handle case where order does not exist
+            return Response(
+                {"error": "Order not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        except MenuItem.DoesNotExist:
+            # Handle case where menu item does not exist
+            return Response(
+                {"error": "Invalid menu item"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        except Exception as e:
+            # Handle unexpected errors
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 

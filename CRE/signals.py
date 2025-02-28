@@ -2,6 +2,8 @@ from django.apps import apps
 from django.contrib.auth.models import Group, Permission
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
+from .models import StaffAvailability, StaffShift
+from notifications.models import Task
 
 # Define your model groupings
 GLOBAL_MODELS = ["customuser", "company"]  # Models managed at a global level
@@ -102,3 +104,33 @@ def update_order_total(sender, instance, **kwargs):
     )['total'] or 0
     order.version += 1
     order.save(update_fields=['total_price', 'version'])
+
+@receiver(post_save, sender=Task)
+def update_availability_on_task_change(sender, instance, **kwargs):
+    """
+    Update StaffAvailability when a Task is claimed or completed.
+    - Links task to availability if claimed and not completed.
+    - Clears task link if completed.
+    """
+    if instance.claimed_by and hasattr(instance.claimed_by, 'availability'):
+        availability = instance.claimed_by.availability
+        if instance.status in ('pending', 'claimed'):  # Task is active
+            availability.current_task = instance
+        elif instance.status in ('completed', 'escalated'):  # Task is done
+            availability.current_task = None
+        availability.update_status()
+
+@receiver(post_save, sender=StaffShift)
+def update_availability_on_shift_change(sender, instance, **kwargs):
+    """Update StaffAvailability when a StaffShift is created or modified (e.g., overtime added)."""
+    if hasattr(instance.user, 'availability'):
+        instance.user.availability.update_status()
+
+@receiver(post_save, sender='restaurant.OvertimeRequest')
+def notify_manager_on_overtime_request(sender, instance, created, **kwargs):
+    """
+    Trigger WebSocket notification when an OvertimeRequest is created.
+    Handled in WebSocket layer below.
+    """
+    if created:
+        pass  # WebSocket notification logic implemented in consumers

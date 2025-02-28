@@ -1,4 +1,6 @@
 import uuid
+import pytz
+
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.contrib.auth.models import Group
 from django.utils.translation import gettext_lazy as _
@@ -245,12 +247,17 @@ class Branch(models.Model):
         related_name="managed_branch",
         help_text="User assigned as the manager of this branch",
     )
+    timezone = models.CharField(max_length=50, choices=[(tz, tz) for tz in pytz.common_timezones], default='UTC')
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="branch")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.name} - {self.restaurant.name}" 
+
+    def local_now(self):
+        """Get current time in branch's timezone."""
+        return timezone.localtime(timezone.now(), pytz.timezone(self.timezone))
 
 
 class Menu(models.Model):
@@ -323,7 +330,7 @@ class Order(models.Model):
 
     # Add version for optimistic locking
     version = models.IntegerField(default=0)
-    
+
     status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='received', verbose_name=_("Status"))
     order_type = models.CharField(max_length=20, choices=ORDER_TYPE_CHOICES, verbose_name=_("Order Type"))
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, verbose_name=_("Source"))
@@ -362,3 +369,138 @@ class OrderItem(models.Model):
     class Meta:
         verbose_name = _("Order Item")
         verbose_name_plural = _("Order Items")
+
+
+class Shift(models.Model):
+    """Defines a shift template for a branch (e.g., Morning, Evening)."""
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='shifts')
+    name = models.CharField(max_length=50)  # e.g., "Morning Shift"
+    start_time = models.TimeField()  # e.g., 08:00
+    end_time = models.TimeField()    # e.g., 16:00
+
+    def __str__(self):
+        return f"{self.name} at {self.branch}"
+
+
+class StaffShift(models.Model):
+    """Assigns a user to a shift instance on a specific date."""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='staff_shifts')
+    shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
+    date = models.DateField()  # Specific date of the shift
+    start_datetime = models.DateTimeField()  # Computed: date + shift.start_time
+    end_datetime = models.DateTimeField()    # Computed: date + shift.end_time
+    overtime_end_datetime = models.DateTimeField(null=True, blank=True)  # Extended end time if approved
+    is_overtime_approved = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ('user', 'shift', 'date')
+        indexes = [
+            models.Index(fields=['user', 'start_datetime', 'end_datetime']),
+        ]
+
+    def save(self, *args, **kwargs):
+        """Compute UTC datetimes from branch local time."""
+        branch_tz = pytz.timezone(self.shift.branch.timezone)
+        naive_start = timezone.datetime.combine(self.date, self.shift.start_time)
+        naive_end = timezone.datetime.combine(self.date, self.shift.end_time)
+        self.start_datetime = branch_tz.localize(naive_start).astimezone(pytz.UTC)
+        self.end_datetime = branch_tz.localize(naive_end).astimezone(pytz.UTC)
+        super().save(*args, **kwargs)
+
+    def is_active(self):
+        """Check if shift is active in UTC time."""
+        now = timezone.now()
+        return self.start_datetime <= now <= (self.overtime_end_datetime or self.end_datetime)
+
+    def is_overtime_active(self):
+        """Check if overtime is active in UTC time."""
+        now = timezone.now()
+        return (
+            self.overtime_end_datetime and
+            self.end_datetime < now <= self.overtime_end_datetime and
+            self.is_overtime_approved
+        )
+
+    def extend_overtime(self, extra_hours):
+        """Extend shift with overtime, storing in UTC."""
+        if not self.overtime_end_datetime:
+            self.overtime_end_datetime = self.end_datetime + timezone.timedelta(hours=extra_hours)
+            self.is_overtime_approved = True
+            self.save()
+
+    def __str__(self):
+        return f"{self.user.username} - {self.shift.name} on {self.date}"
+
+
+class StaffAvailability(models.Model):
+    STATUS_CHOICES = [
+        ('available', 'Available'),
+        ('busy', 'Busy'), 
+        ('break', 'On Break'),
+        ('offline', 'Offline'),
+        ('overtime', 'Overtime'),
+    ]
+    
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='availability')
+    current_task = models.ForeignKey('notifications.Task', null=True, on_delete=models.SET_NULL)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='offline')
+    last_update = models.DateTimeField(auto_now=True)
+
+    def current_shift(self):
+        """Get the user's current active shift."""
+        return StaffShift.objects.filter(
+            user=self.user,
+            start_datetime__lte=timezone.now(),
+            end_datetime__gte=timezone.now()
+        ).first()
+
+    def update_status(self):
+        """Update status based on shift and task state."""
+        shift = self.current_shift()
+        now = timezone.now()
+        if not shift:
+            recent_shift = StaffShift.objects.filter(
+                user=self.user,
+                end_datetime__lt=now
+            ).order_by('-end_datetime').first()
+            if (
+                recent_shift and
+                self.current_task and
+                not self.current_task.is_completed and
+                now < recent_shift.end_datetime + timezone.timedelta(minutes=10)
+            ):
+                self.status = 'busy'  # Still within 10-min post-shift window
+            else:
+                self.status = 'offline'
+        elif shift.is_overtime_active():
+            self.status = 'overtime'
+        elif self.current_task and not self.current_task.is_completed:
+            self.status = 'busy'
+        elif shift.is_active():
+            self.status = 'available'
+        else:
+            self.status = 'offline'
+        self.save()
+
+    def __str__(self):
+        return f"{self.user.username} - {self.status}"
+
+
+class OvertimeRequest(models.Model):
+    """User-initiated overtime request."""
+    staff_shift = models.ForeignKey(StaffShift, on_delete=models.CASCADE, related_name='overtime_requests')
+    requested_hours = models.FloatField()  # e.g., 1.5 hours
+    reason = models.TextField()
+    is_approved = models.BooleanField(default=False)
+    requested_at = models.DateTimeField(default=timezone.now)
+    manager_response_at = models.DateTimeField(null=True, blank=True)
+
+    def approve(self):
+        """Manager approves the request."""
+        self.is_approved = True
+        self.manager_response_at = timezone.now()
+        self.staff_shift.extend_overtime(self.requested_hours)
+        self.save()
+
+    def __str__(self):
+        return f"{self.staff_shift.user.username} - {self.requested_hours} hours"

@@ -20,9 +20,22 @@ class Task(models.Model):
         null=True,
         on_delete=models.SET_NULL
     )
+    preparation_time = models.DurationField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     timeout_at = models.DateTimeField()
     version = models.IntegerField(default=0)
+
+    def __str__(self):
+        return f"{self.task_type} for Order {self.order.id} - {self.status}"
+
+    def save(self, *args, **kwargs):
+        # Auto-calculate timings
+        if self.status == 'completed':
+            if self.task_type == 'prepare':
+                self.preparation_time = timezone.now() - self.created_at
+            elif self.task_type == 'serve':
+                self.delivery_time = timezone.now() - self.created_at
+        super().save(*args, **kwargs)
 
     class Meta:
         indexes = [
@@ -42,15 +55,29 @@ class BroadcastChannel(models.Model):
     active_connections = models.PositiveIntegerField(default=0)
 
 
-class StaffAvailability(models.Model):
-    STATUS_CHOICES = [
-        ('available', 'Available'),
-        ('busy', 'Busy'), 
-        ('break', 'On Break'),
-        ('offline', 'Offline')
+class BranchActivity(models.Model):
+    """Logging activity within a branch"""
+    ACTIVITY_CHOICES = [
+        ('order_create', 'Order Created'),
+        ('order_modify', 'Order Modified'),
+        ('task_claim', 'Task Claimed'),
+        ('task_complete', 'Task Completed'),
+        ('payment_process', 'Payment Processed'),
+        ('staff_available', 'Staff Availability Changed'),
+        ('escalation', 'Task Escalated')
     ]
     
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    current_task = models.ForeignKey('Task', null=True, on_delete=models.SET_NULL)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
-    last_update = models.DateTimeField(auto_now=True)
+    branch = models.ForeignKey('CRE.Branch', on_delete=models.CASCADE)
+    activity_type = models.CharField(max_length=20, choices=ACTIVITY_CHOICES)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    details = models.JSONField()
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['-timestamp']),
+            models.Index(fields=['activity_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.get_activity_type_display()} @ {self.timestamp}"
