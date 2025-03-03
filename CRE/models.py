@@ -466,15 +466,15 @@ class StaffAvailability(models.Model):
             if (
                 recent_shift and
                 self.current_task and
-                not self.current_task.is_completed and
+                self.current_task.status in ('pending', 'claimed') and  # Task still active
                 now < recent_shift.end_datetime + timezone.timedelta(minutes=10)
             ):
-                self.status = 'busy'  # Still within 10-min post-shift window
+                self.status = 'busy'  # Within 10-min post-shift window
             else:
                 self.status = 'offline'
         elif shift.is_overtime_active():
             self.status = 'overtime'
-        elif self.current_task and not self.current_task.is_completed:
+        elif self.current_task and self.current_task.status in ('pending', 'claimed'):
             self.status = 'busy'
         elif shift.is_active():
             self.status = 'available'

@@ -22,13 +22,15 @@ from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 
 from rest_access_policy import AccessViewSetMixin
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer, MenuSerializer, MenuCategorySerializer
-from .serializers import MenuItemSerializer, CompanySerializer
+from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
 from zMisc.policies import UserAccessPolicy, RestaurantAccessPolicy, BranchAccessPolicy
 from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
 from zMisc.utils import validate_scope, filter_queryset_by_scopes
-from .models import Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem
+from .models import Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
 
 CustomUser = get_user_model()
 def email_confirm_redirect(request, key):
@@ -464,3 +466,76 @@ class OrderModifyView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+
+class StaffShiftViewSet(viewsets.ModelViewSet):
+    """API for managing staff shifts."""
+    queryset = StaffShift.objects.all()
+    serializer_class = StaffShiftSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    # def get_queryset(self):
+    #     """Filter by user or manager role."""
+    #     if self.request.user.is_staff:  # Assuming managers have is_staff=True
+    #         return self.queryset
+    #     return self.queryset.filter(user=self.request.user)
+
+    @action(detail=False, methods=['post'], url_path='extend-overtime')
+    def extend_overtime(self, request):
+        """Manager extends overtime for one or multiple users."""
+        user_ids = request.data.get('user_ids', [])  # List of user IDs
+        hours = request.data.get('hours', 1.0)
+        if not user_ids:
+            return Response({'error': 'No users specified'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Filter shifts by user's manageable branches
+        shifts = StaffShift.objects.filter(
+            user__id__in=user_ids,
+            shift__branch__in=request.user.branches.all(),
+            end_datetime__gte=timezone.now()
+        )
+        if not shifts.exists():
+            return Response({'error': 'No valid shifts found'}, status=status.HTTP_404_NOT_FOUND)
+
+        channel_layer = get_channel_layer()
+        for shift in shifts:
+            # Permission already checked by BranchRolePermission
+            shift.extend_overtime(hours)
+            async_to_sync(channel_layer.group_send)(
+                f"user_{shift.user.id}",
+                {
+                    'type': 'overtime_notification',
+                    'message': f"Your shift has been extended by {hours} hours."
+                }
+            )
+        return Response({'status': 'Overtime extended'}, status=status.HTTP_200_OK)
+
+class OvertimeRequestViewSet(viewsets.ModelViewSet):
+    """API for overtime requests."""
+    queryset = OvertimeRequest.objects.all()
+    serializer_class = OvertimeRequestSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        """User creates an overtime request."""
+        serializer.save(staff_shift=StaffShift.objects.get(
+            user=self.request.user,
+            date=timezone.now().date()
+        ))
+
+    @action(detail=True, methods=['post'], url_path='approve')
+    def approve_overtime(self, request, pk=None):
+        """Manager approves an overtime request."""
+        # if not request.user.is_staff:
+        #     return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+        ot_request = self.get_object()
+        ot_request.approve()
+        # Notify user via WebSocket
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"user_{ot_request.staff_shift.user.id}",
+            {
+                'type': 'overtime_notification',
+                'message': 'Your overtime request has been approved.'
+            }
+        )
+        return Response({'status': 'Approved'}, status=status.HTTP_200_OK)

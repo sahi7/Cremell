@@ -15,18 +15,11 @@ class Task(models.Model):
         ('completed', 'Completed'),
         ('escalated', 'Escalated')
     ])
-    claimed_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        null=True,
-        on_delete=models.SET_NULL
-    )
+    claimed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     preparation_time = models.DurationField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    timeout_at = models.DateTimeField()
     version = models.IntegerField(default=0)
-
-    def __str__(self):
-        return f"{self.task_type} for Order {self.order.id} - {self.status}"
+    timeout_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
         # Auto-calculate timings
@@ -42,6 +35,9 @@ class Task(models.Model):
             models.Index(fields=['status', 'task_type']),
             models.Index(fields=['timeout_at']),
         ]
+
+    def __str__(self):
+        return f"{self.task_type} for Order {self.order.id} - {self.status}"
 
 class BroadcastChannel(models.Model):
     CHANNEL_TYPES = [

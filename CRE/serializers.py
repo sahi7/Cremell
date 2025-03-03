@@ -4,7 +4,7 @@ from allauth.account.utils import setup_user_email
 from allauth.account.utils import send_email_confirmation
 from dj_rest_auth.registration.serializers import RegisterSerializer
 from dj_rest_auth.serializers import UserDetailsSerializer
-from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState, Branch, Menu, MenuCategory, MenuItem
+from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState, Branch, Menu, MenuCategory, MenuItem, StaffShift, OvertimeRequest, StaffAvailability
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group
@@ -246,4 +246,20 @@ class BranchMenuSerializer(serializers.ModelSerializer):
     class Meta:
         model = Branch
         fields = ['id', 'name', 'menus']
+
+class StaffShiftSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StaffShift
+        fields = '__all__'
+
+class OvertimeRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OvertimeRequest
+        fields = '__all__'
+        read_only_fields = ('staff_shift', 'requested_at', 'manager_response_at')
+
+class StaffAvailabilitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StaffAvailability
+        fields = '__all__'
 
