@@ -4,6 +4,7 @@ import pytz
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.contrib.auth.models import Group
 from django.utils.translation import gettext_lazy as _
+from django.utils import timezone
 from django.conf import settings
 from django.db import models
 
@@ -332,8 +333,8 @@ class Order(models.Model):
     version = models.IntegerField(default=0)
 
     status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='received', verbose_name=_("Status"))
-    order_type = models.CharField(max_length=20, choices=ORDER_TYPE_CHOICES, verbose_name=_("Order Type"))
-    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, verbose_name=_("Source"))
+    order_type = models.CharField(max_length=20, choices=ORDER_TYPE_CHOICES, default='dine_in', verbose_name=_("Order Type"))
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='web', verbose_name=_("Source"))
 
     table_number = models.CharField(max_length=10, blank=True, null=True)  # For dine-in
     delivery_driver = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,

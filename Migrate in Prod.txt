@@ -4,5 +4,11 @@
 - set user to ownver - ALTER DATABASE db OWNER TO db_user;
 - make all migrations before adding this file in CRE > signals.py
 
+Delete Migration Files with Win + X → PowerShell
+ - Remove-Item -Recurse -Force CRE\migrations\*
+ - Remove-Item -Recurse -Force notifications\migrations\*
+ - New-Item CRE\migrations\__init__.py -ItemType File
+ - New-Item notifications\migrations\__init__.py -ItemType File
+
 
 

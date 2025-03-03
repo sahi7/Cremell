@@ -467,11 +467,11 @@ class OrderModifyView(APIView):
             )
 
 
-class StaffShiftViewSet(viewsets.ModelViewSet):
+class StaffShiftViewSet(ModelViewSet):
     """API for managing staff shifts."""
     queryset = StaffShift.objects.all()
     serializer_class = StaffShiftSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    # permission_classes = [permissions.IsAuthenticated]
 
     # def get_queryset(self):
     #     """Filter by user or manager role."""
@@ -509,11 +509,11 @@ class StaffShiftViewSet(viewsets.ModelViewSet):
             )
         return Response({'status': 'Overtime extended'}, status=status.HTTP_200_OK)
 
-class OvertimeRequestViewSet(viewsets.ModelViewSet):
+class OvertimeRequestViewSet(ModelViewSet):
     """API for overtime requests."""
     queryset = OvertimeRequest.objects.all()
     serializer_class = OvertimeRequestSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    # permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
         """User creates an overtime request."""

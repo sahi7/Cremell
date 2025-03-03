@@ -1,6 +1,6 @@
 from django.apps import apps
 from django.contrib.auth.models import Group, Permission
-from django.db.models.signals import post_migrate
+from django.db.models.signals import post_migrate, post_save, post_delete
 from django.dispatch import receiver
 from .models import StaffAvailability, StaffShift
 from notifications.models import Task
@@ -126,7 +126,7 @@ def update_availability_on_shift_change(sender, instance, **kwargs):
     if hasattr(instance.user, 'availability'):
         instance.user.availability.update_status()
 
-@receiver(post_save, sender='restaurant.OvertimeRequest')
+@receiver(post_save, sender='CRE.OvertimeRequest')
 def notify_manager_on_overtime_request(sender, instance, created, **kwargs):
     """
     Trigger WebSocket notification when an OvertimeRequest is created.

@@ -217,8 +217,6 @@ LANGUAGES = [
 
 LANGUAGE_CODE = 'en'
 
-USE_I18N = True
-
 LOCALE_PATHS = [
     os.path.join(BASE_DIR, 'locale'),
 ]
