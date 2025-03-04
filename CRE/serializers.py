@@ -161,6 +161,7 @@ class RegistrationSerializer(serializers.Serializer):
             password=user_data['password'],
             first_name=user_data.get('first_name'),
             last_name=user_data.get('last_name')
+            username=user_data['username'],
         )
         # Trigger email confirmation
         send_email_confirmation(self.context.get('request'), user)

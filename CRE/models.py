@@ -31,7 +31,7 @@ class CustomUserManager(BaseUserManager):
             raise ValueError(_('A role must be specified when creating a user'))
         extra_fields.setdefault('role', role)
         email = self.normalize_email(email) if email else None
-        if role in [1, 2, 3]:
+        if role in ['company_admin', 'restaurant_owner']:
             extra_fields.setdefault('is_staff', True)
         return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
 
