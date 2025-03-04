@@ -73,10 +73,25 @@ class CustomUserDetailsSerializer(UserDetailsSerializer):
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
     role = serializers.CharField(read_only=True)  # This will be assigned in the view or user manager
+    countries = serializers.PrimaryKeyRelatedField(queryset=Country.objects.all(), many=True, required=False)
 
     class Meta:
         model = CustomUser
         fields = '__all__'
+
+    def validate(self, attrs):
+        # Validate city and state relationship
+        city = attrs.get('city')
+        state = attrs.get('state')
+        if city and state:
+            if city.region_or_state != state:
+                raise serializers.ValidationError({
+                    'city': _("The city '%(city_name)s' does not belong to the state/region '%(state_name)s'.") % {
+                        'city_name': city.name,
+                        'state_name': state.name
+                    }
+                })
+        return attrs
 
     def create(self, validated_data):
         # Assign role and use custom manager method to create the user
@@ -85,10 +100,12 @@ class UserSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(_("A role must be specified in the context to create a user."))
         validated_data['role'] = role
         
-        # Use the create_user_with_role method to create the user with the role
+       # Handle countries separately since it's a ManyToManyField
+        countries = validated_data.pop('countries', [])
         user = CustomUser.objects.create_user_with_role(**validated_data)
+        if countries:
+            user.countries.set(countries)  
         send_email_confirmation(self.context.get('request'), user)
-        
         return user
 
 class CountrySerializer(serializers.ModelSerializer):
@@ -150,21 +167,9 @@ class RegistrationSerializer(serializers.Serializer):
         return attrs
 
     def create(self, validated_data):
-        # Create the user first
-        company = None
-        role = self.context.get('role', 'user')
-        user_data = validated_data.pop('user_data')
-        user = CustomUser.objects.create_user_with_role(
-            role=role,
-            email=user_data['email'],
-            phone_number=user_data['phone_number'],
-            password=user_data['password'],
-            first_name=user_data.get('first_name'),
-            last_name=user_data.get('last_name'),
-            username=user_data['username'],
-        )
-        # Trigger email confirmation
-        send_email_confirmation(self.context.get('request'), user)
+        # Create the user using UserSerializer
+        user_data = validated_data.pop('user_data')  # Contains objects already
+        user = UserSerializer(context=self.context).create(validated_data=user_data)
 
         company = None
         restaurant = None
