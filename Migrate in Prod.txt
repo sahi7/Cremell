@@ -10,5 +10,13 @@ Delete Migration Files with Win + X → PowerShell
  - New-Item CRE\migrations\__init__.py -ItemType File
  - New-Item notifications\migrations\__init__.py -ItemType File
 
+ Delete All migration folders accross all apps
+ - Get-ChildItem -Directory -Recurse -Filter "migrations" | Remove-Item -Recurse -Force
+ Recreate them
+ - $apps = "CRE", "notifications"; foreach ($app in $apps) { New-Item -Path "$app\migrations" -ItemType Directory -Force | Out-Null; New-Item -Path "$app\migrations\__init__.py" -ItemType File -Force | Out-Null }
+
+
+If Models are in a custom file, import them in admin.py; from .custom_file import *
+
 
 
