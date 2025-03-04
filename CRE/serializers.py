@@ -174,8 +174,7 @@ class RegistrationSerializer(serializers.Serializer):
             company_data['created_by'] = user
             company = CompanySerializer().create(company_data)
 
-            user.company = company
-            user.save()
+            user.companies.add(company)
 
             # Add the user to the CompanyAdmin group
             company_admin_group, created = Group.objects.get_or_create(name='CompanyAdmin')
