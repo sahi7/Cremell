@@ -160,7 +160,7 @@ class RegistrationSerializer(serializers.Serializer):
             phone_number=user_data['phone_number'],
             password=user_data['password'],
             first_name=user_data.get('first_name'),
-            last_name=user_data.get('last_name')
+            last_name=user_data.get('last_name'),
             username=user_data['username'],
         )
         # Trigger email confirmation

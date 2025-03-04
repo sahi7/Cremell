@@ -58,8 +58,8 @@ class CustomUser(AbstractUser):
     phone_number = models.CharField(max_length=20, unique=True, blank=True, null=True)
     address_line_1 = models.CharField(max_length=255, blank=True, null=True)
     address_line_2 = models.CharField(max_length=255, blank=True, null=True)
-    city = models.CharField(max_length=100, blank=True, null=True)
-    state = models.CharField(max_length=100, blank=True, null=True)
+    city = models.ForeignKey('City', on_delete=models.SET_NULL, blank=True, null=True, related_name="employees")
+    state = models.ForeignKey('RegionOrState', on_delete=models.SET_NULL, blank=True, null=True, related_name="employees")
     postal_code = models.CharField(max_length=20, blank=True, null=True)
 
     # Role-specific details
