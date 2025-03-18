@@ -290,9 +290,13 @@ class BranchViewSet(ModelViewSet):
             allowed_scopes = {
                 'company': Q(company__in=user.companies.all()),  # CompanyAdmin can see all branches in their company
             }
-        elif user.groups.filter(name="RestaurantOwner").exists() or user.groups.filter(name="BranchManager").exists():
+        elif user.groups.filter(name="RestaurantOwner").exists():
             allowed_scopes = {
-                'restaurants': Q(created_by=user) | Q(manager=user),  # RestaurantOwner can only see their own branches
+                'restaurants': Q(created_by=user) | Q(restaurant__in=user.restaurants.all()),  # RestaurantOwner can only see their own branches
+            }
+        elif user.groups.filter(name="BranchManager").exists():   # Direct branch access, plus ownership
+            allowed_scopes = {
+                'branches': Q(id__in=user.branches.all()) | Q(created_by=user),
             }
         elif user.groups.filter(name="RestaurantManager").exists():
             allowed_scopes = {
