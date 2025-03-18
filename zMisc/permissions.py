@@ -23,6 +23,11 @@ class UserCreationPermission(BasePermission):
         requested_companies = request.data.get("companies", [])
         requested_countries = request.data.get("countries", [])
         requested_restaurants = request.data.get("restaurants", [])
+        requested_branches = request.data.get("branches", [])
+
+        # Check if at least one affiliation is provided
+        if not any([requested_companies, requested_countries, requested_restaurants, requested_branches]):
+            raise PermissionDenied(_("New users must be associated with at least one object."))
 
         # Validate each relationship
         if requested_companies:
@@ -36,6 +41,10 @@ class UserCreationPermission(BasePermission):
         if requested_restaurants:
             if not self._is_subset(user.restaurants.values_list('id', flat=True), requested_restaurants):
                 raise PermissionDenied(_("You can only assign restaurants you are associated with."))
+
+        if requested_branches:
+            if not self._is_subset(user.branches.values_list('id', flat=True), requested_branches):
+                raise PermissionDenied(_("You can only assign branches you are associated with."))
         
         return True
 
