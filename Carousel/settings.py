@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken', # required since we'll use TokenAuthentication instead of Django's default SessionAuthentication
     'channels',
+    'adrf',
     
     'dj_rest_auth',
     'dj_rest_auth.registration',

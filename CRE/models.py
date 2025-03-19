@@ -78,11 +78,12 @@ class CustomUser(AbstractUser):
         ('utility_worker', _('Utility Worker')),
     )
     STATUS_CHOICES = (
+        ('pending', 'Pending schedule'),
         ('active', _('Active')),
         ('suspended', _('Suspended')),
         ('on_leave', _('On Leave')),
     )
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active', blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', blank=True, null=True)
     role = models.CharField(max_length=30, choices=ROLE_CHOICES, blank=True, null=True)
     salary = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     hire_date = models.DateField(blank=True, null=True)

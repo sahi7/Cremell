@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.utils.translation import gettext_lazy as _
 
 class Task(models.Model):
     TASK_TYPES = [
@@ -78,3 +79,34 @@ class BranchActivity(models.Model):
 
     def __str__(self):
         return f"{self.get_activity_type_display()} @ {self.timestamp}"
+
+
+class EmployeeTransfer(models.Model):
+    """
+    Model to track employee transfers between branches or restaurants.
+    """
+    TRANSFER_TYPES = (
+        ('temporary', _('Temporary')),
+        ('permanent', _('Permanent')),
+    )
+    STATUS_CHOICES = (
+        ('pending', _('Pending')),
+        ('approved', _('Approved')),
+        ('rejected', _('Rejected')),
+    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='transfers', verbose_name=_('User'))
+    from_branch = models.ForeignKey('CRE.Branch', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_from', verbose_name=_('From Branch'))
+    to_branch = models.ForeignKey('CRE.Branch', on_delete=models.CASCADE, related_name='transfers_to', verbose_name=_('To Branch'))
+    from_restaurant = models.ForeignKey('CRE.Restaurant', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_out', verbose_name=_('From Restaurant'))
+    to_restaurant = models.ForeignKey('CRE.Restaurant', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_in', verbose_name=_('To Restaurant'))
+    transfer_type = models.CharField(max_length=10, choices=TRANSFER_TYPES, verbose_name=_('Transfer Type'))
+    start_date = models.DateTimeField(auto_now_add=True, verbose_name=_('Start Date'))
+    end_date = models.DateTimeField(null=True, blank=True, verbose_name=_('End Date'))  # Null for permanent
+    initiated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='initiated_transfers', verbose_name=_('Initiated By'))
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending', verbose_name=_('Status'))
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['to_branch', 'start_date']),
+        ]

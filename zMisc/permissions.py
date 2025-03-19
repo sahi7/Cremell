@@ -66,24 +66,18 @@ class UserCreationPermission(BasePermission):
         'branches': 'branch',
     }
 
-    def has_permission(self, request, view):
+    async def has_permission(self, request, view):
         if view.action != "create":
             return True
         
         user = request.user
-        requested = {
-            'companies': request.data.get("companies", []),
-            'countries': request.data.get("countries", []),
-            'restaurants': request.data.get("restaurants", []),
-            'branches': request.data.get("branches", []),
-        }
+        requested = {field: request.data.get(field, []) for field in ['companies', 'countries', 'restaurants', 'branches']}
+        role_to_create = request.data.get('role')
 
-        # Use user.role from CustomUser
         user_role = user.role
         if not user_role or user_role not in self.SCOPE_RULES:
             raise PermissionDenied(_("You do not have permission to create users."))
 
-        # Get role-specific rules
         rules = self.SCOPE_RULES[user_role]
         scope_checks = rules.get('scopes', {})
 
@@ -94,14 +88,47 @@ class UserCreationPermission(BasePermission):
                 singular_field = self.FIELD_SINGULAR.get(field, field)
                 raise PermissionDenied(_(f"New users must be associated with at least one {singular_field}"))
 
-        # Validate requested entities against allowed scopes and active status
+        # Validate scopes
         for field, requested_ids in requested.items():
-            if requested_ids:  # Skip if empty
+            if requested_ids:
                 check_func = scope_checks.get(field)
-                if not check_func or check_func(user, requested_ids) != len(requested_ids):
+                if not check_func or await sync_to_async(check_func)(user, requested_ids) != len(requested_ids):
                     singular_field = self.FIELD_SINGULAR.get(field, field)
                     message = _(f"You can only assign {singular_field} within your scope.") if field == 'countries' else _(f"You can only assign active {singular_field} within your scope.")
                     raise PermissionDenied(message)
+
+        # Set pending status for non-SCOPE_RULES roles without branches
+        if role_to_create and role_to_create not in self.SCOPE_RULES and not requested['branches']:
+            request.data['status'] = 'pending'  # Mutate request.data for serializer
+
+        return True
+
+class TransferPermission(BasePermission):
+    async def has_permission(self, request, view):
+        if view.action != "create":
+            return True
+        
+        user = request.user
+        to_branch = request.data.get('to_branch')
+        to_restaurant = request.data.get('to_restaurant')
+
+        user_role = user.role
+        if not user_role or user_role not in UserCreationPermission.SCOPE_RULES:
+            raise PermissionDenied(_("You do not have permission to transfer users."))
+
+        rules = UserCreationPermission.SCOPE_RULES[user_role]
+        scope_checks = rules.get('scopes', {})
+
+        if to_branch:
+            check_func = scope_checks.get('branches')
+            if not check_func or await sync_to_async(check_func)(user, [to_branch]) != 1:
+                raise PermissionDenied(_("You can only transfer to active branches within your scope."))
+
+        if to_restaurant:
+            check_func = scope_checks.get('restaurants')
+            if not check_func or await sync_to_async(check_func)(user, [to_restaurant]) != 1:
+                raise PermissionDenied(_("You can only transfer to active restaurants within your scope."))
+
         return True
 
 class RManagerScopePermission(BasePermission):

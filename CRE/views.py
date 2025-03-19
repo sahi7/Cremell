@@ -24,6 +24,7 @@ from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from rest_access_policy import AccessViewSetMixin
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from adrf.views import APIView
 
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer, MenuSerializer, MenuCategorySerializer
 from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
@@ -118,13 +119,13 @@ class UserViewSet(ModelViewSet):
         # Default: Return all users (if no specific group matched, this could be adjusted as needed)
         return CustomUser.objects.none()
 
-    def create(self, request, *args, **kwargs):
-        user = self.request.user
+    async def create(self, request, *args, **kwargs):
+        user = request.user
         role_to_create = request.data.get('role')
 
-        # Step 1: Validate role_to_create against available and custom roles
-        available_roles = {role for role, _ in CustomUser.ROLE_CHOICES}  # Set of valid role keys
-        # custom_roles = set(UserCreationPermission.SCOPE_RULES.keys())  # Include custom roles from SCOPE_RULES 
+        # Validate role
+        available_roles = {role for role, _ in CustomUser.ROLE_CHOICES}
+        # custom_roles = set(UserCreationPermission.SCOPE_RULES.keys()) 
         all_valid_roles = available_roles
 
         if not role_to_create or role_to_create not in all_valid_roles:
@@ -133,26 +134,23 @@ class UserViewSet(ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Step 2: Check role hierarchy (skip for CompanyAdmin)
-        if not user.groups.filter(name="CompanyAdmin").exists():  # Assuming group check aligns with user.role
-            user_role_value = user.get_role_value()  # e.g., company_admin=1, branch_manager=5
-            role_to_create_value = user.get_role_value(role_to_create)
-
-            if role_to_create_value <= user_role_value:  # Lower value = higher role
+        # Check role hierarchy (skip for company_admin)
+        if user.role != 'company_admin':
+            user_role_value = await sync_to_async(user.get_role_value)()
+            role_to_create_value = await sync_to_async(user.get_role_value)(role_to_create)
+            if role_to_create_value <= user_role_value:
                 return Response(
                     {"detail": _("You cannot create a user with a higher or equal role.")},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-        # Step 3: Proceed with creation (permissions already checked by UserCreationPermission)
-        context = self.get_serializer_context()
-        context['role'] = role_to_create
-        serializer = self.get_serializer(data=request.data, context=context)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
+        # Serializer handles creation (status='pending' set by permission if needed)
+        serializer = self.get_serializer(data=request.data, context=self.get_serializer_context())
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        new_user = await sync_to_async(serializer.save)()
 
-        # Step 4: Add user to group (if applicable)
-        user.add_to_group(role_to_create)
+        # Add to group
+        await sync_to_async(new_user.add_to_group)(role_to_create)
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 

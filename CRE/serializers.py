@@ -169,6 +169,7 @@ class RegistrationSerializer(serializers.Serializer):
     def create(self, validated_data):
         # Create the user using UserSerializer
         user_data = validated_data.pop('user_data')  # Contains objects already
+        user_data['status'] = 'active'
         user = UserSerializer(context=self.context).create(validated_data=user_data)
 
         company = None
