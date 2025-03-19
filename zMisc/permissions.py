@@ -2,58 +2,107 @@ from rest_framework.permissions import BasePermission
 from rest_framework.exceptions import PermissionDenied
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
+from django.db.models import Q
+from CRE.models import Branch, Restaurant, Country, Company
 
 CustomUser = get_user_model()
 
 class UserCreationPermission(BasePermission):
     """
-    Ensure that new users can only be associated with the companies, countries,
-    restaurants, and branches that the creating user is associated with.
+    Permission for user creation with scope and status validation using Q objects.
+    - Uses user.role from CustomUser.
+    - Supports future role extensions.
+    - Uses count-based checks for all entity types, optimized for 10M branches.
+    How It Works:
+        allowed_scopes['branches'] is computed as Branch.objects.filter(company_id__in=user.companies.all()).values_list('id', flat=True), which returns all branch IDs under the CompanyAdmin’s companies.
+        requested['branches'] (from request.data) is checked against allowed_scopes['branches'] using issubset.
+        If any requested branch ID isn’t in the allowed set, PermissionDenied is raised.
     """
     
+    # Role-specific scope definitions
+    SCOPE_RULES = {
+        'company_admin': {
+            'requires': ['companies'],
+            'scopes': {
+                'companies': lambda user, ids: Company.objects.filter(Q(id__in=ids) & Q(status='active')).count(),
+                'countries': lambda user, ids: Country.objects.filter(Q(id__in=ids)).count(),
+                'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).count(),
+                'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).count(),
+            }
+        },
+        'country_manager': {
+            'requires': ['countries'],
+            'scopes': {
+                'countries': lambda user, ids: Country.objects.filter(Q(id__in=set(ids) & set(user.countries.all().values_list('id', flat=True)))).count(),
+                'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=ids) & Q(country_id__in=user.countries.all()) & Q(status='active')).count(),
+                'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(country_id__in=user.countries.all()) & Q(status='active')).count(),
+            }
+        },
+        'restaurant_owner': {
+            'requires': ['restaurants'],
+            'scopes': {
+                'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=set(ids) & set(user.restaurants.all().values_list('id', flat=True))) & Q(status='active')).count(),
+                'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(restaurant_id__in=user.restaurants.all()) & Q(status='active')).count(),
+            }
+        },
+        'restaurant_manager': {
+            'scopes': {
+                'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=set(ids) & set(user.restaurants.all().values_list('id', flat=True))) & Q(status='active')).count(),
+                'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(restaurant_id__in=user.restaurants.all()) & Q(status='active')).count(),
+            }
+        },
+        'branch_manager': {
+            'scopes': {
+                'branches': lambda user, ids: Branch.objects.filter(Q(id__in=set(ids) & set(user.branches.all().values_list('id', flat=True))) & Q(status='active')).count(),
+            }
+        },
+    }
+
+    # Singular field names for error messages
+    FIELD_SINGULAR = {
+        'companies': 'company',
+        'countries': 'country',
+        'restaurants': 'restaurant',
+        'branches': 'branch',
+    }
+
     def has_permission(self, request, view):
-        # Allow other actions (e.g., GET) without checks
         if view.action != "create":
             return True
         
-        # Only proceed if creating a user
         user = request.user
+        requested = {
+            'companies': request.data.get("companies", []),
+            'countries': request.data.get("countries", []),
+            'restaurants': request.data.get("restaurants", []),
+            'branches': request.data.get("branches", []),
+        }
 
-        # Extract related object IDs from the request data
-        requested_companies = request.data.get("companies", [])
-        requested_countries = request.data.get("countries", [])
-        requested_restaurants = request.data.get("restaurants", [])
-        requested_branches = request.data.get("branches", [])
+        # Use user.role from CustomUser
+        user_role = user.role
+        if not user_role or user_role not in self.SCOPE_RULES:
+            raise PermissionDenied(_("You do not have permission to create users."))
 
-        # Check if at least one affiliation is provided
-        if not any([requested_companies, requested_countries, requested_restaurants, requested_branches]):
-            raise PermissionDenied(_("New users must be associated with at least one object."))
+        # Get role-specific rules
+        rules = self.SCOPE_RULES[user_role]
+        scope_checks = rules.get('scopes', {})
 
-        # Validate each relationship
-        if requested_companies:
-            if not self._is_subset(user.companies.values_list('id', flat=True), requested_companies):
-                raise PermissionDenied(_("You can only assign companies you are associated with."))
+        # Enforce required fields
+        required = rules.get('requires', [])
+        for field in required:
+            if not requested[field]:
+                singular_field = self.FIELD_SINGULAR.get(field, field)
+                raise PermissionDenied(_(f"New users must be associated with at least one {singular_field}"))
 
-        if requested_countries:
-            if not self._is_subset(user.countries.values_list('id', flat=True), requested_countries):
-                raise PermissionDenied(_("You can only assign countries you are associated with."))
-
-        if requested_restaurants:
-            if not self._is_subset(user.restaurants.values_list('id', flat=True), requested_restaurants):
-                raise PermissionDenied(_("You can only assign restaurants you are associated with."))
-
-        if requested_branches:
-            if not self._is_subset(user.branches.values_list('id', flat=True), requested_branches):
-                raise PermissionDenied(_("You can only assign branches you are associated with."))
-        
+        # Validate requested entities against allowed scopes and active status
+        for field, requested_ids in requested.items():
+            if requested_ids:  # Skip if empty
+                check_func = scope_checks.get(field)
+                if not check_func or check_func(user, requested_ids) != len(requested_ids):
+                    singular_field = self.FIELD_SINGULAR.get(field, field)
+                    message = _(f"You can only assign {singular_field} within your scope.") if field == 'countries' else _(f"You can only assign active {singular_field} within your scope.")
+                    raise PermissionDenied(message)
         return True
-
-    @staticmethod
-    def _is_subset(user_objects, requested_objects):
-        """
-        Check if all requested_objects are in user_objects.
-        """
-        return set(requested_objects).issubset(set(user_objects))
 
 class RManagerScopePermission(BasePermission):
     """

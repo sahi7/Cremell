@@ -122,27 +122,36 @@ class UserViewSet(ModelViewSet):
         user = self.request.user
         role_to_create = request.data.get('role')
 
-        # Compare roles: Only allow the creation of a user with a lower role unless the user is a CompanyAdmin
-        if user.groups.filter(name="CompanyAdmin").exists():
-            # CompanyAdmin can create any user
-            pass
-        else:
-            user_role_value = user.get_role_value()
+        # Step 1: Validate role_to_create against available and custom roles
+        available_roles = {role for role, _ in CustomUser.ROLE_CHOICES}  # Set of valid role keys
+        # custom_roles = set(UserCreationPermission.SCOPE_RULES.keys())  # Include custom roles from SCOPE_RULES 
+        all_valid_roles = available_roles
+
+        if not role_to_create or role_to_create not in all_valid_roles:
+            return Response(
+                {"detail": _(f"Invalid role: '{role_to_create}'.")},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Step 2: Check role hierarchy (skip for CompanyAdmin)
+        if not user.groups.filter(name="CompanyAdmin").exists():  # Assuming group check aligns with user.role
+            user_role_value = user.get_role_value()  # e.g., company_admin=1, branch_manager=5
             role_to_create_value = user.get_role_value(role_to_create)
 
-            # Restrict role creation: New user’s role must be lower than the creator’s role
-            if role_to_create_value <= user_role_value:
-                return Response({"detail": _("You cannot create a user with a higher or equal role.")},
-                                status=status.HTTP_400_BAD_REQUEST)
+            if role_to_create_value <= user_role_value:  # Lower value = higher role
+                return Response(
+                    {"detail": _("You cannot create a user with a higher or equal role.")},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
+        # Step 3: Proceed with creation (permissions already checked by UserCreationPermission)
         context = self.get_serializer_context()
         context['role'] = role_to_create
-         # Create the serializer instance with the role in the context
         serializer = self.get_serializer(data=request.data, context=context)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
-        # After saving the user, we can add the user to the appropriate group based on their role
+        # Step 4: Add user to group (if applicable)
         user.add_to_group(role_to_create)
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
