@@ -18,5 +18,8 @@ Delete Migration Files with Win + X → PowerShell
 
 If Models are in a custom file, import them in admin.py; from .custom_file import *
 
+Start Django (with WebSocket support): uvicorn Carousel.asgi:application --reload
+Start Celery Worker: celery -A Carousel worker -l info # -l info: Sets log level to show task execution details.
+Start Celery Beat (for Scheduled Tasks): celery -A Carousel beat -l info
 
 
