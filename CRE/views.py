@@ -6,11 +6,11 @@ from django.db.models import Q
 from django.db import transaction
 
 from rest_framework.response import Response
-from rest_framework.views import APIView
+# from rest_framework.views import APIView
+# from rest_framework.viewsets import ModelViewSet
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
-from rest_framework.viewsets import ModelViewSet
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
@@ -24,7 +24,9 @@ from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from rest_access_policy import AccessViewSetMixin
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from asgiref.sync import sync_to_async 
 from adrf.views import APIView
+from adrf.viewsets import ModelViewSet
 
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer, MenuSerializer, MenuCategorySerializer
 from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer

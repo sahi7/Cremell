@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import EmployeeTransfer
+from .models import EmployeeTransfer, TransferHistory
 
 class TransferSerializer(serializers.ModelSerializer):
     class Meta:

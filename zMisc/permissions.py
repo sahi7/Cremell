@@ -3,6 +3,7 @@ from rest_framework.exceptions import PermissionDenied
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from django.db.models import Q
+from asgiref.sync import sync_to_async
 from CRE.models import Branch, Restaurant, Country, Company
 
 CustomUser = get_user_model()
