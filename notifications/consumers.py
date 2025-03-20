@@ -1,5 +1,6 @@
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
+from django.utils.translation import gettext_lazy as _
 import json
 
 class BranchConsumer(AsyncWebsocketConsumer):
@@ -46,3 +47,29 @@ class KitchenConsumer(AsyncWebsocketConsumer):
         self.branch_group = f"kitchen_{self.scope['branch_id']}"
         await self.channel_layer.group_add(self.branch_group, self.channel_name)
         await self.accept()
+
+
+class EmployeeUpdateConsumer(AsyncWebsocketConsumer):
+    """
+    WebSocket consumer for real-time employee updates.
+    """
+    async def connect(self):
+        user = self.scope['user']
+        if user.is_anonymous:
+            await self.close()
+            return
+
+        self.group_name = f'employee_updates_{user.role}'
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def user_created(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'user_created',
+            'user_id': event['user_id'],
+            'status': event['status'],
+            'message': str(_("User created: {username}").format(username=event['username']))
+        }))

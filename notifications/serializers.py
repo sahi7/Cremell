@@ -9,3 +9,8 @@ class TransferSerializer(serializers.ModelSerializer):
             'status': {'default': 'pending'},
             'initiated_by': {'read_only': True},
         }
+
+class TransferHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TransferHistory
+        fields = ['id', 'user', 'branch', 'restaurant', 'transfer_type', 'from_entity', 'to_entity', 'initiated_by', 'timestamp', 'status', 'end_date']

@@ -52,4 +52,5 @@ urlpatterns = [
     api_path('user-scope/', UserScopeView.as_view(), name='user-scope'),
     api_path('orders/<int:order_id>/modify/', OrderModifyView.as_view(), name='order-modify'),
     path('api/', include(router.urls)),
+    path('api/', include('notifications.urls')),
 ]

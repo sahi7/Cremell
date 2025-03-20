@@ -121,6 +121,10 @@ class TransferPermission(BasePermission):
 
         if to_branch:
             check_func = scope_checks.get('branches')
+            if user_role == 'branch_manager':
+                # BranchManager can only initiate out of their branches, not specify to_branch
+                if to_branch and (not check_func or await sync_to_async(check_func)(user, [to_branch]) != 1):
+                    raise PermissionDenied(_("You can only transfer users out of your branches. Destination must be set by a higher role."))
             if not check_func or await sync_to_async(check_func)(user, [to_branch]) != 1:
                 raise PermissionDenied(_("You can only transfer to active branches within your scope."))
 
