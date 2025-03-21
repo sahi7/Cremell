@@ -70,15 +70,20 @@ class RegistrationView(APIView):
     Handle registration for both single restaurants and companies.
     """
     permission_classes = [AllowAny]
-    def post(self, request, *args, **kwargs):
+
+    async def post(self, request, *args, **kwargs):
         serializer = RegistrationSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
+        
+        # Use sync_to_async to call is_valid
+        is_valid = await sync_to_async(serializer.is_valid)(raise_exception=False)
+        
+        if is_valid:
             # Create either company or restaurant based on the data
             user_type = 'company' if 'company_data' in request.data else 'restaurant'
             serializer.context['role'] = 'company_admin' if user_type == 'company' else 'restaurant_owner'
             
-            # Create and return the user/restaurant/company
-            instance = serializer.save()
+            # Use sync_to_async to call save
+            instance = await sync_to_async(serializer.save)()
             return Response({"message": _("Registration successful!")}, status=status.HTTP_201_CREATED)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -147,7 +152,9 @@ class UserViewSet(ModelViewSet):
                 )
 
         # Serializer handles creation (status='pending' set by permission if needed)
-        serializer = self.get_serializer(data=request.data, context=self.get_serializer_context())
+        context = self.get_serializer_context()
+        context['role'] = role_to_create
+        serializer = self.get_serializer(data=request.data, context=context)
         await sync_to_async(serializer.is_valid)(raise_exception=True)
         new_user = await sync_to_async(serializer.save)()
 
