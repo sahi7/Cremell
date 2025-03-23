@@ -71,9 +71,8 @@ class UserCreationPermission(BasePermission):
         if view.action != "create":
             return True
         
-        user = request.user
+        user, role_to_create = request.user, request.data.get('role')
         requested = {field: request.data.get(field, []) for field in ['companies', 'countries', 'restaurants', 'branches']}
-        role_to_create = request.data.get('role')
 
         user_role = user.role
         if not user_role or user_role not in self.SCOPE_RULES:
@@ -99,8 +98,7 @@ class UserCreationPermission(BasePermission):
                     raise PermissionDenied(message)
 
         # Set pending status for non-SCOPE_RULES roles without branches
-        if role_to_create and role_to_create not in self.SCOPE_RULES and not requested['branches']:
-            request.data['status'] = 'pending'  # Mutate request.data for serializer
+        request.data['status'] = 'active' if role_to_create in self.SCOPE_RULES else ('active' if requested['branches'] else 'pending')
 
         return True
 

@@ -95,17 +95,19 @@ class UserSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         # Assign role and use custom manager method to create the user
-        role = self.context.get('role')
+        role = self.context.get('role') or validated_data.pop('role', None)
         if not role:
             raise serializers.ValidationError(_("A role must be specified in the context to create a user."))
-        validated_data['role'] = role
-        validated_data['status'] = 'active'
         
        # Handle countries separately since it's a ManyToManyField
-        countries = validated_data.pop('countries', [])
+        m2m_fields = {k: validated_data.pop(k, []) for k in ['companies', 'countries', 'restaurants', 'branches']}
         user = CustomUser.objects.create_user_with_role(**validated_data)
-        if countries:
-            user.countries.set(countries)  
+        for field, values in m2m_fields.items():
+            if values:
+                getattr(user, field).set(values)
+                if field == 'branches' and user.status == 'pending':
+                    user.status = 'active'
+                    user.save() 
         send_email_confirmation(self.context.get('request'), user)
         return user
 
