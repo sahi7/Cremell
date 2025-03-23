@@ -1,8 +1,11 @@
 from celery import shared_task
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from django.utils import timezone
+from django.contrib.auth import get_user_model
 
 from .models import StaffShift
+CustomUser = get_user_model()
 
 @shared_task
 def check_overdue_shifts():

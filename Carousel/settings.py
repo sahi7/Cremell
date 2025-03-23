@@ -112,8 +112,8 @@ AUTHENTICATION_BACKENDS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        # 'rest_framework.authentication.TokenAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+        # 'rest_framework.authentication.TokenAuthentication',
         # Add other authentication classes as needed
     ),
     'DEFAULT_PERMISSION_CLASSES': (
@@ -167,7 +167,8 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [os.getenv('REDIS_URL')],
+            # "hosts": [os.getenv('REDIS_URL')],
+            "hosts": [('127.0.0.1', 6379)],
         },
     },
 }

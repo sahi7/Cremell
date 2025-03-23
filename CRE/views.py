@@ -70,20 +70,15 @@ class RegistrationView(APIView):
     Handle registration for both single restaurants and companies.
     """
     permission_classes = [AllowAny]
-
-    async def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
         serializer = RegistrationSerializer(data=request.data, context={'request': request})
-        
-        # Use sync_to_async to call is_valid
-        is_valid = await sync_to_async(serializer.is_valid)(raise_exception=False)
-        
-        if is_valid:
+        if serializer.is_valid():
             # Create either company or restaurant based on the data
             user_type = 'company' if 'company_data' in request.data else 'restaurant'
             serializer.context['role'] = 'company_admin' if user_type == 'company' else 'restaurant_owner'
             
-            # Use sync_to_async to call save
-            instance = await sync_to_async(serializer.save)()
+            # Create and return the user/restaurant/company
+            instance = serializer.save()
             return Response({"message": _("Registration successful!")}, status=status.HTTP_201_CREATED)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -126,13 +121,13 @@ class UserViewSet(ModelViewSet):
         # Default: Return all users (if no specific group matched, this could be adjusted as needed)
         return CustomUser.objects.none()
 
-    async def create(self, request, *args, **kwargs):
-        user = request.user
+    def create(self, request, *args, **kwargs):
+        user = self.request.user
         role_to_create = request.data.get('role')
 
-        # Validate role
-        available_roles = {role for role, _ in CustomUser.ROLE_CHOICES}
-        # custom_roles = set(UserCreationPermission.SCOPE_RULES.keys()) 
+        # Step 1: Validate role_to_create against available and custom roles
+        available_roles = {role for role, _ in CustomUser.ROLE_CHOICES}  # Set of valid role keys
+        # custom_roles = set(UserCreationPermission.SCOPE_RULES.keys())  # Include custom roles from SCOPE_RULES
         all_valid_roles = available_roles
 
         if not role_to_create or role_to_create not in all_valid_roles:
@@ -141,25 +136,26 @@ class UserViewSet(ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Check role hierarchy (skip for company_admin)
-        if user.role != 'company_admin':
-            user_role_value = await sync_to_async(user.get_role_value)()
-            role_to_create_value = await sync_to_async(user.get_role_value)(role_to_create)
-            if role_to_create_value <= user_role_value:
+        # Step 2: Check role hierarchy (skip for CompanyAdmin)
+        if not user.groups.filter(name="CompanyAdmin").exists():  # Assuming group check aligns with user.role
+            user_role_value = user.get_role_value()  # e.g., company_admin=1, branch_manager=5
+            role_to_create_value = user.get_role_value(role_to_create)
+
+            if role_to_create_value <= user_role_value:  # Lower value = higher role
                 return Response(
                     {"detail": _("You cannot create a user with a higher or equal role.")},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-        # Serializer handles creation (status='pending' set by permission if needed)
+        # Step 3: Proceed with creation (permissions already checked by UserCreationPermission)
         context = self.get_serializer_context()
         context['role'] = role_to_create
         serializer = self.get_serializer(data=request.data, context=context)
-        await sync_to_async(serializer.is_valid)(raise_exception=True)
-        new_user = await sync_to_async(serializer.save)()
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
 
-        # Add to group
-        await sync_to_async(new_user.add_to_group)(role_to_create)
+        # Step 4: Add user to group (if applicable)
+        user.add_to_group(role_to_create)
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 

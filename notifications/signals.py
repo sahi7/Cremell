@@ -2,6 +2,7 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from django.utils import timezone
 from CRE.models import CustomUser, StaffAvailability
 from .models import Task, BranchActivity, EmployeeTransfer
 from .tasks import process_transfer
@@ -65,6 +66,9 @@ def user_created_signal(sender, instance, created, **kwargs):
     Action: Sends user_created event.
     """
     if created:
+        # Skip notification for CompanyAdmin or RestaurantOwner
+        if instance.role in ['company_admin', 'restaurant_owner']:
+            return
         channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
             f'employee_updates_{instance.role}',

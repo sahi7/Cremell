@@ -1,6 +1,4 @@
 from rest_framework import serializers
-from asgiref.sync import async_to_sync
-from asgiref.sync import sync_to_async 
 from allauth.account.adapter import get_adapter
 from allauth.account.utils import setup_user_email
 from allauth.account.utils import send_email_confirmation
@@ -81,7 +79,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = CustomUser
         fields = '__all__'
 
-    async def validate(self, attrs):
+    def validate(self, attrs):
         # Validate city and state relationship
         city = attrs.get('city')
         state = attrs.get('state')
@@ -95,19 +93,20 @@ class UserSerializer(serializers.ModelSerializer):
                 })
         return attrs
 
-    async def create(self, validated_data):
+    def create(self, validated_data):
         # Assign role and use custom manager method to create the user
         role = self.context.get('role')
         if not role:
             raise serializers.ValidationError(_("A role must be specified in the context to create a user."))
         validated_data['role'] = role
+        validated_data['status'] = 'active'
         
-        # Handle countries separately since it's a ManyToManyField
+       # Handle countries separately since it's a ManyToManyField
         countries = validated_data.pop('countries', [])
-        user = await sync_to_async(CustomUser.objects.create_user_with_role)(**validated_data)
+        user = CustomUser.objects.create_user_with_role(**validated_data)
         if countries:
-            await sync_to_async(user.countries.set)(countries)
-        await sync_to_async(send_email_confirmation)(self.context.get('request'), user)
+            user.countries.set(countries)  
+        send_email_confirmation(self.context.get('request'), user)
         return user
 
 class CountrySerializer(serializers.ModelSerializer):
@@ -137,8 +136,8 @@ class CompanySerializer(serializers.ModelSerializer):
         model = Company
         fields = ['name', 'about', 'contact_email', 'contact_phone', 'created_by']
 
-    async def create(self, validated_data):
-        return await sync_to_async(Company.objects.create)(**validated_data)
+    def create(self, validated_data):
+        return Company.objects.create(**validated_data)
 
 # Restaurant registration serializer
 class RestaurantSerializer(serializers.ModelSerializer):
@@ -149,8 +148,9 @@ class RestaurantSerializer(serializers.ModelSerializer):
         model = Restaurant
         fields = ['name', 'address', 'city', 'country', 'company', 'status', 'created_by']
 
-    async def create(self, validated_data):
-        return await sync_to_async(Restaurant.objects.create)(**validated_data)
+    def create(self, validated_data):
+        validated_data['status'] = 'active'
+        return Restaurant.objects.create(**validated_data)
 
 # General Registration Serializer that will dynamically decide between company and restaurant registration
 class RegistrationSerializer(serializers.Serializer):
@@ -158,7 +158,7 @@ class RegistrationSerializer(serializers.Serializer):
     company_data = CompanySerializer(required=False)
     restaurant_data = RestaurantSerializer(required=False)
 
-    async def validate(self, attrs):
+    def validate(self, attrs):
         # Check if either company_data or restaurant_data is provided
         if 'user_data' not in attrs :
             raise serializers.ValidationError(_("Please provide user information"))
@@ -168,11 +168,10 @@ class RegistrationSerializer(serializers.Serializer):
             raise serializers.ValidationError(_("You must provide either 'company data' or 'restaurant data' data."))
         return attrs
 
-    async def create(self, validated_data):
+    def create(self, validated_data):
         # Create the user using UserSerializer
         user_data = validated_data.pop('user_data')  # Contains objects already
-        user_data['status'] = 'active'
-        user = await sync_to_async(UserSerializer(context=self.context).create)(validated_data=user_data)
+        user = UserSerializer(context=self.context).create(validated_data=user_data)
 
         company = None
         restaurant = None
@@ -180,13 +179,13 @@ class RegistrationSerializer(serializers.Serializer):
         if 'company_data' in validated_data:
             company_data = validated_data.pop('company_data')
             company_data['created_by'] = user
-            company = await sync_to_async(CompanySerializer().create)(company_data)
+            company = CompanySerializer().create(company_data)
 
-            await sync_to_async(user.companies.add)(company)
+            user.companies.add(company)
 
             # Add the user to the CompanyAdmin group
-            company_admin_group, created = await sync_to_async(Group.objects.get_or_create)(name='CompanyAdmin')
-            await sync_to_async(user.groups.add)(company_admin_group)
+            company_admin_group, created = Group.objects.get_or_create(name='CompanyAdmin')
+            user.groups.add(company_admin_group)
 
             # Create the restaurant if provided
             if 'restaurant_data' in validated_data:
@@ -194,19 +193,19 @@ class RegistrationSerializer(serializers.Serializer):
                 restaurant_data['created_by'] = user
                 if company:
                     restaurant_data['company'] = company    
-                restaurant = await sync_to_async(RestaurantSerializer().create)(restaurant_data)
-                await sync_to_async(user.restaurants.add)(restaurant)
+                restaurant = RestaurantSerializer().create(restaurant_data)
+                user.restaurants.add(restaurant)
 
         elif 'restaurant_data' in validated_data:
             restaurant_data = validated_data.pop('restaurant_data')
             restaurant_data['created_by'] = user
-            restaurant = await sync_to_async(Restaurant.objects.create)(**restaurant_data)
+            restaurant = Restaurant.objects.create(**restaurant_data)
 
-            await sync_to_async(user.restaurants.add)(restaurant)
+            user.restaurants.add(restaurant)
 
             # Assign the user to the RestaurantOwner group
-            restaurant_owner_group, created = await sync_to_async(Group.objects.get_or_create)(name='RestaurantOwner')
-            await sync_to_async(user.groups.add)(restaurant_owner_group)
+            restaurant_owner_group, created = Group.objects.get_or_create(name='RestaurantOwner')
+            user.groups.add(restaurant_owner_group)
 
         else:
             raise serializers.ValidationError(_("Either company or restaurant data must be provided."))
