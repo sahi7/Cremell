@@ -8,6 +8,9 @@ from .models import CustomUser, Company, Restaurant, City, Country, RegionOrStat
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group
+import logging
+
+logger = logging.getLogger(__name__)
 
 class CustomRegisterSerializer(RegisterSerializer):
     first_name = serializers.CharField(required=True)
@@ -101,14 +104,23 @@ class UserSerializer(serializers.ModelSerializer):
         
        # Handle countries separately since it's a ManyToManyField
         m2m_fields = {k: validated_data.pop(k, []) for k in ['companies', 'countries', 'restaurants', 'branches']}
+        validated_data['role'] = role
         user = CustomUser.objects.create_user_with_role(**validated_data)
+        
         for field, values in m2m_fields.items():
             if values:
                 getattr(user, field).set(values)
-                if field == 'branches' and user.status == 'pending':
+                if user.get_role_value() < 5:
                     user.status = 'active'
                     user.save() 
-        send_email_confirmation(self.context.get('request'), user)
+        try:
+            send_email_confirmation(self.context.get('request'), user)
+        except Exception as e:
+            logger.error(f"Retrying to send email confirmation to {user.username}: {str(e)}")
+            # Queue a retry with Celery
+            from .tasks import send_email_retry
+            send_email_retry.delay(user.id, self.context.get('request'))
+        
         return user
 
 class CountrySerializer(serializers.ModelSerializer):

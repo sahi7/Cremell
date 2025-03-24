@@ -31,3 +31,14 @@ def check_overdue_shifts():
                         'message': f"{shift.user.username} is still busy 10 minutes after shift end on {shift.date}. Approve overtime?"
                     }
                 )
+
+@shared_task
+def send_email_retry(user_id, request_data):
+    """
+    Retry sending email confirmation if initial attempt fails.
+    """
+    try:
+        user = CustomUser.objects.get(id=user_id)
+        # Reconstruct request if needed, or use a mocked request
+        send_email_confirmation(request_data, user)  # Note: May need request context
+    except Exception as e:

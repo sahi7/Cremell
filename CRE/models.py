@@ -96,8 +96,8 @@ class CustomUser(AbstractUser):
         Map the role string to a numeric value for comparison.
         """
         role_hierarchy = {
-            'company_admin': 1,
-            'restaurant_owner': 2,
+            'company_admin': 1,  # Top within company scope
+            'restaurant_owner': 1,   # Top within restaurant scope
             'country_manager': 3,
             'restaurant_manager': 4,
             'branch_manager': 5,

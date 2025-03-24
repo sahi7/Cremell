@@ -136,6 +136,19 @@ class UserViewSet(ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Restrict specific role creations - company_admin cannot create restaurant_owner
+        restrictions = {
+            'CompanyAdmin': 'restaurant_owner',
+            'RestaurantOwner': 'company_admin',
+        }
+        for group_name, restricted_role in restrictions.items():
+            if user.groups.filter(name=group_name).exists():
+                if role_to_create == restricted_role:
+                    return Response(
+                        {"detail": _(f"{group_name} cannot create {restricted_role} roles.")},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+
         # Step 2: Check role hierarchy (skip for CompanyAdmin)
         if not user.groups.filter(name="CompanyAdmin").exists():  # Assuming group check aligns with user.role
             user_role_value = user.get_role_value()  # e.g., company_admin=1, branch_manager=5
