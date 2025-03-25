@@ -252,6 +252,7 @@ DEFAULT_FROM_EMAIL = os.getenv('SMTP_LOGIN')  # email ending with @sendinblue.co
 # django-allauth
 ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_EMAIL_VERIFICATION = "mandatory" # make email verification mandatory on sign-up
+ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 0.25  # 6 hours
 
 # <EMAIL_CONFIRM_REDIRECT_BASE_URL>/<key>
 EMAIL_CONFIRM_REDIRECT_BASE_URL = \
