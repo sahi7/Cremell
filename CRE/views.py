@@ -79,7 +79,7 @@ class RegistrationView(APIView):
             
             # Create and return the user/restaurant/company
             instance = serializer.save()
-            return Response({"message": _("Registration successful!")}, status=status.HTTP_201_CREATED)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

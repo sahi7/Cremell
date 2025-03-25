@@ -113,15 +113,17 @@ class UserSerializer(serializers.ModelSerializer):
                 if user.get_role_value() < 5:
                     user.status = 'active'
                     user.save() 
+        # Send email confirmation
+        email_sent = False
         try:
-            send_email_confirmation(self.context.get('request'), user)
+            from .tasks import send_register_email
+
+            send_register_email.delay(user.id)
+            email_sent = True
         except Exception as e:
             logger.error(f"Retrying to send email confirmation to {user.username}: {str(e)}")
-            # Queue a retry with Celery
-            from .tasks import send_email_retry
-            send_email_retry.delay(user.id, self.context.get('request'))
         
-        return user
+        return user, email_sent
 
 class CountrySerializer(serializers.ModelSerializer):
     class Meta:
@@ -185,7 +187,7 @@ class RegistrationSerializer(serializers.Serializer):
     def create(self, validated_data):
         # Create the user using UserSerializer
         user_data = validated_data.pop('user_data')  # Contains objects already
-        user = UserSerializer(context=self.context).create(validated_data=user_data)
+        user, email_sent = UserSerializer(context=self.context).create(validated_data=user_data)
 
         company = None
         restaurant = None
@@ -224,7 +226,19 @@ class RegistrationSerializer(serializers.Serializer):
         else:
             raise serializers.ValidationError(_("Either company or restaurant data must be provided."))
 
-        return {'user': user, 'company': company, 'restaurant': restaurant}
+        return { 'user': user, 'email_sent': email_sent }
+
+    def to_representation(self, instance):
+        # Customize the output format
+        return {
+            'message': _("Registration successful!"),
+            'email_sent': instance['email_sent'],
+            # 'user': UserSerializer(instance['user']).data,
+            'user': {
+                "username": instance['user'].username,
+                "user_id": instance['user'].email,
+                }
+        }
 
 class BranchSerializer(serializers.ModelSerializer):
     created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
