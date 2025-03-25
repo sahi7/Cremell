@@ -165,12 +165,12 @@ class UserViewSet(ModelViewSet):
         context['role'] = role_to_create
         serializer = self.get_serializer(data=request.data, context=context)
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
+        user, email_sent = serializer.save() 
 
         # Step 4: Add user to group (if applicable)
         user.add_to_group(role_to_create)
 
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response({**serializer.data, "email_sent": email_sent}, status=status.HTTP_201_CREATED)
 
 class RestaurantViewSet(ModelViewSet):
     queryset = Restaurant.objects.all()
