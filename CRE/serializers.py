@@ -114,16 +114,16 @@ class UserSerializer(serializers.ModelSerializer):
                     user.status = 'active'
                     user.save() 
         # Send email confirmation
-        email_sent = False
+        self.context["email_sent"] = False
         try:
             from .tasks import send_register_email
 
             send_register_email.delay(user.id)
-            email_sent = True
+            self.context["email_sent"] = True 
         except Exception as e:
             logger.error(f"Retrying to send email confirmation to {user.username}: {str(e)}")
         
-        return user, email_sent
+        return user
 
 class CountrySerializer(serializers.ModelSerializer):
     class Meta:
@@ -187,7 +187,10 @@ class RegistrationSerializer(serializers.Serializer):
     def create(self, validated_data):
         # Create the user using UserSerializer
         user_data = validated_data.pop('user_data')  # Contains objects already
-        user, email_sent = UserSerializer(context=self.context).create(validated_data=user_data)
+        user = UserSerializer(context=self.context).create(validated_data=user_data)
+
+        # Get email_sent from context (set by UserSerializer)
+        email_sent = self.context.get("email_sent", False)
 
         company = None
         restaurant = None

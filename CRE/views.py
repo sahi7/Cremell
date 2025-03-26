@@ -107,8 +107,7 @@ class UserViewSet(ModelViewSet):
         # Country Manager: Return users in the same country (and same company if applicable)
         elif user.groups.filter(name="CountryManager").exists():
             return CustomUser.objects.filter(
-                countries__in=user.countries.all(), 
-                companies__in=user.companies.all()  # Ensures they only see users from their company in the same country
+                Q(companies__in=user.companies.all()) & Q(countries__in=user.countries.all()) # Ensures they only see users from their company in the same country
             )
 
         # Restaurant Manager: Return users associated with their managed restaurants (and same company if applicable)
@@ -163,10 +162,12 @@ class UserViewSet(ModelViewSet):
         # Step 3: Proceed with creation (permissions already checked by UserCreationPermission)
         context = self.get_serializer_context()
         context['role'] = role_to_create
+        
         serializer = self.get_serializer(data=request.data, context=context)
         serializer.is_valid(raise_exception=True)
-        user, email_sent = serializer.save() 
-
+        
+        user = serializer.save() 
+        email_sent = serializer.context.get("email_sent", False)  # Retrieve from context sent from UserSerializer
         # Step 4: Add user to group (if applicable)
         user.add_to_group(role_to_create)
 

@@ -19,6 +19,7 @@ def check_user_role(user, max_role_value=4):
     role_value = user.get_role_value()
     if role_value is None or role_value > max_role_value:
         raise PermissionDenied(_("You are not authorized to perform this action."))
+    return role_value
 
 def validate_scope(user, data, allowed_scopes):
     """
@@ -68,3 +69,44 @@ def filter_queryset_by_scopes(queryset, user, allowed_scopes):
             raise PermissionDenied(_("You do not have permission to access this data."))
 
     return queryset
+
+
+def get_scope_filters(user):
+    """
+    Return scope filters and allowed roles for the user's list action.
+    - Fetches related data once and applies in-memory role checks.
+    - Returns a tuple: (queryset_filter, min_role_value).
+    """
+    # Pre-fetch related data once
+    companies = set(user.companies.all().values_list('id', flat=True))
+    restaurants = set(user.restaurants.all().values_list('id', flat=True))
+    countries = set(user.countries.all().values_list('id', flat=True))
+    user_role_value = check_user_role(user)
+
+    # Define scope rules for list action
+    scope_rules = {
+        'CompanyAdmin': {
+            'filter': lambda: Q(companies__id__in=companies),
+            'min_role_value': user_role_value,  # Only roles >= CompanyAdmin (1)
+        },
+        'RestaurantOwner': {
+            'filter': lambda: Q(restaurants__id__in=restaurants) & (
+                Q(companies__id__in=companies) | Q(companies__isnull=True)
+            ),
+            'min_role_value': user_role_value,  # Only roles >= RestaurantOwner (1)
+        },
+        'CountryManager': {
+            'filter': lambda: Q(companies__id__in=companies) & Q(countries__id__in=countries),
+            'min_role_value': user_role_value,  # Only roles >= CountryManager (3)
+        },
+        'RestaurantManager': {
+            'filter': lambda: Q(restaurants__manager=user) & Q(companies__id__in=companies),
+            'min_role_value': user_role_value,  # Only roles >= RestaurantManager (4)
+        },
+    }
+
+    # Determine user's role group
+    for group_name, rules in scope_rules.items():
+        if user.groups.filter(name=group_name).exists():
+            return rules['filter'](), rules['min_role_value']
+    return Q(pk=None), float('inf')  # Default: no users
