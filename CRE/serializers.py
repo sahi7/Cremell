@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from adrf.serializers import ModelSerializer
 from allauth.account.adapter import get_adapter
 from allauth.account.utils import setup_user_email
 from allauth.account.utils import send_email_confirmation
@@ -73,53 +74,66 @@ class CustomUserDetailsSerializer(UserDetailsSerializer):
         )
         read_only_fields = ('email', )
 
-class UserSerializer(serializers.ModelSerializer):
+class UserSerializer(ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
-    role = serializers.CharField(read_only=True)  # This will be assigned in the view or user manager
+    role = serializers.CharField(read_only=True)
     countries = serializers.PrimaryKeyRelatedField(queryset=Country.objects.all(), many=True, required=False)
 
     class Meta:
         model = CustomUser
         fields = '__all__'
 
-    def validate(self, attrs):
-        # Validate city and state relationship
+    async def validate(self, attrs):
+        """
+        Asynchronously validate city-state relationship.
+        """
         city = attrs.get('city')
         state = attrs.get('state')
         if city and state:
-            if city.region_or_state != state:
+            # Use sync_to_async for potential DB field access
+            city_region = await sync_to_async(lambda: city.region_or_state)()
+            if city_region != state:
+                city_name = await sync_to_async(lambda: city.name)()
+                state_name = await sync_to_async(lambda: state.name)()
                 raise serializers.ValidationError({
                     'city': _("The city '%(city_name)s' does not belong to the state/region '%(state_name)s'.") % {
-                        'city_name': city.name,
-                        'state_name': state.name
+                        'city_name': city_name,
+                        'state_name': state_name
                     }
                 })
         return attrs
 
-    def create(self, validated_data):
-        # Assign role and use custom manager method to create the user
+    async def create(self, validated_data):
+        """
+        Asynchronously create a user with role and ManyToMany fields.
+        """
         role = self.context.get('role') or validated_data.pop('role', None)
         if not role:
             raise serializers.ValidationError(_("A role must be specified in the context to create a user."))
         
-       # Handle countries separately since it's a ManyToManyField
+        # Handle ManyToMany fields
         m2m_fields = {k: validated_data.pop(k, []) for k in ['companies', 'countries', 'restaurants', 'branches']}
         validated_data['role'] = role
-        user = CustomUser.objects.create_user_with_role(**validated_data)
+        
+        # Async ORM operations
+        user = await sync_to_async(CustomUser.objects.create_user_with_role)(**validated_data)
         
         for field, values in m2m_fields.items():
             if values:
-                getattr(user, field).set(values)
-                if user.get_role_value() < 5:
+                await sync_to_async(getattr(user, field).set)(values)
+                # Check role value in-memory
+                role_value = await sync_to_async(user.get_role_value)()
+                if role_value < 5:
                     user.status = 'active'
-                    user.save() 
-        # Send email confirmation
+                    await sync_to_async(user.save)()
+
+        # Email sending (non-blocking via Celery)
         self.context["email_sent"] = False
         try:
             from .tasks import send_register_email
-
-            send_register_email.delay(user.id)
-            self.context["email_sent"] = True 
+            # Celery .delay is sync, but non-blocking (task queued)
+            await sync_to_async(send_register_email.delay)(user.id)
+            self.context["email_sent"] = True
         except Exception as e:
             logger.error(f"Retrying to send email confirmation to {user.username}: {str(e)}")
         

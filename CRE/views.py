@@ -32,7 +32,7 @@ from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationS
 from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
 from zMisc.policies import UserAccessPolicy, RestaurantAccessPolicy, BranchAccessPolicy
 from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
-from zMisc.utils import validate_scope, filter_queryset_by_scopes
+from zMisc.utils import validate_scope, filter_queryset_by_scopes, get_scope_filters
 from .models import Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
 
 CustomUser = get_user_model()
@@ -87,38 +87,26 @@ class RegistrationView(APIView):
 class UserViewSet(ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
-    permission_classes = (UserAccessPolicy, UserCreationPermission, )
+    permission_classes = (UserAccessPolicy, UserCreationPermission)
 
-    def get_queryset(self):
+    async def get_queryset(self):
         user = self.request.user
+        scope_filter, min_role_value = await sync_to_async(get_scope_filters)(user)
+        queryset = CustomUser.objects.filter(scope_filter)
+        return queryset.filter(
+            id__in=await sync_to_async(
+                lambda: [u.id for u in queryset if user.get_role_value(u.role) >= min_role_value]
+            )()
+        )
 
-        # Company Admin: Return users within the same company
-        if user.groups.filter(name="CompanyAdmin").exists():
-            return CustomUser.objects.filter(companies__in=user.companies.all())
-
-        # Restaurant Owner: Return users associated with their restaurants (including standalone ones)
-        elif user.groups.filter(name="RestaurantOwner").exists():
-            return CustomUser.objects.filter(
-                restaurants__in=user.restaurants.all()
-            ).filter(
-                Q(companies__in=user.companies.all()) | Q(companies__isnull=True)
-            )
-
-        # Country Manager: Return users in the same country (and same company if applicable)
-        elif user.groups.filter(name="CountryManager").exists():
-            return CustomUser.objects.filter(
-                Q(companies__in=user.companies.all()) & Q(countries__in=user.countries.all()) # Ensures they only see users from their company in the same country
-            )
-
-        # Restaurant Manager: Return users associated with their managed restaurants (and same company if applicable)
-        elif user.groups.filter(name="RestaurantManager").exists():
-            return CustomUser.objects.filter(
-                restaurants__manager=user, 
-                companies__in=user.companies.all()  # Ensures they only see users from their company managing the same restaurants
-            ).distinct()
-
-        # Default: Return all users (if no specific group matched, this could be adjusted as needed)
-        return CustomUser.objects.none()
+    async def list(self, request, *args, **kwargs):
+        queryset = await self.get_queryset()
+        serializer = self.get_serializer(
+            await sync_to_async(lambda: list(queryset))(),
+            many=True
+        )
+        data = await sync_to_async(lambda: serializer.data)()
+        return Response(data)
 
     def create(self, request, *args, **kwargs):
         user = self.request.user
