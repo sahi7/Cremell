@@ -2,13 +2,13 @@ from rest_framework import serializers
 from adrf.serializers import ModelSerializer
 from allauth.account.adapter import get_adapter
 from allauth.account.utils import setup_user_email
-from allauth.account.utils import send_email_confirmation
+from asgiref.sync import sync_to_async 
 from dj_rest_auth.registration.serializers import RegisterSerializer
 from dj_rest_auth.serializers import UserDetailsSerializer
-from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState, Branch, Menu, MenuCategory, MenuItem, StaffShift, OvertimeRequest, StaffAvailability
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group
+from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState, Branch, Menu, MenuCategory, MenuItem, StaffShift, OvertimeRequest, StaffAvailability
 import logging
 
 logger = logging.getLogger(__name__)

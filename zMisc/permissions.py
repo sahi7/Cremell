@@ -75,8 +75,8 @@ class UserCreationPermission(BasePermission):
         requested = {field: request.data.get(field, []) for field in ['companies', 'countries', 'restaurants', 'branches']}
 
         user_role = user.role
-        if not user_role or user_role not in self.SCOPE_RULES:
-            raise PermissionDenied(_("You do not have permission to create users."))
+        # if not user_role or user_role not in self.SCOPE_RULES:
+        #     raise PermissionDenied(_("You do not have permission to create users."))
 
         rules = self.SCOPE_RULES[user_role]
         scope_checks = rules.get('scopes', {})
@@ -89,10 +89,12 @@ class UserCreationPermission(BasePermission):
                 raise PermissionDenied(_(f"New users must be associated with at least one {singular_field}"))
 
         # Validate scopes
-        for field, requested_ids in requested.items():
+        for field in scope_checks.keys():  # Only check defined scopes
+            requested_ids = requested.get(field, [])
             if requested_ids:
-                check_func = scope_checks.get(field)
-                if not check_func or await sync_to_async(check_func)(user, requested_ids) != len(requested_ids):
+                check_func = scope_checks[field]
+                valid_count = await sync_to_async(check_func)(user, requested_ids)
+                if valid_count != len(requested_ids):
                     singular_field = self.FIELD_SINGULAR.get(field, field)
                     message = _(f"You can only assign {singular_field} within your scope.") if field == 'countries' else _(f"You can only assign active {singular_field} within your scope.")
                     raise PermissionDenied(message)
