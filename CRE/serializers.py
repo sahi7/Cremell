@@ -105,38 +105,47 @@ class UserSerializer(ModelSerializer):
 
     async def create(self, validated_data):
         """
-        Asynchronously create a user with role and ManyToMany fields.
+        Fully async user creation with proper coroutine handling
         """
+        # Ensure we have a proper dictionary (not coroutine)
+        if hasattr(validated_data, '__await__'):
+            validated_data = await validated_data
+        
         role = self.context.get('role') or validated_data.pop('role', None)
         if not role:
-            raise serializers.ValidationError(_("A role must be specified in the context to create a user."))
+            raise serializers.ValidationError("A role must be specified")
+
+        # Handle M2M fields safely
+        m2m_fields = {}
+        for field in ['companies', 'countries', 'restaurants', 'branches']:
+            if field in validated_data:
+                m2m_fields[field] = validated_data.pop(field)
         
-        # Handle ManyToMany fields
-        m2m_fields = {k: validated_data.pop(k, []) for k in ['companies', 'countries', 'restaurants', 'branches']}
-        validated_data['role'] = role
-        
-        # Async ORM operations
-        user = await sync_to_async(CustomUser.objects.create_user_with_role)(**validated_data)
-        
+        # Create user
+        user = await sync_to_async(CustomUser.objects.create_user_with_role)(
+            **validated_data,
+            role=role
+        )
+
+        # Process M2M relationships
         for field, values in m2m_fields.items():
             if values:
                 await sync_to_async(getattr(user, field).set)(values)
-                # Check role value in-memory
                 role_value = await sync_to_async(user.get_role_value)()
                 if role_value < 5:
-                    user.status = 'active'
-                    await sync_to_async(user.save)()
+                    await sync_to_async(user.save)(update_fields=['status'])
 
-        # Email sending (non-blocking via Celery)
+        # Email handling
         self.context["email_sent"] = False
         try:
             from .tasks import send_register_email
-            # Celery .delay is sync, but non-blocking (task queued)
             await sync_to_async(send_register_email.delay)(user.id)
             self.context["email_sent"] = True
         except Exception as e:
-            logger.error(f"Retrying to send email confirmation to {user.username}: {str(e)}")
-        
+            logger.error(f"Email failed for user {user.id}: {str(e)}")
+        import inspect
+        assert not inspect.iscoroutine(user), "User should not be a coroutine!"
+        assert isinstance(user, CustomUser), "Should return User instance"
         return user
 
 class CountrySerializer(serializers.ModelSerializer):

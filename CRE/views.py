@@ -87,7 +87,7 @@ class RegistrationView(APIView):
 class UserViewSet(ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
-    permission_classes = (UserAccessPolicy, UserCreationPermission)
+    permission_classes = [UserCreationPermission]
 
     async def get_queryset(self):
         user = self.request.user
@@ -108,58 +108,64 @@ class UserViewSet(ModelViewSet):
         data = await sync_to_async(lambda: serializer.data)()
         return Response(data)
 
-    def create(self, request, *args, **kwargs):
-        user = self.request.user
+    async def create(self, request, *args, **kwargs):
+        user = request.user
         role_to_create = request.data.get('role')
 
-        # Step 1: Validate role_to_create against available and custom roles
-        available_roles = {role for role, _ in CustomUser.ROLE_CHOICES}  # Set of valid role keys
-        # custom_roles = set(UserCreationPermission.SCOPE_RULES.keys())  # Include custom roles from SCOPE_RULES
-        all_valid_roles = available_roles
-
-        if not role_to_create or role_to_create not in all_valid_roles:
+        # Validate role
+        available_roles = {role for role, _ in CustomUser.ROLE_CHOICES}
+        if not role_to_create or role_to_create not in available_roles:
             return Response(
-                {"detail": _(f"Invalid role: '{role_to_create}'.")},
+                {"detail": f"Invalid role: '{role_to_create}'."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Restrict specific role creations - company_admin cannot create restaurant_owner
+        # Check restrictions
         restrictions = {
             'CompanyAdmin': 'restaurant_owner',
             'RestaurantOwner': 'company_admin',
         }
+        
         for group_name, restricted_role in restrictions.items():
-            if user.groups.filter(name=group_name).exists():
+            if await sync_to_async(user.groups.filter(name=group_name).exists)():
                 if role_to_create == restricted_role:
                     return Response(
-                        {"detail": _(f"{group_name} cannot create {restricted_role} roles.")},
+                        {"detail": f"{group_name} cannot create {restricted_role}."},
                         status=status.HTTP_403_FORBIDDEN
                     )
 
-        # Step 2: Check role hierarchy (skip for CompanyAdmin)
-        if not user.groups.filter(name="CompanyAdmin").exists():  # Assuming group check aligns with user.role
-            user_role_value = user.get_role_value()  # e.g., company_admin=1, branch_manager=5
-            role_to_create_value = user.get_role_value(role_to_create)
-
-            if role_to_create_value <= user_role_value:  # Lower value = higher role
+        # Check hierarchy
+        if not await sync_to_async(user.groups.filter(name="CompanyAdmin").exists)():
+            user_role_value = await sync_to_async(user.get_role_value)()
+            role_to_create_value = await sync_to_async(user.get_role_value)(role_to_create)
+            if role_to_create_value <= user_role_value:
                 return Response(
-                    {"detail": _("You cannot create a user with a higher or equal role.")},
+                    {"detail": "Cannot create user with higher/equal role."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-        # Step 3: Proceed with creation (permissions already checked by UserCreationPermission)
-        context = self.get_serializer_context()
+         # Get serializer context
+        context = await sync_to_async(self.get_serializer_context)()
         context['role'] = role_to_create
         
+        # Initialize and validate serializer
         serializer = self.get_serializer(data=request.data, context=context)
-        serializer.is_valid(raise_exception=True)
+        is_valid = await sync_to_async(serializer.is_valid)(raise_exception=True)
         
-        user = serializer.save() 
-        email_sent = serializer.context.get("email_sent", False)  # Retrieve from context sent from UserSerializer
-        # Step 4: Add user to group (if applicable)
-        user.add_to_group(role_to_create)
+        # Create user - get validated_data synchronously
+        validated_data = await sync_to_async(lambda: serializer.validated_data)()
+        user = await serializer.create(validated_data)
+        print(user)
+        
+        # Add to group
+        await sync_to_async(user.add_to_group)(role_to_create)
 
-        return Response({**serializer.data, "email_sent": email_sent}, status=status.HTTP_201_CREATED)
+        # Prepare response
+        response_data = await sync_to_async(lambda: serializer.data)()
+        email_sent = serializer.context.get("email_sent", False)
+        
+        return Response({**response_data, "email_sent": email_sent}, 
+                    status=status.HTTP_201_CREATED)
 
 class RestaurantViewSet(ModelViewSet):
     queryset = Restaurant.objects.all()

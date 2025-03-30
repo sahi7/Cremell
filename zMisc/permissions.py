@@ -47,6 +47,7 @@ class UserCreationPermission(BasePermission):
             }
         },
         'restaurant_manager': {
+            'requires': ['restaurants'],
             'scopes': {
                 'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=set(ids) & set(user.restaurants.all().values_list('id', flat=True))) & Q(status='active')).count(),
                 'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(restaurant_id__in=user.restaurants.all()) & Q(status='active')).count(),
@@ -54,7 +55,7 @@ class UserCreationPermission(BasePermission):
         },
         'branch_manager': {
             'scopes': {
-                'branches': lambda user, ids: Branch.objects.filter(Q(id__in=set(ids) & set(user.branches.all().values_list('id', flat=True))) & Q(status='active')).count(),
+                'branches': lambda user, ids: user.branches.filter(id__in=ids, status='active').count()
             }
         },
     }
