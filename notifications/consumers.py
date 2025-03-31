@@ -54,12 +54,12 @@ class EmployeeUpdateConsumer(AsyncWebsocketConsumer):
     WebSocket consumer for real-time employee updates.
     """
     async def connect(self):
-        print(f"WebSocket connected: {self.channel_name}")
-        print(self.scope['user'].role)
         user = self.scope['user']
         if user.is_anonymous:
             await self.close()
             return
+        print(f"WebSocket connected: {self.channel_name}")
+        print(self.scope['user'].role)
 
         self.group_name = f'employee_updates_{user.role}'
         await self.channel_layer.group_add(self.group_name, self.channel_name)

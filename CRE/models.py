@@ -78,7 +78,7 @@ class CustomUser(AbstractUser):
         ('utility_worker', _('Utility Worker')),
     )
     STATUS_CHOICES = (
-        ('pending', 'Pending schedule'),
+        ('pending', _('Pending schedule')),
         ('active', _('Active')),
         ('suspended', _('Suspended')),
         ('on_leave', _('On Leave')),

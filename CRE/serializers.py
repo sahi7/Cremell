@@ -133,6 +133,7 @@ class UserSerializer(ModelSerializer):
                 await sync_to_async(getattr(user, field).set)(values)
                 role_value = await sync_to_async(user.get_role_value)()
                 if role_value < 5:
+                    user.status = 'active'
                     await sync_to_async(user.save)(update_fields=['status'])
 
         # Email handling
@@ -143,9 +144,7 @@ class UserSerializer(ModelSerializer):
             self.context["email_sent"] = True
         except Exception as e:
             logger.error(f"Email failed for user {user.id}: {str(e)}")
-        import inspect
-        assert not inspect.iscoroutine(user), "User should not be a coroutine!"
-        assert isinstance(user, CustomUser), "Should return User instance"
+
         return user
 
 class CountrySerializer(serializers.ModelSerializer):

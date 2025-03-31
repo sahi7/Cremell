@@ -56,7 +56,7 @@ def send_register_email(self, user_id):
 
         send_email_confirmation(request, user)
         
-        print("[SUCCESS] Email sent!")
+        # print("[SUCCESS] Email sent!")
         return True
         
     except Exception as e:

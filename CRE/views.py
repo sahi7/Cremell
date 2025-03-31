@@ -155,12 +155,12 @@ class UserViewSet(ModelViewSet):
         # Create user - get validated_data synchronously
         validated_data = await sync_to_async(lambda: serializer.validated_data)()
         user = await serializer.create(validated_data)
-        print(user)
         
         # Add to group
         await sync_to_async(user.add_to_group)(role_to_create)
 
         # Prepare response
+        serializer.instance = user
         response_data = await sync_to_async(lambda: serializer.data)()
         email_sent = serializer.context.get("email_sent", False)
         
