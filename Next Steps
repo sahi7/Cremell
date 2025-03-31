@@ -14,3 +14,6 @@ Restrict creation of companyadmin and restauowner. Ownership can be transfered t
 - Complete View to transfer users within branches
 - Upgrade user roles (from branchmanager to restaurantmanager)
   Can be done in single steps - escalate notifications up the hierachy when it happens
+
+After creating a user we need to assign them to objects - as managers
+  Create a view to assign users as manager for branch or restau
