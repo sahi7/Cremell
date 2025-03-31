@@ -21,7 +21,6 @@ from dj_rest_auth.registration.views import RegisterView
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 
-from rest_access_policy import AccessViewSetMixin
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from asgiref.sync import sync_to_async 
@@ -31,7 +30,7 @@ from adrf.viewsets import ModelViewSet
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer, MenuSerializer, MenuCategorySerializer
 from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
 from .models import Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
-from zMisc.policies import UserAccessPolicy, RestaurantAccessPolicy, BranchAccessPolicy
+from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy
 from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
 from zMisc.utils import validate_scope, filter_queryset_by_scopes, get_scope_filters
 

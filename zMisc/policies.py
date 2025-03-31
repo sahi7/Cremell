@@ -1,94 +1,183 @@
 from rest_access_policy import AccessPolicy
 from rest_framework.exceptions import PermissionDenied
+from django.db.models import Q
 from asgiref.sync import sync_to_async
 from django.utils.translation import gettext_lazy as _
 from CRE.models import Branch, Restaurant
 
-class UserAccessPolicy(AccessPolicy):
+class ScopeAccessPolicy(AccessPolicy):
+    """
+    Async access policy to validate user scope based on their role (group).
+    Ensures actions (GET, CREATE, UPDATE) stay within role-specific boundaries.
+    Use with adrf async Viewsets only - overide the views' dispatch method if not
+    """
     statements = [
-        # Allow CompanyAdmin full access (validate companies within their scope)
         {
-            "action": "*",
             "principal": ["group:CompanyAdmin"],
-            "effect": "allow",
-            "condition": "is_within_company_scope"
+            "action": ["*"],  # Applies to list, retrieve, create, etc.
+            "condition": "is_within_company_scope",
         },
-        # Restrict RestaurantOwner actions (validate restaurants)
         {
-            "action": ["list", "retrieve", "create", "update", "delete"],
-            "principal": ["group:RestaurantOwner"],
-            "effect": "allow",
-            "condition": "is_within_restaurant_scope"
-        },
-        # Restrict CountryManager actions (validate countries and companies)
-        {
-            "action": ["list", "retrieve", "create", "update", "delete"],
             "principal": ["group:CountryManager"],
-            "effect": "allow"
+            "action": ["*"],
+            "condition": "is_within_country_scope",
         },
-        # Restrict RestaurantManager to read-only (validate restaurants)
         {
-            "action": ["list", "retrieve"],
+            "principal": ["group:RestaurantOwner"],
+            "action": ["*"],
+            "condition": "is_within_restaurant_owner_scope",
+        },
+        {
             "principal": ["group:RestaurantManager"],
-            "effect": "allow",
-            "condition": "is_within_restaurant_scope"
+            "action": ["*"],
+            "condition": "is_within_restaurant_manager_scope",
         },
-        # BranchManager: Read-only, checks branches
         {
-            "action": ["list", "retrieve"],
             "principal": ["group:BranchManager"],
-            "effect": "allow",
-            "condition": "is_within_branch_manager_scope"
+            "action": ["*"],
+            "condition": "is_within_branch_scope",
+        },
+        # Deny all other roles by default
+        {
+            "principal": ["*"],
+            "action": ["*"],
+            "effect": "deny",
         },
     ]
 
-    async def is_within_restaurant_scope(self, request, view, action):
-        if action != "create":
-            return True
+    async def get_allowed_scopes(self, request, view, action):
+        """Compute allowed entity IDs for the user's role asynchronously."""
         user = request.user
-        requested_restaurants = set(request.data.get('restaurants', []))
-        requested_companies = set(request.data.get('companies', []))
-        
-        # Cache group checks
-        is_owner = await sync_to_async(user.groups.filter(name="RestaurantOwner").exists)()
-        is_manager = await sync_to_async(user.groups.filter(name="RestaurantManager").exists)() if not is_owner else False
-        
-        if requested_restaurants:
-            if is_owner:
-                user_restaurants = set(await sync_to_async(lambda: list(user.restaurants.values_list('id', flat=True)))())
-            elif is_manager:
-                user_restaurants = set(await sync_to_async(lambda: list(user.restaurants.filter(manager=user).values_list('id', flat=True)))())
-            else:
-                raise PermissionDenied(_("Invalid role for restaurant scope."))
-            if not requested_restaurants.issubset(user_restaurants):
-                raise PermissionDenied(_("All requested restaurants must be within your scope."))
-        
-        if requested_companies:
-            user_companies = set(await sync_to_async(lambda: list(user.companies.values_list('id', flat=True)))())
-            if not requested_companies.issubset(user_companies):
-                raise PermissionDenied(_("All requested companies must be within your scope."))
-        
-        role_to_create = request.data.get('role')
-        request.data['status'] = 'active' if role_to_create in ['company_admin', 'country_manager', 'restaurant_owner'] else ('active' if request.data.get('branches', []) else 'pending')
+        # Get role from groups asynchronously
+        role = await sync_to_async(lambda: next(
+            (g.name for g in user.groups.all() if g.name in self.statements_by_principal), None
+        ))()
+        if not role:
+            return {}
+
+        if role == "CompanyAdmin":
+            companies = await sync_to_async(lambda: set(user.companies.values_list('id', flat=True)))()
+            return {
+                'companies': companies,
+                'countries': await sync_to_async(lambda: set(user.countries.values_list('id', flat=True)))(),
+                'restaurants': await sync_to_async(lambda: set(
+                    Restaurant.objects.filter(company_id__in=companies).values_list('id', flat=True)
+                ))(),
+                'branches': await sync_to_async(lambda: set(
+                    Branch.objects.filter(company_id__in=companies).values_list('id', flat=True)
+                ))(),
+            }
+        elif role == "CountryManager":
+            countries = await sync_to_async(lambda: set(user.countries.values_list('id', flat=True)))()
+            companies = await sync_to_async(lambda: set(user.companies.values_list('id', flat=True)))()
+            return {
+                'companies': companies,
+                'countries': countries,
+                'restaurants': await sync_to_async(lambda: set(
+                    Restaurant.objects.filter(country_id__in=countries).values_list('id', flat=True)
+                ))(),
+                'branches': await sync_to_async(lambda: set(
+                    Branch.objects.filter(country_id__in=countries).values_list('id', flat=True)
+                ))(),
+            }
+        elif role == "RestaurantOwner":
+            restaurants = await sync_to_async(lambda: set(
+                Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(created_by=user)).values_list('id', flat=True)
+            ))()
+            return {
+                'restaurants': restaurants,
+                'branches': await sync_to_async(lambda: set(
+                    Branch.objects.filter(restaurant_id__in=restaurants).values_list('id', flat=True)
+                ))(),
+            }
+        elif role == "RestaurantManager":
+            restaurants = await sync_to_async(lambda: set(
+                Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(manager=user)).values_list('id', flat=True)
+            ))()
+            return {
+                'restaurants': restaurants,
+                'branches': await sync_to_async(lambda: set(
+                    Branch.objects.filter(restaurant_id__in=restaurants).values_list('id', flat=True)
+                ))(),
+            }
+        elif role == "BranchManager":
+            return {
+                'branches': await sync_to_async(lambda: set(user.branches.values_list('id', flat=True)))(),
+            }
+        return {}
+
+    async def is_within_company_scope(self, request, view, action):
+        return await self._check_scope(request, view, action, requires=['companies'])
+
+    async def is_within_country_scope(self, request, view, action):
+        return await self._check_scope(request, view, action)
+
+    async def is_within_restaurant_owner_scope(self, request, view, action):
+        return await self._check_scope(request, view, action)
+
+    async def is_within_restaurant_manager_scope(self, request, view, action):
+        return await self._check_scope(request, view, action)
+
+    async def is_within_branch_scope(self, request, view, action):
+        return await self._check_scope(request, view, action)
+
+    async def _check_scope(self, request, view, action, requires=None):
+        """Core async scope validation logic."""
+        allowed_scopes = await self.get_allowed_scopes(request, view, action)
+        requested = {
+            'companies': set(request.data.get("companies", [])),
+            'countries': set(request.data.get("countries", [])),
+            'restaurants': set(request.data.get("restaurants", [])),
+            'branches': set(request.data.get("branches", [])),
+        }
+
+        if action in ['create', 'update', 'partial_update']:
+            if requires:
+                for field in requires:
+                    if not requested[field]:
+                        return False  # Missing required field
+            for field, requested_ids in requested.items():
+                if requested_ids:
+                    allowed_ids = allowed_scopes.get(field, set())
+                    if not requested_ids.issubset(allowed_ids):
+                        return False
         return True
 
-    async def is_within_branch_manager_scope(self, request, view, action):
-        if action != "create":
-            return True
+    async def get_queryset_scope(self, request, view):
+        """
+        Returns a Q filter for queryset scoping asynchronously.
+        Usage:
+            scope_filter = await ScopeAccessPolicy().get_queryset_scope(self.request, self)
+            return Branch.objects.filter(scope_filter) - for a Branch object
+        """
         user = request.user
-        requested_branches = set(request.data.get('branches', []))
-        requested_companies = set(request.data.get('companies', []))
-        if requested_branches:
-            user_branches = set(await sync_to_async(lambda: list(user.managed_branches.values_list('id', flat=True)))())  # Assumes related_name='managed_branches'
-            if not requested_branches.issubset(user_branches):
-                raise PermissionDenied(_("All requested branches must be within your scope."))
-        if requested_companies:
-            user_companies = set(await sync_to_async(lambda: list(user.companies.values_list('id', flat=True)))())
-            if not requested_companies.issubset(user_companies):
-                raise PermissionDenied(_("All requested companies must be within your scope."))
-        role_to_create = request.data.get('role')
-        request.data['status'] = 'active' if role_to_create in ['company_admin', 'country_manager', 'restaurant_owner'] else ('active' if requested_branches else 'pending')
-        return True
+        role = await sync_to_async(lambda: next(
+            (g.name for g in user.groups.all() if g.name in self.statements_by_principal), None
+        ))()
+        if not role:
+            return Q(pk__in=[])  # Empty queryset
+
+        if role == "CompanyAdmin":
+            companies = await sync_to_async(lambda: list(user.companies.values_list('id', flat=True)))()
+            return Q(company_id__in=companies)
+        elif role == "CountryManager":
+            countries = await sync_to_async(lambda: list(user.countries.values_list('id', flat=True)))()
+            companies = await sync_to_async(lambda: list(user.companies.values_list('id', flat=True)))()
+            return Q(country_id__in=countries) & Q(company_id__in=companies)
+        elif role == "RestaurantOwner":
+            restaurants = await sync_to_async(lambda: list(
+                Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(created_by=user)).values_list('id', flat=True)
+            ))()
+            return Q(restaurant_id__in=restaurants)
+        elif role == "RestaurantManager":
+            restaurants = await sync_to_async(lambda: list(
+                Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(manager=user)).values_list('id', flat=True)
+            ))()
+            return Q(restaurant_id__in=restaurants)
+        elif role == "BranchManager":
+            branches = await sync_to_async(lambda: list(user.branches.values_list('id', flat=True)))()
+            return Q(id__in=branches)
+        return Q(pk__in=[])  # Default deny
 
 class RestaurantAccessPolicy(AccessPolicy):
     statements = [

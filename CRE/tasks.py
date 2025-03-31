@@ -2,12 +2,15 @@ from celery import shared_task
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from allauth.account.utils import send_email_confirmation
+
 from django.utils import timezone
 from django.http import HttpRequest
 from django.contrib.sites.models import Site
 from django.contrib.auth import get_user_model
 from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.mail import send_mail
+
 from .models import StaffShift
 import logging
 
@@ -61,3 +64,11 @@ def send_register_email(self, user_id):
         
     except Exception as e:
         logger.error(f"Email retry failed for user {user_id}: {e}")
+
+
+@shared_task
+def send_assignment_email(user_id, object_type, object_id, field_name):
+    user = CustomUser.objects.get(id=user_id)
+    subject = f"New Assignment: {object_type.capitalize()} {field_name}"
+    message = f"Hi {user.username},\n\nYou’ve been assigned as {field_name} to {object_type} ID {object_id}.\n\nRegards,\nTeam"
+    send_mail(subject, message, 'from@example.com', [user.email], fail_silently=False)

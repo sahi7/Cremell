@@ -323,3 +323,10 @@ class StaffAvailabilitySerializer(serializers.ModelSerializer):
         model = StaffAvailability
         fields = '__all__'
 
+
+class AssignmentSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(required=False)  # Optional for object status updates
+    object_type = serializers.ChoiceField(choices=['restaurant', 'branch', 'user'], required=True)
+    object_id = serializers.IntegerField(required=False)  # Optional for user status updates
+    field_name = serializers.CharField(required=False, default='manager')  # For assignments
+    status = serializers.CharField(required=False)  # For user or object status (open-ended for flexibility)
