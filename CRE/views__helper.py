@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from adrf.views import APIView
+from adrf.viewsets import ModelViewSet
 from channels.layers import get_channel_layer
 from asgiref.sync import sync_to_async
 from django.core.exceptions import PermissionDenied
@@ -88,97 +89,121 @@ class AssignmentView(APIView):
         }
     """
     serializer_class = AssignmentSerializer
-    permission_classes = [ScopeAccessPolicy]
+    permission_classes = (ScopeAccessPolicy, )
 
     async def patch(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.serializer_class(data=request.data)
         await sync_to_async(serializer.is_valid)(raise_exception=True)
         data = serializer.validated_data
 
         object_type = data['object_type']
-        new_status = data.get('status')
+        object_id = data['object_id']
+        field_name = data['field_name']
+        user_id = data.get('user_id')  # Optional, for assignments
+        field_value = data.get('field_value')  # Optional, for direct updates
 
-        if object_type == 'user':
-            if 'user_id' not in data:
-                raise PermissionDenied(_("user_id required for user operations"))
-            user = await sync_to_async(CustomUser.objects.get)(id=data['user_id'])
-            if new_status:
-                await self._handle_status_change(request, user, new_status)
-            else:
-                raise PermissionDenied(_("Status required for user updates"))
+        # Map object types to models
+        model_map = {
+            'user': CustomUser,
+            'branch': Branch,
+            'restaurant': Restaurant,
+        }
+        model = model_map.get(object_type)
+        if not model:
+            raise PermissionDenied(_("Invalid object type"))
+
+        # Fetch the object
+        obj = await sync_to_async(model.objects.get)(id=object_id)
+
+        # Handle update based on presence of user_id or field_value
+        if user_id is not None:
+            user = await sync_to_async(CustomUser.objects.get)(id=user_id)
+            await self._handle_user_assignment(request, obj, user, field_name, model)
+        elif field_value is not None:
+            await self._handle_field_update(request, obj, field_name, field_value, model)
         else:
-            if 'object_id' not in data:
-                raise PermissionDenied(_("object_id required for object operations"))
-            model_map = {'restaurant': Restaurant, 'branch': Branch}
-            model = model_map.get(object_type)
-            if not model:
-                raise PermissionDenied(_("Invalid object type"))
-            obj = await sync_to_async(model.objects.get)(id=data['object_id'])
-
-            if 'user_id' in data:
-                user = await sync_to_async(CustomUser.objects.get)(id=data['user_id'])
-                field_name = data.get('field_name')
-                await self._handle_object_assignment(request, user, obj, field_name, model)
-            elif new_status:
-                await self._handle_object_status_change(request, obj, new_status, model)
-            else:
-                raise PermissionDenied(_("Specify a user assignment or status change"))
+            raise PermissionDenied(_("Specify either user_id for assignment or field_value for update"))
 
         return Response({"message": _("Updated {object_type} successfully").format(object_type=object_type)}, 
                         status=status.HTTP_200_OK)
 
-    async def _handle_status_change(self, request, user, new_status):
+    async def _handle_user_assignment(self, request, obj, user, field_name, model):
+        # Get allowed scopes from policy
         allowed_scopes = await ScopeAccessPolicy().get_allowed_scopes(request, self, self.action)
-        
-        # Flexible scope check: try companies, then restaurants, then branches
-        user_scope_ids = set()
-        if hasattr(user, 'companies'):
-            user_scope_ids = await sync_to_async(lambda: set(user.companies.values_list('id', flat=True)))()
-        elif hasattr(user, 'restaurants'):
-            user_scope_ids = await sync_to_async(lambda: set(user.restaurants.values_list('id', flat=True)))()
-        elif hasattr(user, 'branches'):
-            user_scope_ids = await sync_to_async(lambda: set(user.branches.values_list('id', flat=True)))()
 
-        # Check against allowed scopes (companies, restaurants, or branches)
-        if user_scope_ids:
-            if ('companies' in allowed_scopes and not user_scope_ids.issubset(allowed_scopes['companies'])) and \
-               ('restaurants' in allowed_scopes and not user_scope_ids.issubset(allowed_scopes['restaurants'])) and \
-               ('branches' in allowed_scopes and not user_scope_ids.issubset(allowed_scopes['branches'])):
-                raise PermissionDenied(_("User not in your scope"))
+        # Check object scope
+        obj_scope_ids = await self._get_object_scope_ids(obj, model)
+        if obj_scope_ids and not any(obj_scope_ids.issubset(allowed_scopes.get(scope, set())) for scope in ['companies', 'restaurants', 'branches']):
+            raise PermissionDenied(_("Object not in your scope"))
 
-        # Update status (no is_active fallback)
-        if not hasattr(user, 'status'):
-            raise PermissionDenied(_("User model has no status field"))
-        await sync_to_async(setattr)(user, 'status', new_status)
-        await sync_to_async(user.save)()
-        await self._send_notifications(user, 'user', user.id, f"status to {new_status}")
+        # Check user scope
+        user_scope_ids = await self._get_object_scope_ids(user, CustomUser)
+        if user_scope_ids and not any(user_scope_ids.issubset(allowed_scopes.get(scope, set())) for scope in ['companies', 'restaurants', 'branches']):
+            raise PermissionDenied(_("User not in your scope"))
 
-    async def _handle_object_assignment(self, request, user, obj, field_name, model):
+        # Validate and assign user to field
         if field_name not in model._meta.fields_map or not isinstance(model._meta.get_field(field_name), models.ForeignKey):
-            raise PermissionDenied(_("Invalid assignment field: {field_name}").format(field_name=field_name))
+            raise PermissionDenied(_("{model_name} has no ForeignKey field '{field_name}'").format(model_name=model.__name__, field_name=field_name))
         await sync_to_async(setattr)(obj, field_name, user)
         await sync_to_async(obj.save)()
-        await self._send_notifications(user, model.__name__.lower(), obj.id, field_name)
 
-    async def _handle_object_status_change(self, request, obj, new_status, model):
-        if 'status' not in model._meta.fields:
-            raise PermissionDenied(_("{model_name} has no status field").format(model_name=model.__name__))
-        await sync_to_async(setattr)(obj, 'status', new_status)
+        # Notify
+        await self._send_notifications(user, model.__name__.lower(), obj.id, f"assigned as {field_name}")
+
+    async def _handle_field_update(self, request, obj, field_name, field_value, model):
+        # Get allowed scopes from policy
+        allowed_scopes = await ScopeAccessPolicy().get_allowed_scopes(request, self, self.action)
+
+        # Check object scope
+        obj_scope_ids = await self._get_object_scope_ids(obj, model)
+        if obj_scope_ids and not any(obj_scope_ids.issubset(allowed_scopes.get(scope, set())) for scope in ['companies', 'restaurants', 'branches']):
+            raise PermissionDenied(_("Object not in your scope"))
+
+        # Validate and update field
+        if field_name not in [f.name for f in model._meta.fields]:
+            raise PermissionDenied(_("{model_name} has no field '{field_name}'").format(model_name=model.__name__, field_name=field_name))
+        
+        # Convert field_value to the correct type
+        field_obj = model._meta.get_field(field_name)
+        if field_value is not None:
+            if field_obj.get_internal_type() in ['IntegerField', 'BigIntegerField']:
+                field_value = int(field_value)
+            elif field_obj.get_internal_type() == 'BooleanField':
+                field_value = bool(field_value.lower() == 'true' if isinstance(field_value, str) else field_value)
+
+        await sync_to_async(setattr)(obj, field_name, field_value)
         await sync_to_async(obj.save)()
-        user_to_notify = getattr(obj, 'manager', None) or request.user
-        if user_to_notify:
-            await self._send_notifications(user_to_notify, model.__name__.lower(), obj.id, f"status to {new_status}")
 
-    async def _send_notifications(self, user, object_type, object_id, field_name):
+        # Notify
+        user_to_notify = getattr(obj, 'manager', None) or (obj if model == CustomUser else request.user)
+        if user_to_notify:
+            await self._send_notifications(user_to_notify, model.__name__.lower(), obj.id, f"{field_name} to {field_value}")
+
+    async def _get_object_scope_ids(self, obj, model):
+        """Extract scope-relevant IDs from the object."""
+        if model == CustomUser:
+            if hasattr(obj, 'companies'):
+                return await sync_to_async(lambda: set(obj.companies.values_list('id', flat=True)))()
+            elif hasattr(obj, 'restaurants'):
+                return await sync_to_async(lambda: set(obj.restaurants.values_list('id', flat=True)))()
+            elif hasattr(obj, 'branches'):
+                return await sync_to_async(lambda: set(obj.branches.values_list('id', flat=True)))()
+        elif model == Branch:
+            return {obj.company_id} if obj.company_id else set()
+        elif model == Restaurant:
+            return {obj.company_id} if obj.company_id else set()
+        return set()
+
+    async def _send_notifications(self, user, object_type, object_id, field_update):
         from .tasks import send_assignment_email
-        send_assignment_email.delay(user.id, object_type, object_id, field_name)
+        send_assignment_email.delay(user.id, object_type, object_id, field_update)
         channel_layer = get_channel_layer()
         await channel_layer.group_send(
             f"user_{user.id}",
             {
-                'type': 'assignment_notification',
-                'message': _("Updated {object_type} ID {object_id} with {field_name}").format(
-                    object_type=object_type, object_id=object_id, field_name=field_name
+                'type': 'update_notification',
+                'message': _("Updated {object_type} ID {object_id} with {field_update}").format(
+                    object_type=object_type, object_id=object_id, field_update=field_update
                 ),
             }
         )

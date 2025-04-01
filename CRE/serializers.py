@@ -325,8 +325,15 @@ class StaffAvailabilitySerializer(serializers.ModelSerializer):
 
 
 class AssignmentSerializer(serializers.Serializer):
-    user_id = serializers.IntegerField(required=False)  # Optional for object status updates
-    object_type = serializers.ChoiceField(choices=['restaurant', 'branch', 'user'], required=True)
-    object_id = serializers.IntegerField(required=False)  # Optional for user status updates
-    field_name = serializers.CharField(required=False, default='manager')  # For assignments
-    status = serializers.CharField(required=False)  # For user or object status (open-ended for flexibility)
+    object_type = serializers.ChoiceField(choices=['user', 'branch', 'restaurant'])
+    object_id = serializers.IntegerField()
+    field_name = serializers.CharField()
+    user_id = serializers.IntegerField(required=False)
+    field_value = serializers.CharField(allow_null=True, allow_blank=True, required=False)
+
+    def validate(self, data):
+        if 'user_id' in data and 'field_value' in data:
+            raise serializers.ValidationError(_("Specify either user_id for assignment or field_value for update, not both"))
+        if 'user_id' not in data and 'field_value' not in data:
+            raise serializers.ValidationError(_("Specify either user_id or field_value"))
+        return data
