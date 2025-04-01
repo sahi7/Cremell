@@ -126,24 +126,40 @@ class AssignmentView(APIView):
 
         return Response({"message": _("Updated {object_type} successfully").format(object_type=object_type)}, 
                         status=status.HTTP_200_OK)
+    
+    async def _check_scope(self, request, obj, model, user=None):
+        """Check if object (and optionally user) is within scope."""
+        policy = ScopeAccessPolicy()
 
-    async def _handle_user_assignment(self, request, obj, user, field_name, model):
-        # Get allowed scopes from policy
-        allowed_scopes = await ScopeAccessPolicy().get_allowed_scopes(request, self, self.action)
+        # Additional object-specific scope check
+        config = policy.get_role_config(request.user)
+        if not config:
+            raise PermissionDenied(_("No scope defined for your role"))
 
-        # Check object scope
+        allowed_scopes = await sync_to_async(config["scopes"])(request.user)
+
         obj_scope_ids = await self._get_object_scope_ids(obj, model)
         if obj_scope_ids and not any(obj_scope_ids.issubset(allowed_scopes.get(scope, set())) for scope in ['companies', 'restaurants', 'branches']):
             raise PermissionDenied(_("Object not in your scope"))
 
-        # Check user scope
-        user_scope_ids = await self._get_object_scope_ids(user, CustomUser)
-        if user_scope_ids and not any(user_scope_ids.issubset(allowed_scopes.get(scope, set())) for scope in ['companies', 'restaurants', 'branches']):
-            raise PermissionDenied(_("User not in your scope"))
+        # Check user scope if provided (for assignments)
+        if user:
+            user_scope_ids = await self._get_object_scope_ids(user, CustomUser)
+            if user_scope_ids and not any(user_scope_ids.issubset(allowed_scopes.get(scope, set())) for scope in ['companies', 'restaurants', 'branches']):
+                raise PermissionDenied(_("User not in your scope"))
+
+    async def _handle_user_assignment(self, request, obj, user, field_name, model):
+        # Check allowed scopes from policy
+        await self._check_scope(request, obj, model, user)
 
         # Validate and assign user to field
-        if field_name not in model._meta.fields_map or not isinstance(model._meta.get_field(field_name), models.ForeignKey):
-            raise PermissionDenied(_("{model_name} has no ForeignKey field '{field_name}'").format(model_name=model.__name__, field_name=field_name))
+        field = model._meta.get_field(field_name)
+        try:
+            field = model._meta.get_field(field_name)
+            if not isinstance(field, models.ForeignKey):
+                raise PermissionDenied(_("{model_name} field '{field_name}' is not a ForeignKey").format(model_name=model.__name__, field_name=field_name))
+        except models.FieldDoesNotExist:
+            raise PermissionDenied(_("{model_name} has no field '{field_name}'").format(model_name=model.__name__, field_name=field_name))
         await sync_to_async(setattr)(obj, field_name, user)
         await sync_to_async(obj.save)()
 
@@ -151,13 +167,8 @@ class AssignmentView(APIView):
         await self._send_notifications(user, model.__name__.lower(), obj.id, f"assigned as {field_name}")
 
     async def _handle_field_update(self, request, obj, field_name, field_value, model):
-        # Get allowed scopes from policy
-        allowed_scopes = await ScopeAccessPolicy().get_allowed_scopes(request, self, self.action)
-
-        # Check object scope
-        obj_scope_ids = await self._get_object_scope_ids(obj, model)
-        if obj_scope_ids and not any(obj_scope_ids.issubset(allowed_scopes.get(scope, set())) for scope in ['companies', 'restaurants', 'branches']):
-            raise PermissionDenied(_("Object not in your scope"))
+        # Check allowed scopes from policy
+        await self._check_scope(request, obj, model)
 
         # Validate and update field
         if field_name not in [f.name for f in model._meta.fields]:
