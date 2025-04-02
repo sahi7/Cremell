@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 from asgiref.sync import sync_to_async
 from CRE.models import Branch, Restaurant, Country, Company
+from zMisc.policies import ScopeAccessPolicy
 
 CustomUser = get_user_model()
 
@@ -213,3 +214,91 @@ class ObjectStatusPermission(BasePermission):
             if not request.user.groups.filter(name__in=["CompanyAdmin", "CountryManager", "RestaurantOwner"]).exists():
                 raise PermissionDenied(_("This object is inactive and cannot be modified."))
         return True
+
+
+class EntityUpdatePermission(BasePermission):
+    """
+    Custom permission to validate user assignment and object scope for updates.
+    Complements ScopeAccessPolicy with specific checks.
+    """
+    MODEL_MAP = {
+        'user': CustomUser,
+        'branch': Branch,
+        'restaurant': Restaurant,
+    }
+
+    ROLE_FIELD_MAP = {
+        'restaurant': {'manager': 'RestaurantManager'},
+        'branch': {'manager': 'BranchManager'},
+        # Add future mappings: 'driver': 'Driver', 'delivery_man': 'DeliveryMan'
+    }
+
+    async def has_permission(self, request, view):
+
+        data = request.data
+        object_type = data.get('object_type')
+        object_id = data.get('object_id')
+        field_name = data.get('field_name')
+        user_id = data.get('user_id')
+
+        model = self.MODEL_MAP.get(object_type)
+        if not model or not object_id:
+            return False
+
+        # Fetch object and validate existence
+        try:
+            obj = await sync_to_async(model.objects.get)(id=object_id)
+        except model.DoesNotExist:
+            raise PermissionDenied(_("{object_type} ID {object_id} does not exist").format(object_type=object_type, object_id=object_id))
+
+        # Validate object scope
+        if not await self._is_object_in_scope(request, obj, model):
+            raise PermissionDenied(_("Object not in your scope"))
+
+        # Handle user assignment
+        if user_id:
+            try:
+                user = await sync_to_async(CustomUser.objects.get)(id=user_id)
+                if user == request.user:
+                    return False
+            except CustomUser.DoesNotExist:
+                raise PermissionDenied(_("User ID {user_id} does not exist").format(user_id=user_id))
+
+            # Check user role for specific fields
+            expected_role = self.ROLE_FIELD_MAP.get(object_type, {}).get(field_name)
+            if expected_role and not await sync_to_async(user.groups.filter(name=expected_role).exists)():
+                raise PermissionDenied(_(f"User must be in {expected_role} group for {field_name} assignment"))
+
+            # Validate user scope
+            if not await self._is_object_in_scope(request, user, CustomUser):
+                raise PermissionDenied(_("Assigned user not in your scope"))
+
+        return True
+
+    async def _is_object_in_scope(self, request, obj, model):
+        """Check if object aligns with requester's scope."""
+        requester = request.user
+        config = await sync_to_async(ScopeAccessPolicy().get_role_config)(requester)
+        if not config:
+            return False
+
+        allowed_scopes = await sync_to_async(config["scopes"])(requester)
+        obj_scope_ids = await self._get_object_scope_ids(obj, model)
+
+        return obj_scope_ids and any(obj_scope_ids.issubset(allowed_scopes.get(scope, set())) 
+                                    for scope in ['companies', 'restaurants', 'branches'])
+
+    async def _get_object_scope_ids(self, obj, model):
+        """Extract scope-relevant IDs from the object (reused from EntityUpdateViewSet)."""
+        if model == CustomUser:
+            if hasattr(obj, 'companies'):
+                return await sync_to_async(lambda: set(obj.companies.values_list('id', flat=True)))()
+            elif hasattr(obj, 'restaurants'):
+                return await sync_to_async(lambda: set(obj.restaurants.values_list('id', flat=True)))()
+            elif hasattr(obj, 'branches'):
+                return await sync_to_async(lambda: set(obj.branches.values_list('id', flat=True)))()
+        elif model == Branch:
+            return {obj.company_id} if obj.company_id else set()
+        elif model == Restaurant:
+            return {obj.company_id} if obj.company_id else set()
+        return set()
