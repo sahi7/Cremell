@@ -115,14 +115,14 @@ class AssignmentView(APIView):
         # Handle update (permissions already checked)
         if user_id is not None:
             user = await sync_to_async(CustomUser.objects.get)(id=user_id)  # consider using user from permission to avoid extra db hit
-            await self._handle_user_assignment(obj, user, field_name, model)
+            await self._handle_user_assignment(obj, user, field_name, model, data)
         elif field_value is not None:
             await self._handle_field_update(obj, field_name, field_value, model)
 
         return Response({"message": _("Updated {object_type} successfully").format(object_type=object_type)}, 
                         status=status.HTTP_200_OK)
 
-    async def _handle_user_assignment(self, obj, user, field_name, model):
+    async def _handle_user_assignment(self, obj, user, field_name, model, data):
         # Validate field (minimal check since permission already ensures existence)
         try:
             field = model._meta.get_field(field_name)
@@ -135,6 +135,9 @@ class AssignmentView(APIView):
             #     model_name=model.__name__, error=str(e)
             # ))
         old_manager = await sync_to_async(getattr)(obj, field_name, None)
+        print(data)
+        if old_manager and not data.get('force_update') == "True":
+            raise PermissionDenied(_("{object_type} already has a {field_name}. Use 'force': true to overwrite").format(object_type=data['object_type'], field_name=data['field_name']))
 
         await sync_to_async(setattr)(obj, field_name, user)
         await sync_to_async(obj.save)()
@@ -183,14 +186,14 @@ class AssignmentView(APIView):
 
     async def _send_notifications(self, user, object_type, object_id, field_update):
         from .tasks import send_assignment_email
-        send_assignment_email.delay(user.id, object_type, object_id, field_update)
-        channel_layer = get_channel_layer()
-        await channel_layer.group_send(
-            f"user_{user.id}",
-            {
-                'type': 'update_notification',
-                'message': _("Updated {object_type} ID {object_id} with {field_update}").format(
-                    object_type=object_type, object_id=object_id, field_update=field_update
-                ),
-            }
-        )
+        # send_assignment_email.delay(user.id, object_type, object_id, field_update)
+        # channel_layer = get_channel_layer()
+        # await channel_layer.group_send(
+        #     f"user_{user.id}",
+        #     {
+        #         'type': 'update_notification',
+        #         'message': _("Updated {object_type} ID {object_id} with {field_update}").format(
+        #             object_type=object_type, object_id=object_id, field_update=field_update
+        #         ),
+        #     }
+        # )
