@@ -114,7 +114,7 @@ class AssignmentView(APIView):
 
         # Handle update (permissions already checked)
         if user_id is not None:
-            user = await sync_to_async(CustomUser.objects.get)(id=user_id)
+            user = await sync_to_async(CustomUser.objects.get)(id=user_id)  # consider using user from permission to avoid extra db hit
             await self._handle_user_assignment(obj, user, field_name, model)
         elif field_value is not None:
             await self._handle_field_update(obj, field_name, field_value, model)
