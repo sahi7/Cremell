@@ -75,7 +75,7 @@ class RestaurantActivity(models.Model):
         ('health_inspection', _('Health Inspection')),
     ]
     
-    restaurant = models.ForeignKey('CRE.Restaurant', on_delete=models.CASCADE, verbose_name=_('Restaurant'))
+    restaurant = models.ForeignKey('CRE.Restaurant', null=True, blank=True, on_delete=models.CASCADE, verbose_name=_('Restaurant'))
     activity_type = models.CharField(max_length=20, choices=ACTIVITY_CHOICES, verbose_name=_('Activity Type'))
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='restaurant_activities', verbose_name=_('User'))
     timestamp = models.DateTimeField(auto_now_add=True, verbose_name=_('Timestamp'))
@@ -112,6 +112,11 @@ class BranchActivity(models.Model):
         ('escalation', _('Task Escalated')),
         ('field_update', _('Update Field')),
 
+         # Staff management
+        ('staff_hire', _('Staff Hired')),
+        ('staff_terminate', _('Staff Terminated')),
+        ('shift_change', _('Shift Schedule Changed')),
+
         # Financial operations
         ('payment_processed', _('Payment Processed')),
         ('refund_issued', _('Refund Issued')),
@@ -130,9 +135,9 @@ class BranchActivity(models.Model):
         ('price_change', _('Price Changed')), 
     ]
     
-    branch = models.ForeignKey('CRE.Branch', on_delete=models.CASCADE)
+    branch = models.ForeignKey('CRE.Branch', null=True, on_delete=models.CASCADE)
     activity_type = models.CharField(max_length=20, choices=ACTIVITY_CHOICES)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='branch_activities')
     timestamp = models.DateTimeField(auto_now_add=True)
     details = models.JSONField()
 

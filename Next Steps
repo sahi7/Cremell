@@ -23,9 +23,8 @@ Restrict creation of companyadmin and restauowner. Ownership can be transfered t
       Notify => Notify new manager of their assignment
     Track History (Soft Replace)
       Create a RestaurantActivity entry with manager_assign > details JSON stores old and new manager IDs for auditing.
+      Offload objectActivity logging to celery
 - Complete View to transfer users within branches
 - Upgrade user roles (from branchmanager to restaurantmanager)
-  Can be done in single steps - escalate notifications up the hierachy when it happens
+    Can be done in single steps - escalate notifications up the hierachy when it happens
 
-After creating a user we need to assign them to objects - as managers
-  Create a view to assign users as manager for branch or restau

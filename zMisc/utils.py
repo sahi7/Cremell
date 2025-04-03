@@ -153,7 +153,7 @@ async def log_activity(user, activity_type, details=None, obj=None):
             raise ValueError(_("{scope_field} object must be a {expected_obj}").format(scope_field=scope_field, expected_obj=expected_obj.__name__))
         scope_value = obj
     else:
-        raise ValueError(_("A obj (e.g., Restaurant or Branch instance) is required"))
+        scope_value = None
 
     # Prepare activity data
     activity_data = {

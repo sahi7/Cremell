@@ -70,6 +70,7 @@ class UserScopeView(APIView):
 class AssignmentView(APIView):
     """
     Method: PATCH
+    Rule: Add Policy requires for scope
     Assign User to a Branch:
         Sets Branch(id=3).manager = CustomUser(id=5)
         {
@@ -204,7 +205,7 @@ class AssignmentView(APIView):
             'old_value': str(old_value) if old_value is not None else None,
             'new_value': str(field_value) if field_value is not None else None,
         }
-        await log_activity(request.user, 'field_update', details, obj)
+        await log_activity(self.request.user, 'field_update', details, obj)
 
         user_to_notify = await sync_to_async(getattr)(obj, 'manager', None) or (obj if model == CustomUser else request.user)
         if user_to_notify:

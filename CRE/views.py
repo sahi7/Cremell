@@ -32,7 +32,7 @@ from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerial
 from .models import Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
 from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy
 from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
-from zMisc.utils import validate_scope, filter_queryset_by_scopes, get_scope_filters
+from zMisc.utils import validate_scope, filter_queryset_by_scopes, get_scope_filters, log_activity
 
 CustomUser = get_user_model()
 def email_confirm_redirect(request, key):
@@ -157,6 +157,12 @@ class UserViewSet(ModelViewSet):
         
         # Add to group
         await sync_to_async(user.add_to_group)(role_to_create)
+
+        # Track History: Log activity with constructed details
+        details = {}
+        details['username'] = getattr(user, 'username', None)
+        details['role'] = user.get_role_display()
+        await log_activity(self.request.user, 'staff_hire', details)
 
         # Prepare response
         serializer.instance = user

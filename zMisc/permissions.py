@@ -33,7 +33,7 @@ class UserCreationPermission(BasePermission):
             }
         },
         'country_manager': {
-            'requires': ['countries'],
+            'requires': ['companies', 'countries'],
             'scopes': {
                 'countries': lambda user, ids: Country.objects.filter(Q(id__in=set(ids) & set(user.countries.all().values_list('id', flat=True)))).count(),
                 'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=ids) & Q(country_id__in=user.countries.all()) & Q(status='active')).count(),
