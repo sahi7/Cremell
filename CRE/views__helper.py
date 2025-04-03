@@ -16,6 +16,7 @@ from .models import Branch, Restaurant, Company, Country
 from .serializers import RestaurantSerializer, CompanySerializer, CountrySerializer, AssignmentSerializer
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.permissions import EntityUpdatePermission
+from zMisc.utils import log_activity
 
 CustomUser = get_user_model()
 
@@ -135,7 +136,9 @@ class AssignmentView(APIView):
             #     model_name=model.__name__, error=str(e)
             # ))
         old_manager = await sync_to_async(getattr)(obj, field_name, None)
-        print(data)
+        if user == old_manager:
+            raise PermissionDenied(_("Already active"))
+
         if old_manager and not data.get('force_update') == "True":
             raise PermissionDenied(_("{object_type} already has a {field_name}. Use 'force': true to overwrite").format(object_type=data['object_type'], field_name=data['field_name']))
 
@@ -162,8 +165,21 @@ class AssignmentView(APIView):
                         await sync_to_async(getattr(old_manager, user_field).remove)(obj)
             except models.FieldDoesNotExist:
                 raise PermissionDenied(_("{field_name} on UserModel is not a ManyToManyField").format(field_name=user_field))
-                
-        await self._send_notifications(user, model.__name__.lower(), obj.id, f"assigned as {field_name}")
+        
+        # Track History: Log activity with constructed details
+        details = {
+            'field_name': field_name,
+            'new_manager': user.id,
+        }
+        if old_manager:
+            details['old_manager'] = old_manager.id
+        activity_type = 'manager_assign' if not old_manager else 'manager_replace'
+        await log_activity(self.request.user, activity_type, details, obj)
+        
+        # Notify: Inform both managers
+        await self._send_notifications(user, object_type, obj.id, f"assigned as {field_name}")
+        if old_manager and old_manager != user:
+            await self._send_notifications(old_manager, object_type, obj.id, f"removed as {field_name}")
 
     async def _handle_field_update(self, obj, field_name, field_value, model):
         # Validate field
@@ -171,6 +187,8 @@ class AssignmentView(APIView):
             raise PermissionDenied(_("{model_name} has no field '{field_name}'").format(model_name=model.__name__, field_name=field_name))
         
         field_obj = model._meta.get_field(field_name)
+        old_value = await sync_to_async(getattr)(obj, field_name)
+
         if field_value is not None:
             if field_obj.get_internal_type() in ['IntegerField', 'BigIntegerField']:
                 field_value = int(field_value)
@@ -179,6 +197,14 @@ class AssignmentView(APIView):
 
         await sync_to_async(setattr)(obj, field_name, field_value)
         await sync_to_async(obj.save)()
+
+        # Track History: Log field update
+        details = {
+            'field_name': field_name,
+            'old_value': str(old_value) if old_value is not None else None,
+            'new_value': str(field_value) if field_value is not None else None,
+        }
+        await log_activity(request.user, 'field_update', details, obj)
 
         user_to_notify = await sync_to_async(getattr)(obj, 'manager', None) or (obj if model == CustomUser else request.user)
         if user_to_notify:

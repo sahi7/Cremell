@@ -1,8 +1,11 @@
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
 
+from asgiref.sync import sync_to_async
 from django.utils.translation import gettext as _
 from django.db.models import Q
+from notifications.models import BranchActivity, RestaurantActivity
+from CRE.models import Branch, Restaurant
 
 def check_user_role(user, max_role_value=4):
     """
@@ -110,3 +113,55 @@ def get_scope_filters(user):
         if user.groups.filter(name=group_name).exists():
             return rules['filter'](), rules['min_role_value']
     return Q(pk=None), float('inf')  # Default: no users
+
+
+async def determine_activity_model(user):
+    """
+    Determines the appropriate activity model based on user's role value.
+    Returns a tuple: (Model, scope_field).
+    Raises PermissionDenied if no valid scope is found.
+    """
+    # Check user role and get numeric value
+    role_value = check_user_role(user, 5)  # Sync call, assumed available
+
+    # Determine model and scope based on role value threshold
+    if role_value >= 5:  # Branch-level roles
+        return BranchActivity, 'branch'
+    elif 1 <= role_value <= 4:  # Company/Restaurant-level roles
+        return RestaurantActivity, 'restaurant'
+    
+    raise PermissionDenied(_("User has no valid scope for activity logging"))
+
+
+async def log_activity(user, activity_type, details=None, obj=None):
+    """
+    Logs an activity for a target user, choosing the model based on their role scope.
+    
+    Args:
+        activity_type: Matches ACTIVITY_CHOICES (e.g., 'manager_assign', 'status_update').
+        user: The CustomUser performing the action (e.g., request.user).
+        details: JSON-compatible dict with additional info (optional).
+        obj: Object (e.g., Restaurant instance) to set as scope_field value.
+    """
+    # Determine model and scope field
+    model, scope_field = await determine_activity_model(user)
+
+    # Validate and set scope_value from obj
+    if obj:
+        expected_obj = Restaurant if scope_field == 'restaurant' else Branch
+        if not isinstance(obj, expected_obj):
+            raise ValueError(_("{scope_field} object must be a {expected_obj}").format(scope_field=scope_field, expected_obj=expected_obj.__name__))
+        scope_value = obj
+    else:
+        raise ValueError(_("A obj (e.g., Restaurant or Branch instance) is required"))
+
+    # Prepare activity data
+    activity_data = {
+        scope_field: scope_value,
+        'activity_type': activity_type,
+        'user': user,
+        'details': details or {},
+    }
+
+    # Create activity
+    await sync_to_async(model.objects.create)(**activity_data)
