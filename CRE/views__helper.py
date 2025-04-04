@@ -18,6 +18,10 @@ from zMisc.policies import ScopeAccessPolicy
 from zMisc.permissions import EntityUpdatePermission
 from zMisc.utils import log_activity
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 CustomUser = get_user_model()
 
 class CheckUserExistsView(APIView):
@@ -138,6 +142,7 @@ class AssignmentView(APIView):
             # ))
         old_manager = await sync_to_async(getattr)(obj, field_name, None)
         if user == old_manager:
+            logger.info('Manager is thesame person')
             raise PermissionDenied(_("Already active"))
 
         if old_manager and not data.get('force_update') == "True":

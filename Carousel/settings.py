@@ -279,3 +279,36 @@ SOCIALACCOUNT_PROVIDERS = {
         "VERIFIED_EMAIL": True,
     },
 }
+
+# Logging configuration
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '%(asctime)s %(levelname)s %(module)s %(process)d %(thread)d %(message)s',
+        },
+        'simple': {
+            'format': '%(asctime)s %(levelname)s %(message)s',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+        'monthly_file': {
+            'class': 'logging.handlers.TimedRotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'app.log'),
+            'when': 'midnight',
+            'interval': 30,  # Rotate every 30 days (approximate month)
+            'backupCount': 12,  # Keep 12 months of logs
+            'formatter': 'verbose',
+            'encoding': 'utf8',
+        },
+    },
+    'root': {
+        'handlers': ['console', 'monthly_file'],
+        'level': 'INFO',
+    },
+}

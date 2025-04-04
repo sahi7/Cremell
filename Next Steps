@@ -12,7 +12,7 @@ Restrict creation of companyadmin and restauowner. Ownership can be transfered t
     ✅Must be in BranchManger group
     ✅Must be in branch/restau scope
   DETAILS
-    Write function to log RestaurantActivity - all logging use this function
+    ✅Write function to log Restaurant/BranchActivity - all logging use this function
     Prevent Overwrite => If manager already exists they should be removed first (if a branch already has a manager)
       - Sync Many-to-Many Field => remove object (e.g branch) from users attributes (user.branches) after removal from branch
       - Prevent 2 admins from assigning managers at same time (generic function)

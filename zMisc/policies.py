@@ -126,7 +126,7 @@ class ScopeAccessPolicy(AccessPolicy):
                 allowed = allowed_scopes.get(field, set())
                 is_valid = requested_ids.issubset(allowed)
                 
-                print(f"Checking {field}: {requested_ids} ⊆ {allowed} -> {is_valid}")
+                # print(f"Checking {field}: {requested_ids} ⊆ {allowed} -> {is_valid}")
 
                 if not is_valid:
                     return False
