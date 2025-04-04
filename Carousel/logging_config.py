@@ -19,8 +19,8 @@ class LoggingConfigurator:
         if not os.path.exists(os.path.dirname(log_path)):
             raise Exception(f"Failed to create log directory: {os.path.dirname(log_path)}")
 
-        # Create queue - THIS IS THE FIXED LINE
-        log_queue = queue.Queue(-1)  # Now using queue.Queue instead of logging.handlers.Queue
+        # Create queue 
+        log_queue = queue.Queue(-1) 
 
         # Create handlers from Django config
         handlers = []

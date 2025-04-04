@@ -331,6 +331,7 @@ class AssignmentSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(required=False)
     field_value = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     force_update = serializers.CharField(required=False)
+    action = serializers.CharField(required=False)
 
     def validate(self, data):
         if 'user_id' in data and 'field_value' in data:

@@ -98,6 +98,13 @@ class AssignmentView(APIView):
             "field_name": "name",
             "field_value": "Downtown Branch"
         }
+    Remove Manager:
+        {
+            "object_type": "branch", 
+            "object_id": 3, 
+            "field_name": "manager", 
+            "action": "remove"
+        }
 
     """
     serializer_class = AssignmentSerializer
@@ -118,31 +125,65 @@ class AssignmentView(APIView):
         model = EntityUpdatePermission.MODEL_MAP.get(object_type)
         obj = await sync_to_async(model.objects.get)(id=object_id)
 
+        # Validate field (minimal check since permission already ensures existence)
+        if not field_value:
+            try:
+                field = model._meta.get_field(field_name)
+                if not isinstance(field, models.ForeignKey):
+                    raise PermissionDenied(_("{model_name} field '{field_name}' is not a ForeignKey").format(model_name=model.__name__, field_name=field_name))
+            except Exception as e:
+                # Catch any other unexpected exceptions and deny permission
+                raise PermissionDenied(_("An unexpected error occurred "))
+                # raise PermissionDenied(_("An unexpected error occurred while checking permissions for {model_name}: {error}").format(
+                #     model_name=model.__name__, error=str(e)
+                # ))
+
+        old_manager = await sync_to_async(getattr)(obj, field_name, None)
+
         # Handle update (permissions already checked)
-        if user_id is not None:
+        if data.get('action') == "remove":
+            await self._handle_removal(obj, field_name, model, data, old_manager)
+        elif user_id is not None:
             user = await sync_to_async(CustomUser.objects.get)(id=user_id)  # consider using user from permission to avoid extra db hit
-            await self._handle_user_assignment(obj, user, field_name, model, data)
+            await self._handle_user_assignment(obj, user, field_name, model, data, old_manager)
         elif field_value is not None:
             await self._handle_field_update(obj, field_name, field_value, model)
 
         return Response({"message": _("Updated {object_type} successfully").format(object_type=object_type)}, 
                         status=status.HTTP_200_OK)
 
-    async def _handle_user_assignment(self, obj, user, field_name, model, data):
-        # Validate field (minimal check since permission already ensures existence)
+    
+    async def _update_user_m2m(self, user, obj, model, action='add', old_user=None):
+        """Reusable helper to manage ManyToManyField updates."""
+        USER_FIELD_MAP = {
+            'restaurant': 'restaurants',
+            'branch': 'branches',
+            'user': 'employees',
+        }
+        object_type = model.__name__.lower()
+        user_field = USER_FIELD_MAP.get(object_type)
+
+        if not user_field:
+            return  # No M2M field for this object type
+
         try:
-            field = model._meta.get_field(field_name)
-            if not isinstance(field, models.ForeignKey):
-                raise PermissionDenied(_("{model_name} field '{field_name}' is not a ForeignKey").format(model_name=model.__name__, field_name=field_name))
-        except Exception as e:
-            # Catch any other unexpected exceptions and deny permission
-            raise PermissionDenied(_("An unexpected error occurred "))
-            # raise PermissionDenied(_("An unexpected error occurred while checking permissions for {model_name}: {error}").format(
-            #     model_name=model.__name__, error=str(e)
-            # ))
-        old_manager = await sync_to_async(getattr)(obj, field_name, None)
+            if not isinstance(CustomUser._meta.get_field(user_field), models.ManyToManyField):
+                raise PermissionDenied(_("{field_name} on UserModel is not a ManyToManyField").format(field_name=user_field))
+            
+            m2m_manager = getattr(user, user_field)
+            if action == 'add':
+                await sync_to_async(m2m_manager.add)(obj)
+                if old_user and old_user != user:
+                    await sync_to_async(getattr(old_user, user_field).remove)(obj)
+            elif action == 'remove' and user:
+                await sync_to_async(m2m_manager.remove)(obj)
+        except models.FieldDoesNotExist:
+            raise PermissionDenied(_("{field_name} on UserModel is not a ManyToManyField").format(field_name=user_field))
+
+    
+    async def _handle_user_assignment(self, obj, user, field_name, model, data, old_manager):
+        
         if user == old_manager:
-            logger.info('Manager is thesame person')
             raise PermissionDenied(_("Already active"))
 
         if old_manager and not data.get('force_update') == "True":
@@ -151,26 +192,8 @@ class AssignmentView(APIView):
         await sync_to_async(setattr)(obj, field_name, user)
         await sync_to_async(obj.save)()
 
-        # Map object types to user's ManyToManyField attributes
-        USER_FIELD_MAP = {
-            'restaurant': 'restaurants',
-            'branch': 'branches',
-            'user': 'employees',
-        }
-
-        # Add object to user's corresponding attribute
-        object_type = model.__name__.lower()
-        user_field = USER_FIELD_MAP.get(object_type)
-
-        if user_field:
-            try:
-                if isinstance(CustomUser._meta.get_field(user_field), models.ManyToManyField):
-                    await sync_to_async(getattr(user, user_field).add)(obj)
-                    # Remove from old manager’s list if applicable
-                    if old_manager and old_manager != user:
-                        await sync_to_async(getattr(old_manager, user_field).remove)(obj)
-            except models.FieldDoesNotExist:
-                raise PermissionDenied(_("{field_name} on UserModel is not a ManyToManyField").format(field_name=user_field))
+       # Update M2M
+        await self._update_user_m2m(user, obj, model, 'add', old_manager)
         
         # Track History: Log activity with constructed details
         details = {
@@ -183,6 +206,7 @@ class AssignmentView(APIView):
         await log_activity(self.request.user, activity_type, details, obj)
         
         # Notify: Inform both managers
+        object_type = model.__name__.lower()
         await self._send_notifications(user, object_type, obj.id, f"assigned as {field_name}")
         if old_manager and old_manager != user:
             await self._send_notifications(old_manager, object_type, obj.id, f"removed as {field_name}")
@@ -215,6 +239,26 @@ class AssignmentView(APIView):
         user_to_notify = await sync_to_async(getattr)(obj, 'manager', None) or (obj if model == CustomUser else request.user)
         if user_to_notify:
             await self._send_notifications(user_to_notify, model.__name__.lower(), obj.id, f"{field_name} to {field_value}")
+
+    async def _handle_removal(self, obj, field_name, model, data, old_manager):
+
+        if not old_manager:
+            raise PermissionDenied(_("{object_type} has no {field_name} to remove").format(object_type=data['object_type'], field_name=field_name))
+
+        # Clear the field
+        await sync_to_async(setattr)(obj, field_name, None)
+        await sync_to_async(obj.save)()
+
+        # Update M2M
+        await self._update_user_m2m(old_manager, obj, model, 'remove')
+
+        # Track History
+        details = {'field_name': field_name, 'old_manager': old_manager.id}
+        await log_activity(self.request.user, 'manager_remove', details, obj)
+
+        # Notify
+        object_type = model.__name__.lower()
+        await self._send_notifications(old_manager, object_type, obj.id, f"removed as {field_name}")
 
     async def _send_notifications(self, user, object_type, object_id, field_update):
         from .tasks import send_assignment_email
