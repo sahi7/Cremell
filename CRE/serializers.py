@@ -265,7 +265,7 @@ class RegistrationSerializer(serializers.Serializer):
                 }
         }
 
-class BranchSerializer(serializers.ModelSerializer):
+class BranchSerializer(ModelSerializer):
     created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
     class Meta:

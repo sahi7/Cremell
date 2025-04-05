@@ -30,7 +30,7 @@ from adrf.viewsets import ModelViewSet
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer, MenuSerializer, MenuCategorySerializer
 from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
 from .models import Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
-from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy
+from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy, ScopeAccessPolicy
 from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
 from zMisc.utils import validate_scope, filter_queryset_by_scopes, get_scope_filters, log_activity
 
@@ -286,7 +286,7 @@ class BranchViewSet(ModelViewSet):
     def menus(self, request, pk=None):
         branch = self.get_object()
         menus = Menu.objects.filter(branch=branch)
-        serializer = MenuSerializer(menus, many=True)
+        serializer = MenuSerializer(menus, many=True)     
         return Response(serializer.data)
 
     # Custom action to retrieve a specific menu for a branch
@@ -303,40 +303,8 @@ class BranchViewSet(ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        allowed_scopes = {}
-        # print(user.groups.all())
-        # Define allowed scopes with complex filters for each user role
-        if user.groups.filter(name="CountryManager").exists():
-            allowed_scopes = {
-                'country': Q(country__in=user.countries.all()),  # Only branches in the user's countries
-                'company': Q(company__in=user.companies.all()),  # Only branches in the user's companies
-            }
-        elif user.groups.filter(name="CompanyAdmin").exists():
-            allowed_scopes = {
-                'company': Q(company__in=user.companies.all()),  # CompanyAdmin can see all branches in their company
-            }
-        elif user.groups.filter(name="RestaurantOwner").exists():
-            allowed_scopes = {
-                'restaurants': Q(created_by=user) | Q(restaurant__in=user.restaurants.all()),  # RestaurantOwner can only see their own branches
-            }
-        elif user.groups.filter(name="BranchManager").exists():   # Direct branch access, plus ownership
-            allowed_scopes = {
-                'branches': Q(id__in=user.branches.all()) | Q(created_by=user),
-            }
-        elif user.groups.filter(name="RestaurantManager").exists():
-            allowed_scopes = {
-                'restaurants': Q(manager=user),  # RestaurantManager can only see branches they manage
-                'status': Q(status="active"),  # Only active branches for RestaurantManager
-                'company': Q(company__in=user.companies.all())  # Only branches in the user's company
-            }
-
-        # Apply filtering with the reusable method
-        try:
-            queryset = filter_queryset_by_scopes(self.queryset, user, allowed_scopes)
-        except PermissionDenied:
-            raise PermissionDenied(_("You do not have permission to access this branch."))
-
-        return queryset
+        scope_filter = async_to_sync(ScopeAccessPolicy().get_queryset_scope)(user, view=self)
+        return self.queryset.filter(scope_filter)
 
     def perform_create(self, serializer):
         user = self.request.user

@@ -3,8 +3,10 @@ from rest_framework.exceptions import PermissionDenied
 from django.db.models import Q
 from asgiref.sync import sync_to_async
 from django.utils.translation import gettext_lazy as _
+from django.contrib.auth import get_user_model
 from CRE.models import Branch, Restaurant
 
+CustomUser = get_user_model()
 class ScopeAccessPolicy(AccessPolicy):
     """
     Swift access policy to validate user scope based on group role.
@@ -54,7 +56,12 @@ class ScopeAccessPolicy(AccessPolicy):
                 'restaurants': set(Restaurant.objects.filter(company_id__in=user.companies.all()).values_list('id', flat=True)),
                 'branches': set(Branch.objects.filter(company_id__in=user.companies.all()).values_list('id', flat=True)),
             },
-            "queryset_filter": lambda user: Q(company_id__in=user.companies.all()),
+            "queryset_filter": lambda user, model: (
+                Q(company__in=user.companies.all()) if model == Branch else
+                Q(company__in=user.companies.all()) if model == Restaurant else
+                Q(companies__in=user.companies.all()) if model == CustomUser else
+                Q()  # Default: no filter if model unrecognized
+            ),
         },
         "CountryManager": {
             "scopes": lambda user: {
@@ -63,7 +70,12 @@ class ScopeAccessPolicy(AccessPolicy):
                 'restaurants': set(Restaurant.objects.filter(country_id__in=user.countries.all()).values_list('id', flat=True)),
                 'branches': set(Branch.objects.filter(country_id__in=user.countries.all()).values_list('id', flat=True)),
             },
-            "queryset_filter": lambda user: Q(country_id__in=user.countries.all()) & Q(company_id__in=user.companies.all()),
+            "queryset_filter": lambda user, model: (
+                Q(country__in=user.countries.all()) if model == Branch else
+                Q(country__in=user.countries.all()) if model == Restaurant else
+                Q(countries__in=user.countries.all()) if model == CustomUser else
+                Q()
+            ),
         },
         "RestaurantOwner": {
             "scopes": lambda user: {
@@ -72,7 +84,12 @@ class ScopeAccessPolicy(AccessPolicy):
                     restaurant_id__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(created_by=user))
                 ).values_list('id', flat=True)),
             },
-            "queryset_filter": lambda user: Q(restaurant_id__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(created_by=user))),
+            "queryset_filter": lambda user, model: (
+                Q(restaurant__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(created_by=user))) if model == Branch else
+                Q(id__in=user.restaurants.all()) | Q(created_by=user) if model == Restaurant else
+                Q(restaurants__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(created_by=user))) if model == CustomUser else
+                Q()
+            ),
         },
         "RestaurantManager": {
             "scopes": lambda user: {
@@ -81,13 +98,21 @@ class ScopeAccessPolicy(AccessPolicy):
                     restaurant_id__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(manager=user))
                 ).values_list('id', flat=True)),
             },
-            "queryset_filter": lambda user: Q(restaurant_id__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(manager=user))),
+            "queryset_filter": lambda user, model: (
+                Q(restaurant__in=user.restaurants.all()) if model == Branch else
+                Q(id__in=user.restaurants.all()) if model == Restaurant else
+                Q()
+            ),
         },
         "BranchManager": {
             "scopes": lambda user: {
                 'branches': set(user.branches.values_list('id', flat=True)),
             },
-            "queryset_filter": lambda user: Q(id__in=user.branches.all()),
+            "queryset_filter": lambda user, model: (
+                Q(id__in=user.branches.all()) if model == Branch else
+                Q(branches__in=user.branches.all()) if model == Restaurant else
+                Q()
+            ),
         },
     }
 
@@ -133,11 +158,12 @@ class ScopeAccessPolicy(AccessPolicy):
 
         return True
 
-    def get_queryset_scope(self, request, view):
+    async def get_queryset_scope(self, user, view=None):
         """Returns Q filter for queryset scoping."""
-        user = request.user
-        config = self.get_role_config(user)
-        return config.get("queryset_filter", lambda u: Q(pk__in=[]))(user)
+        config = await sync_to_async(self.get_role_config)(user)
+        model = view.queryset.model
+        filter_func = config.get("queryset_filter", lambda u, m: Q(pk__in=[]))
+        return filter_func(user, model)
 
 
 class RestaurantAccessPolicy(AccessPolicy):
@@ -228,18 +254,19 @@ class BranchAccessPolicy(AccessPolicy):
         Check if the branch belongs to a restaurant managed by the current user (for update, delete).
         Also, allow branch creation if the user belongs to a company.
         """
+        print(f'Action: {action}') 
         if action in ["update", "partial_update", "destroy"]:
             restaurant = view.request.data.get('restaurant')
             if restaurant:
                 return Restaurant.objects.filter(id=restaurant, manager=request.user).exists()
-        elif action in ["list", "retrieve"]:
+        elif action in ["retrieve"]:
             restaurant_id = view.kwargs.get('pk')
             if restaurant_id:
                 return Restaurant.objects.filter(id=restaurant_id, created_by=request.user).exists()
         elif action == "create":
             # For branch creation, check if the user belongs to a company.
             return request.user.companies.exists()
-        return False
+        return True
 
     def is_in_country_manager_country(self, request, view, action):
         """
