@@ -233,7 +233,6 @@ class BranchAccessPolicy(AccessPolicy):
             if restaurant:
                 return Restaurant.objects.filter(id=restaurant, manager=request.user).exists()
         elif action in ["list", "retrieve"]:
-            print('yesfff')
             restaurant_id = view.kwargs.get('pk')
             if restaurant_id:
                 return Restaurant.objects.filter(id=restaurant_id, created_by=request.user).exists()

@@ -364,6 +364,9 @@ class BranchViewSet(ModelViewSet):
             # @TOD0 - RestaurantOwnerdoes not have a country so should raise an error 
             # allowed_scopes['country'] = user.countries.values_list('id', flat=True)
 
+        elif user.groups.filter(name="RestaurantManager").exists():
+            allowed_scopes['restaurant'] = user.restaurants.values_list('id', flat=True)
+
         else:
             # Other roles cannot create restaurants
             return Response({"detail": _("You do not have permission to create a branch.")},

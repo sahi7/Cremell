@@ -270,7 +270,7 @@ class BranchSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Branch
-        fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'created_by']
+        fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'timezone', 'manager', 'created_by']
 
     def create(self, validated_data):
         request = self.context.get('request')

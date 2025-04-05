@@ -84,6 +84,7 @@ def get_scope_filters(user):
     companies = set(user.companies.all().values_list('id', flat=True))
     restaurants = set(user.restaurants.all().values_list('id', flat=True))
     countries = set(user.countries.all().values_list('id', flat=True))
+    branches = set(user.countries.all().values_list('id', flat=True))
     user_role_value = check_user_role(user)
 
     # Define scope rules for list action
@@ -103,8 +104,12 @@ def get_scope_filters(user):
             'min_role_value': user_role_value,  # Only roles >= CountryManager (3)
         },
         'RestaurantManager': {
-            'filter': lambda: Q(restaurants__manager=user) & Q(companies__id__in=companies),
+            'filter': lambda: Q(restaurants__manager=user),
             'min_role_value': user_role_value,  # Only roles >= RestaurantManager (4)
+        },
+            'BranchManager': {
+            'filter': lambda: Q(branches__manager=user),  # Managers of branches
+            'min_role_value': user_role_value,  # Only roles >= BranchManager (e.g., 5)
         },
     }
 

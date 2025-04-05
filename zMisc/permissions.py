@@ -55,6 +55,7 @@ class UserCreationPermission(BasePermission):
             }
         },
         'branch_manager': {
+            'requires': ['branches'],
             'scopes': {
                 'branches': lambda user, ids: user.branches.filter(id__in=ids, status='active').count()
             }
