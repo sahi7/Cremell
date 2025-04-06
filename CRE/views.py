@@ -29,7 +29,7 @@ from adrf.viewsets import ModelViewSet
 
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer, MenuSerializer, MenuCategorySerializer
 from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
-from .models import Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
+from .models import Company, Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
 from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy, ScopeAccessPolicy
 from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
 from zMisc.utils import validate_scope, filter_queryset_by_scopes, get_scope_filters, log_activity
@@ -69,16 +69,17 @@ class RegistrationView(APIView):
     Handle registration for both single restaurants and companies.
     """
     permission_classes = [AllowAny]
-    def post(self, request, *args, **kwargs):
+    async def post(self, request, *args, **kwargs):
         serializer = RegistrationSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
+        if await sync_to_async(serializer.is_valid)():
             # Create either company or restaurant based on the data
             user_type = 'company' if 'company_data' in request.data else 'restaurant'
             serializer.context['role'] = 'company_admin' if user_type == 'company' else 'restaurant_owner'
             
             # Create and return the user/restaurant/company
-            instance = serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            instance = await serializer.save()
+            representation = await serializer.to_representation(instance)
+            return Response(representation, status=status.HTTP_201_CREATED)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -172,6 +173,29 @@ class UserViewSet(ModelViewSet):
         return Response({**response_data, "email_sent": email_sent}, 
                     status=status.HTTP_201_CREATED)
 
+class CompanyViewSet(ModelViewSet):
+    queryset = Company.objects.all()
+    serializer_class = CompanySerializer
+    # CONDITIONS: 1. Already has company 2. Existing company has atleast 1 restaurant 3. Restaurant has atleast 1 branch 4. Must be CompanyAdmin
+    # @TOD0: Log creation activity, add to user.companies
+
+    @action(detail=False, methods=['get'])
+    async def stats(self, request):
+        count = await sync_to_async(self.queryset.count)()
+        return Response({'total_companies': count})
+
+    async def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        is_valid = await sync_to_async(serializer.is_valid)(raise_exception=True)
+        
+        try:
+            company = await sync_to_async(serializer.save)(created_by=self.request.user)
+            serialized_data = await sync_to_async(lambda: self.get_serializer(company).data)()
+            
+            return Response(serialized_data, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        
 class RestaurantViewSet(ModelViewSet):
     queryset = Restaurant.objects.all()
     serializer_class = RestaurantSerializer

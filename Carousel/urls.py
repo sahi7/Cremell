@@ -32,6 +32,9 @@ router.register(r'restaurants', RestaurantViewSet)
 #  - GET /api/restaurants/{id}/employees/: List all employees of a restaurant.
 #  - GET /api/restaurants/{id}/company/: Retrieve the company that owns the restaurant.
 
+router.register(r'companies', CompanyViewSet, basename='company')
+# - GET /api/companies/stats/ - Custom stats endpoint 
+
 router.register(r'menus', MenuViewSet)
 router.register(r'menu-categories', MenuCategoryViewSet)
 router.register(r'menu-items', MenuItemViewSet)

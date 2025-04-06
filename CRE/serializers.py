@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from adrf.serializers import Serializer
 from adrf.serializers import ModelSerializer
 from allauth.account.adapter import get_adapter
 from allauth.account.utils import setup_user_email
@@ -167,18 +168,15 @@ class CitySerializer(serializers.ModelSerializer):
         fields = ['id', 'region_or_state', 'name', 'postal_code']
 
 # Company registration serializer
-class CompanySerializer(serializers.ModelSerializer):
+class CompanySerializer(ModelSerializer):
     created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
     class Meta:
         model = Company
         fields = ['name', 'about', 'contact_email', 'contact_phone', 'created_by']
 
-    def create(self, validated_data):
-        return Company.objects.create(**validated_data)
-
 # Restaurant registration serializer
-class RestaurantSerializer(serializers.ModelSerializer):
+class RestaurantSerializer(ModelSerializer):
     created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
     # company = serializers.PrimaryKeyRelatedField(queryset=Company.objects.all())
 
@@ -186,12 +184,12 @@ class RestaurantSerializer(serializers.ModelSerializer):
         model = Restaurant
         fields = ['name', 'address', 'city', 'country', 'company', 'status', 'created_by']
 
-    def create(self, validated_data):
+    async def create(self, validated_data):
         validated_data['status'] = 'active'
         return Restaurant.objects.create(**validated_data)
 
 # General Registration Serializer that will dynamically decide between company and restaurant registration
-class RegistrationSerializer(serializers.Serializer):
+class RegistrationSerializer(Serializer):
     user_data = UserSerializer()
     company_data = CompanySerializer(required=False)
     restaurant_data = RestaurantSerializer(required=False)
@@ -206,10 +204,10 @@ class RegistrationSerializer(serializers.Serializer):
             raise serializers.ValidationError(_("You must provide either 'company data' or 'restaurant data' data."))
         return attrs
 
-    def create(self, validated_data):
+    async def create(self, validated_data):
         # Create the user using UserSerializer
         user_data = validated_data.pop('user_data')  # Contains objects already
-        user = UserSerializer(context=self.context).create(validated_data=user_data)
+        user = await UserSerializer(context=self.context).create(validated_data=user_data)
 
         # Get email_sent from context (set by UserSerializer)
         email_sent = self.context.get("email_sent", False)
@@ -220,13 +218,13 @@ class RegistrationSerializer(serializers.Serializer):
         if 'company_data' in validated_data:
             company_data = validated_data.pop('company_data')
             company_data['created_by'] = user
-            company = CompanySerializer().create(company_data)
+            company = await CompanySerializer().create(company_data)
 
-            user.companies.add(company)
+            await sync_to_async(user.companies.add)(company)
 
             # Add the user to the CompanyAdmin group
-            company_admin_group, created = Group.objects.get_or_create(name='CompanyAdmin')
-            user.groups.add(company_admin_group)
+            company_admin_group, created = await sync_to_async(Group.objects.get_or_create)(name='CompanyAdmin')
+            await sync_to_async(user.groups.add)(company_admin_group)
 
             # Create the restaurant if provided
             if 'restaurant_data' in validated_data:
@@ -234,35 +232,36 @@ class RegistrationSerializer(serializers.Serializer):
                 restaurant_data['created_by'] = user
                 if company:
                     restaurant_data['company'] = company    
-                restaurant = RestaurantSerializer().create(restaurant_data)
-                user.restaurants.add(restaurant)
+                restaurant = await RestaurantSerializer().create(restaurant_data)
+                await sync_to_async(user.restaurants.add)(restaurant)
 
         elif 'restaurant_data' in validated_data:
             restaurant_data = validated_data.pop('restaurant_data')
             restaurant_data['created_by'] = user
-            restaurant = Restaurant.objects.create(**restaurant_data)
+            restaurant = await sync_to_async(Restaurant.objects.create)(**restaurant_data)
 
-            user.restaurants.add(restaurant)
+            await sync_to_async(user.restaurants.add)(restaurant)
 
             # Assign the user to the RestaurantOwner group
-            restaurant_owner_group, created = Group.objects.get_or_create(name='RestaurantOwner')
-            user.groups.add(restaurant_owner_group)
+            restaurant_owner_group, created = await sync_to_async(Group.objects.get_or_create)(name='RestaurantOwner')
+            await sync_to_async(user.groups.add)(restaurant_owner_group)
 
         else:
             raise serializers.ValidationError(_("Either company or restaurant data must be provided."))
 
         return { 'user': user, 'email_sent': email_sent }
 
-    def to_representation(self, instance):
-        # Customize the output format
+    async def to_representation(self, instance):
+        if hasattr(instance, '__await__'):  # Another way to check for coroutines
+            instance = await instance
+        
         return {
             'message': _("Registration successful!"),
             'email_sent': instance['email_sent'],
-            # 'user': UserSerializer(instance['user']).data,
             'user': {
                 "username": instance['user'].username,
                 "user_id": instance['user'].email,
-                }
+            }
         }
 
 class BranchSerializer(ModelSerializer):
