@@ -40,7 +40,7 @@ def validate_scope(user, data, allowed_scopes):
         serializers.ValidationError: If validation fails.
     """
     for field, scope in allowed_scopes.items():
-        if field in data and data[field] not in scope:
+        if not field in data and data.get(field) not in scope:
             raise ValidationError({
                 field: _("You cannot create objects outside your assigned {}.").format(field)
             })

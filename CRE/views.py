@@ -193,6 +193,7 @@ class RestaurantViewSet(ModelViewSet):
     queryset = Restaurant.objects.all()
     serializer_class = RestaurantSerializer
     permission_classes = (RestaurantAccessPolicy, RManagerScopePermission, ObjectStatusPermission)
+    # permission_classes = (ScopeAccessPolicy, RManagerScopePermission, ObjectStatusPermission)
 
     # Custom action to list all branches of a restaurant
     @action(detail=True, methods=['get'])
@@ -248,7 +249,7 @@ class RestaurantViewSet(ModelViewSet):
         # Default: No access for other roles
         return Restaurant.objects.none()
 
-    def create(self, request, *args, **kwargs):
+    async def create(self, request, *args, **kwargs):
         user = request.user
 
         # Define allowed scopes for the user
@@ -258,14 +259,14 @@ class RestaurantViewSet(ModelViewSet):
         data = request.data
 
         # Validation for role-based creation permissions
-        if user.groups.filter(name="CompanyAdmin").exists():
-            allowed_scopes['company'] = user.companies.values_list('id', flat=True)
+        if await sync_to_async(user.groups.filter(name="CompanyAdmin").exists)():
+            allowed_scopes['company'] = await sync_to_async(user.companies.values_list)('id', flat=True)
             
 
-        elif user.groups.filter(name="CountryManager").exists():
+        elif await sync_to_async(user.groups.filter(name="CountryManager").exists)():
             # CountryManager: Restricted by country and company
-            allowed_scopes['country'] = user.countries.values_list('id', flat=True)
-            allowed_scopes['company'] = user.companies.values_list('id', flat=True)
+            allowed_scopes['country'] = await sync_to_async(user.countries.values_list)('id', flat=True)
+            allowed_scopes['company'] = await sync_to_async(user.companies.values_list)('id', flat=True)
 
         else:
             # Other roles cannot create restaurants
@@ -273,16 +274,16 @@ class RestaurantViewSet(ModelViewSet):
                             status=status.HTTP_403_FORBIDDEN)
 
         try:
-            validate_scope(user, data, allowed_scopes)
+            await sync_to_async(validate_scope)(user, data, allowed_scopes)
         except ValidationError as e:
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
 
         # Pass data to serializer and save
         serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
-        restaurant = serializer.save(created_by=user)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        restaurant = await serializer.save()
 
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(self.get_serializer(restaurant).data, status=status.HTTP_201_CREATED)
 
 
 class BranchViewSet(ModelViewSet):
@@ -360,7 +361,6 @@ class BranchViewSet(ModelViewSet):
         try:
             # print("Allowed Scopes:", allowed_scopes)
             validate_scope(user, data, allowed_scopes)
-            print("Scope validated successfully")
         except ValidationError as e:
             print("Scope validation failed:", e.detail)
             # Does not raise error for RestaurantOwner 
