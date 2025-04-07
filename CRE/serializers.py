@@ -10,6 +10,7 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group
 from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState, Branch, Menu, MenuCategory, MenuItem, StaffShift, OvertimeRequest, StaffAvailability
+from zMisc.utils import log_activity
 import logging
 
 logger = logging.getLogger(__name__)
@@ -146,6 +147,12 @@ class UserSerializer(ModelSerializer):
         except Exception as e:
             logger.error(f"Email failed for user {user.id}: {str(e)}")
 
+        # Track History: Log activity with constructed details
+        details = {}
+        details['username'] = getattr(user, 'username', None)
+        details['role'] = user.get_role_display()
+        await log_activity(user, 'staff_hire', details)
+
         return user
 
 class CountrySerializer(serializers.ModelSerializer):
@@ -237,24 +244,34 @@ class RegistrationSerializer(Serializer):
             await sync_to_async(user.groups.add)(company_admin_group)
 
             # Create the restaurant if provided
+            details = {}
             if 'restaurant_data' in validated_data:
                 restaurant_data = validated_data.pop('restaurant_data')
                 restaurant_data['created_by'] = user
                 if company:
-                    restaurant_data['company'] = company    
+                    restaurant_data['company'] = company   
+                    details['company'] = company.id
                 restaurant = await RestaurantSerializer().create(restaurant_data)
                 await sync_to_async(user.restaurants.add)(restaurant)
+
+                details['name'] = getattr(restaurant, 'name', None)
+                
+                await log_activity(user, 'restaurant_create', details, restaurant)
 
         elif 'restaurant_data' in validated_data:
             restaurant_data = validated_data.pop('restaurant_data')
             restaurant_data['created_by'] = user
-            restaurant = await sync_to_async(Restaurant.objects.create)(**restaurant_data)
+            restaurant = await RestaurantSerializer().create(restaurant_data)
 
             await sync_to_async(user.restaurants.add)(restaurant)
 
             # Assign the user to the RestaurantOwner group
             restaurant_owner_group, created = await sync_to_async(Group.objects.get_or_create)(name='RestaurantOwner')
             await sync_to_async(user.groups.add)(restaurant_owner_group)
+
+            details = {}
+            details['name'] = getattr(restaurant, 'name', None)
+            await log_activity(user, 'restaurant_create', details, restaurant)
 
         else:
             raise serializers.ValidationError(_("Either company or restaurant data must be provided."))

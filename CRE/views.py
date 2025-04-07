@@ -32,7 +32,7 @@ from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerial
 from .models import Company, Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
 from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy, ScopeAccessPolicy
 from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
-from zMisc.utils import validate_scope, filter_queryset_by_scopes, get_scope_filters, log_activity
+from zMisc.utils import validate_scope, filter_queryset_by_scopes, get_scope_filters
 
 CustomUser = get_user_model()
 def email_confirm_redirect(request, key):
@@ -140,7 +140,7 @@ class UserViewSet(ModelViewSet):
             role_to_create_value = await sync_to_async(user.get_role_value)(role_to_create)
             if role_to_create_value <= user_role_value:
                 return Response(
-                    {"detail": "Cannot create user with higher/equal role."},
+                    {"detail": _("Cannot create user with higher/equal role.")},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
@@ -158,12 +158,6 @@ class UserViewSet(ModelViewSet):
         
         # Add to group
         await sync_to_async(user.add_to_group)(role_to_create)
-
-        # Track History: Log activity with constructed details
-        details = {}
-        details['username'] = getattr(user, 'username', None)
-        details['role'] = user.get_role_display()
-        await log_activity(self.request.user, 'staff_hire', details)
 
         # Prepare response
         serializer.instance = user
