@@ -201,7 +201,15 @@ class RestaurantSerializer(ModelSerializer):
 
     async def create(self, validated_data):
         validated_data['status'] = 'active'
+        company = validated_data.get('company') 
         restaurant = await Restaurant.objects.acreate(**validated_data)
+
+        details = {}
+        details['name'] = getattr(restaurant, 'name', None)
+        if company:
+            details['company'] = company.id
+   
+        await log_activity(validated_data['created_by'] , 'restaurant_create', details, restaurant)
 
         return restaurant
 
@@ -244,19 +252,14 @@ class RegistrationSerializer(Serializer):
             await sync_to_async(user.groups.add)(company_admin_group)
 
             # Create the restaurant if provided
-            details = {}
             if 'restaurant_data' in validated_data:
                 restaurant_data = validated_data.pop('restaurant_data')
                 restaurant_data['created_by'] = user
                 if company:
                     restaurant_data['company'] = company   
-                    details['company'] = company.id
+                    
                 restaurant = await RestaurantSerializer().create(restaurant_data)
                 await sync_to_async(user.restaurants.add)(restaurant)
-
-                details['name'] = getattr(restaurant, 'name', None)
-                
-                await log_activity(user, 'restaurant_create', details, restaurant)
 
         elif 'restaurant_data' in validated_data:
             restaurant_data = validated_data.pop('restaurant_data')
@@ -269,9 +272,6 @@ class RegistrationSerializer(Serializer):
             restaurant_owner_group, created = await sync_to_async(Group.objects.get_or_create)(name='RestaurantOwner')
             await sync_to_async(user.groups.add)(restaurant_owner_group)
 
-            details = {}
-            details['name'] = getattr(restaurant, 'name', None)
-            await log_activity(user, 'restaurant_create', details, restaurant)
 
         else:
             raise serializers.ValidationError(_("Either company or restaurant data must be provided."))
