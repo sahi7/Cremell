@@ -175,6 +175,14 @@ class CompanySerializer(ModelSerializer):
         model = Company
         fields = ['name', 'about', 'contact_email', 'contact_phone', 'created_by']
 
+    async def create(self, validated_data):
+        try:
+            company = await Company.objects.acreate(**validated_data)
+
+            return company
+        except Exception as e:
+            raise serializers.ValidationError(str(e))
+
 # Restaurant registration serializer
 class RestaurantSerializer(ModelSerializer):
     created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
@@ -186,7 +194,9 @@ class RestaurantSerializer(ModelSerializer):
 
     async def create(self, validated_data):
         validated_data['status'] = 'active'
-        return Restaurant.objects.create(**validated_data)
+        restaurant = await Restaurant.objects.acreate(**validated_data)
+
+        return restaurant
 
 # General Registration Serializer that will dynamically decide between company and restaurant registration
 class RegistrationSerializer(Serializer):

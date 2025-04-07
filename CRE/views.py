@@ -186,15 +186,14 @@ class CompanyViewSet(ModelViewSet):
 
     async def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        is_valid = await sync_to_async(serializer.is_valid)(raise_exception=True)
-        
-        try:
-            company = await sync_to_async(serializer.save)(created_by=self.request.user)
-            serialized_data = await sync_to_async(lambda: self.get_serializer(company).data)()
-            
-            return Response(serialized_data, status=status.HTTP_201_CREATED)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        company = await serializer.save()  # created_by is handled in serializer
+        return Response(
+            self.get_serializer(company).data,
+            status=status.HTTP_201_CREATED
+        )
+
         
 class RestaurantViewSet(ModelViewSet):
     queryset = Restaurant.objects.all()
