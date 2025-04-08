@@ -224,30 +224,8 @@ class RestaurantViewSet(ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-
-        # Company Admin: View all restaurants under their company
-        if user.groups.filter(name="CompanyAdmin").exists():
-            return Restaurant.objects.filter(company__in=user.companies.all())
-
-        # Country Manager: View restaurants in their country for their company
-        elif user.groups.filter(name="CountryManager").exists():
-            return Restaurant.objects.filter(
-                country__in=user.countries.all(),
-                company__in=user.companies.all()
-            )
-
-        # Restaurant Owner: View restaurants they own
-        elif user.groups.filter(name="RestaurantOwner").exists():
-            return Restaurant.objects.filter(
-                Q(created_by=user) 
-            ).distinct()
-
-        # Restaurant Manager: View restaurants they manage
-        elif user.groups.filter(name="RestaurantManager").exists():
-            return Restaurant.objects.filter(manager__in=[user]).distinct()
-
-        # Default: No access for other roles
-        return Restaurant.objects.none()
+        scope_filter = async_to_sync(ScopeAccessPolicy().get_queryset_scope)(user, view=self)
+        return self.queryset.filter(scope_filter)
 
     async def create(self, request, *args, **kwargs):
         user = request.user

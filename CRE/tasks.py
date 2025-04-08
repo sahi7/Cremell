@@ -2,6 +2,7 @@ from celery import shared_task
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from allauth.account.utils import send_email_confirmation
+from rest_framework.exceptions import ValidationError
 
 from django.utils import timezone
 from django.http import HttpRequest
@@ -11,7 +12,9 @@ from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.mail import send_mail
 
-from .models import StaffShift
+from notifications.models import RestaurantActivity, BranchActivity
+from .models import StaffShift, Restaurant, Branch
+from zMisc.utils import determine_activity_model
 import logging
 
 logger = logging.getLogger(__name__)
@@ -72,3 +75,66 @@ def send_assignment_email(user_id, object_type, object_id, field_name):
     subject = f"New Assignment: {object_type.capitalize()} {field_name}"
     message = f"Hi {user.username},\n\nYou’ve been assigned as {field_name} to {object_type} ID {object_id}.\n\nRegards,\nTeam"
     send_mail(subject, message, 'from@example.com', [user.email], fail_silently=False)
+
+
+@shared_task
+def log_activity(user_id, activity_type, details=None, obj_id=None):
+    """
+    Logs an activity for a target user as a background task, choosing the model based on their role scope.
+    
+    Args:
+        user_id: ID of the CustomUser performing the action (e.g., request.user.id).
+        activity_type: Matches ACTIVITY_CHOICES (e.g., 'manager_assign', 'status_update').
+        details: JSON-compatible dict with additional info (optional).
+        obj_id: ID of the object (e.g., restaurant_id or branch_id) (optional).
+    """
+    # Fetch the user
+    try:
+        user = CustomUser.objects.get(id=user_id)
+    except CustomUser.DoesNotExist:
+        # Log error or skip silently, depending on your needs
+        return
+
+    # Determine model and scope field (assuming this is a synchronous helper)
+    model, scope_field = determine_activity_model(user)
+
+    # Validate and set scope_value from obj
+    if obj_id:
+        expected_obj = Restaurant if scope_field == 'restaurant' else Branch
+        try:
+            obj_instance = expected_obj.objects.get(id=obj_id)
+        except expected_obj.DoesNotExist:
+            ValueError(f"ID mismatch: {obj_id} does not match {obj_instance.id}")
+        scope_value = obj_instance
+    else:
+        scope_value = None
+
+    # Prepare activity data
+    activity_data = {
+        scope_field: scope_value,
+        'activity_type': activity_type,
+        'user': user,
+        'details': details or {},
+    }
+
+    # Create activity
+    model.objects.create(**activity_data)
+
+    return True
+
+# Synchronous helper (since Celery doesn't use async)
+# def determine_activity_model_sync(user):
+#     """
+#     Determines the activity model and scope field based on user role.
+#     Replace with your actual logic.
+#     """
+#     # Example logic (adjust to your role system)
+#     if user.groups.filter(name="RestaurantOwner").exists():
+#         return RestaurantActivity, 'restaurant'  # Assume RestaurantActivity model exists
+#     elif user.groups.filter(name="BranchManager").exists():
+#         return BranchActivity, 'branch'  # Assume BranchActivity model exists
+#     elif user.groups.filter(name="CompanyAdmin").exists():
+#         # Default to branch-level logging for CompanyAdmin, or adjust as needed
+#         return BranchActivity, 'branch'
+#     else:
+#         return BranchActivity, 'branch'  # Fallback

@@ -10,7 +10,9 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group
 from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState, Branch, Menu, MenuCategory, MenuItem, StaffShift, OvertimeRequest, StaffAvailability
-from zMisc.utils import log_activity
+from .tasks import log_activity
+# from zMisc.utils import log_activity
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -124,10 +126,7 @@ class UserSerializer(ModelSerializer):
                 m2m_fields[field] = validated_data.pop(field)
         
         # Create user
-        user = await sync_to_async(CustomUser.objects.create_user_with_role)(
-            **validated_data,
-            role=role
-        )
+        user = await sync_to_async(CustomUser.objects.create_user_with_role)(**validated_data, role=role)
 
         # Process M2M relationships
         for field, values in m2m_fields.items():
@@ -151,7 +150,7 @@ class UserSerializer(ModelSerializer):
         details = {}
         details['username'] = getattr(user, 'username', None)
         details['role'] = user.get_role_display()
-        await log_activity(user, 'staff_hire', details)
+        log_activity.delay(user.id, 'staff_hire', details)
 
         return user
 
@@ -209,7 +208,7 @@ class RestaurantSerializer(ModelSerializer):
         if company:
             details['company'] = company.id
    
-        await log_activity(validated_data['created_by'] , 'restaurant_create', details, restaurant)
+        log_activity.delay(validated_data['created_by'].id , 'restaurant_create', details, restaurant.id)
 
         return restaurant
 

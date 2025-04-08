@@ -120,7 +120,8 @@ def get_scope_filters(user):
     return Q(pk=None), float('inf')  # Default: no users
 
 
-async def determine_activity_model(user):
+# async def determine_activity_model(user):
+def determine_activity_model(user):
     """
     Determines the appropriate activity model based on user's role value.
     Returns a tuple: (Model, scope_field).
@@ -149,7 +150,7 @@ async def log_activity(user, activity_type, details=None, obj=None):
         obj: Object (e.g., Restaurant instance) to set as scope_field value.
     """
     # Determine model and scope field
-    model, scope_field = await determine_activity_model(user)
+    model, scope_field = await sync_to_async(determine_activity_model)(user)
 
     # Validate and set scope_value from obj
     if obj:
