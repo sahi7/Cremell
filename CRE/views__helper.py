@@ -205,7 +205,7 @@ class AssignmentView(APIView):
         activity_type = 'manager_assign' if not old_manager else 'manager_replace'
         
         from .tasks import log_activity
-        log_activity.delay(self.request.user.id, activity_type, details, obj.id)
+        log_activity.delay(self.request.user.id, activity_type, details, obj.id, data['object_type'])
         
         # Notify: Inform both managers
         object_type = model.__name__.lower()
@@ -260,7 +260,7 @@ class AssignmentView(APIView):
         details = {'field_name': field_name, 'old_manager': old_manager.id}
 
         from .tasks import log_activity
-        log_activity.delay(self.request.user.id, 'manager_remove', details, obj.id)
+        log_activity.delay(self.request.user.id, 'manager_remove', details, obj.id, data['object_type'])
 
         # Notify
         object_type = model.__name__.lower()

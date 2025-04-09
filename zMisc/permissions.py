@@ -28,14 +28,14 @@ class UserCreationPermission(BasePermission):
             'scopes': {
                 'companies': lambda user, ids: Company.objects.filter(Q(id__in=ids) & Q(status='active')).count(),
                 'countries': lambda user, ids: Country.objects.filter(Q(id__in=ids)).count(),
-                'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).count(),
+                'restaurants': lambda user, ids: set(Restaurant.objects.filter( Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).values_list('id', flat=True)),
                 'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).count(),
             }
         },
         'country_manager': {
             'requires': ['companies', 'countries'],
             'scopes': {
-                'countries': lambda user, ids: Country.objects.filter(Q(id__in=set(ids) & set(user.countries.all().values_list('id', flat=True)))).count(),
+                'countries': lambda user, ids: Country.objects.filter(Q(id__in=set(ids) & set(user.countries.values_list('id', flat=True)))).count(),
                 'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=ids) & Q(country_id__in=user.countries.all()) & Q(status='active')).count(),
                 'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(country_id__in=user.countries.all()) & Q(status='active')).count(),
             }
@@ -43,14 +43,14 @@ class UserCreationPermission(BasePermission):
         'restaurant_owner': {
             'requires': ['restaurants'],
             'scopes': {
-                'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=set(ids) & set(user.restaurants.all().values_list('id', flat=True))) & Q(status='active')).count(),
+                'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=set(ids) & set(user.restaurants.values_list('id', flat=True))) & Q(status='active')).count(),
                 'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(restaurant_id__in=user.restaurants.all()) & Q(status='active')).count(),
             }
         },
         'restaurant_manager': {
             'requires': ['restaurants'],
             'scopes': {
-                'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=set(ids) & set(user.restaurants.all().values_list('id', flat=True))) & Q(status='active')).count(),
+                'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=set(ids) & set(user.restaurants.values_list('id', flat=True))) & Q(status='active')).count(),
                 'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(restaurant_id__in=user.restaurants.all()) & Q(status='active')).count(),
             }
         },
@@ -63,7 +63,7 @@ class UserCreationPermission(BasePermission):
     }
 
     # Singular field names for error messages
-    FIELD_SINGULAR = {
+    FIELD_SINGULAR = { 
         'companies': 'company',
         'countries': 'country',
         'restaurants': 'restaurant',

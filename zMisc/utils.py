@@ -135,6 +135,7 @@ def determine_activity_model(user, obj_type):
         'branch': (BranchActivity, 'branch'),
         'restaurant': (RestaurantActivity, 'restaurant'),
     }
+
     # Determine model and scope based on role value threshold
     if obj_type is None:
         if role_value >= 5:  # Branch-level roles
