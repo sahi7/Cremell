@@ -302,49 +302,48 @@ class BranchViewSet(ModelViewSet):
         scope_filter = async_to_sync(ScopeAccessPolicy().get_queryset_scope)(user, view=self)
         return self.queryset.filter(scope_filter)
 
-    def perform_create(self, serializer):
-        user = self.request.user
+    async def create(self, request, *args, **kwargs):
+        user = request.user
 
         # Define allowed scopes for the user
         allowed_scopes = {}
 
         # Get data from the request
-        data = self.request.data
+        data = request.data
+        serializer = self.get_serializer(data=data)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
 
         # Validation for role-based creation permissions
-        if user.groups.filter(name="CompanyAdmin").exists():
-            allowed_scopes['company'] = user.companies.values_list('id', flat=True)
-            allowed_scopes['restaurant'] = user.restaurants.values_list('id', flat=True)
+        user_groups = await sync_to_async(lambda: set(user.groups.values_list('name', flat=True)))()
+        if "CompanyAdmin" in user_groups:
+            allowed_scopes['company'] = await sync_to_async(lambda: user.companies.values_list('id', flat=True))()
+            allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.values_list('id', flat=True))()
 
+        elif "CountryManager" in user_groups:
+            allowed_scopes['country'] = await sync_to_async(lambda: user.countries.values_list('id', flat=True))()
+            allowed_scopes['company'] = await sync_to_async(lambda: user.companies.values_list('id', flat=True))()
+            allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.values_list('id', flat=True))()
 
-        elif user.groups.filter(name="CountryManager").exists():
-            # CountryManager: Restricted by country and company
-            allowed_scopes['country'] = user.countries.values_list('id', flat=True)
-            allowed_scopes['company'] = user.companies.values_list('id', flat=True)
-            allowed_scopes['restaurant'] = user.restaurants.values_list('id', flat=True)
+        elif "RestaurantOwner" in user_groups:
+            allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.values_list('id', flat=True))()
+            serializer.context['is_restaurant_owner'] = True
 
-        elif user.groups.filter(name="RestaurantOwner").exists():
-            allowed_scopes['restaurant'] = user.restaurants.values_list('id', flat=True)
-            # @TOD0 - RestaurantOwnerdoes not have a country so should raise an error 
-            # allowed_scopes['country'] = user.countries.values_list('id', flat=True)
-
-        elif user.groups.filter(name="RestaurantManager").exists():
-            allowed_scopes['restaurant'] = user.restaurants.values_list('id', flat=True)
-
+        elif "RestaurantManager" in user_groups:
+            allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.values_list('id', flat=True))()
         else:
             # Other roles cannot create restaurants
             return Response({"detail": _("You do not have permission to create a branch.")},
                             status=status.HTTP_403_FORBIDDEN)
 
         try:
-            # print("Allowed Scopes:", allowed_scopes)
-            validate_scope(user, data, allowed_scopes)
+            await sync_to_async(validate_scope)(user, data, allowed_scopes)
         except ValidationError as e:
-            print("Scope validation failed:", e.detail)
-            # Does not raise error for RestaurantOwner 
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer.save()
+        # Pass data to serializer and save
+        branch = await serializer.save()
+
+        return Response(self.get_serializer(branch).data, status=status.HTTP_201_CREATED)
 
 class MenuViewSet(ModelViewSet):
     """

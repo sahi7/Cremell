@@ -78,7 +78,7 @@ def send_assignment_email(user_id, object_type, object_id, field_name):
 
 
 @shared_task
-def log_activity(user_id, activity_type, details=None, obj_id=None):
+def log_activity(user_id, activity_type, details=None, obj_id=None, obj_type=None):
     """
     Logs an activity for a target user as a background task, choosing the model based on their role scope.
     
@@ -96,7 +96,7 @@ def log_activity(user_id, activity_type, details=None, obj_id=None):
         return
 
     # Determine model and scope field (assuming this is a synchronous helper)
-    model, scope_field = determine_activity_model(user)
+    model, scope_field = determine_activity_model(user, obj_type)
 
     # Validate and set scope_value from obj
     if obj_id:

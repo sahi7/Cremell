@@ -297,20 +297,27 @@ class BranchSerializer(ModelSerializer):
         model = Branch
         fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'timezone', 'manager', 'created_by']
 
-    def create(self, validated_data):
+    async def create(self, validated_data):
         request = self.context.get('request')
-        if request and request.user.groups.filter(name="RestaurantOwner").exists():
+        is_RO = self.context.get('is_restaurant_owner', False)
+        if is_RO:
             validated_data['status'] = 'active'
-        return super().create(validated_data)
+        branch = await Branch.objects.acreate(**validated_data)
+        details = {}
+        details['name'] = validated_data.get('name') 
+        details['restaurant'] = validated_data.get('restaurant').id
+        log_activity.delay(validated_data['created_by'].id , 'branch_create', details, branch.id, 'branch')
+        
+        return branch
 
 
-class MenuItemSerializer(serializers.ModelSerializer):
+class MenuItemSerializer(ModelSerializer):
     class Meta:
         model = MenuItem
         fields = ['id', 'name', 'description', 'price']
 
 
-class MenuCategorySerializer(serializers.ModelSerializer):
+class MenuCategorySerializer(ModelSerializer):
     items = MenuItemSerializer(many=True, read_only=True)
 
     class Meta:
@@ -318,32 +325,32 @@ class MenuCategorySerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'items']
 
 
-class MenuSerializer(serializers.ModelSerializer):
+class MenuSerializer(ModelSerializer):
     categories = MenuCategorySerializer(many=True, read_only=True)
 
     class Meta:
         model = Menu
         fields = ['id', 'name', 'categories']
 
-class BranchMenuSerializer(serializers.ModelSerializer):
+class BranchMenuSerializer(ModelSerializer):
     menus = MenuSerializer(many=True, read_only=True)
 
     class Meta:
         model = Branch
         fields = ['id', 'name', 'menus']
 
-class StaffShiftSerializer(serializers.ModelSerializer):
+class StaffShiftSerializer(ModelSerializer):
     class Meta:
         model = StaffShift
         fields = '__all__'
 
-class OvertimeRequestSerializer(serializers.ModelSerializer):
+class OvertimeRequestSerializer(ModelSerializer):
     class Meta:
         model = OvertimeRequest
         fields = '__all__'
         read_only_fields = ('staff_shift', 'requested_at', 'manager_response_at')
 
-class StaffAvailabilitySerializer(serializers.ModelSerializer):
+class StaffAvailabilitySerializer(ModelSerializer):
     class Meta:
         model = StaffAvailability
         fields = '__all__'

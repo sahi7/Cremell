@@ -239,7 +239,6 @@ class BranchAccessPolicy(AccessPolicy):
         Check if the branch is linked to a restaurant created by the current user (for create, update, delete).
         Also, check if the restaurant is active before allowing branch creation.
         """
-        print(f'Action: {action}') 
         if action in ["create", "update", "partial_update", "destroy"]:
             # For creating a branch, check if the restaurant belongs to the current user.
             restaurant = view.request.data.get('restaurant')
@@ -254,7 +253,6 @@ class BranchAccessPolicy(AccessPolicy):
         Check if the branch belongs to a restaurant managed by the current user (for update, delete).
         Also, allow branch creation if the user belongs to a company.
         """
-        print(f'Action: {action}') 
         if action in ["update", "partial_update", "destroy"]:
             restaurant = view.request.data.get('restaurant')
             if restaurant:

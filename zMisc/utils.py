@@ -121,7 +121,7 @@ def get_scope_filters(user):
 
 
 # async def determine_activity_model(user):
-def determine_activity_model(user):
+def determine_activity_model(user, obj_type):
     """
     Determines the appropriate activity model based on user's role value.
     Returns a tuple: (Model, scope_field).
@@ -129,17 +129,25 @@ def determine_activity_model(user):
     """
     # Check user role and get numeric value
     role_value = check_user_role(user, 5)  # Sync call, assumed available
-
+    target_mapping = {
+        'branch': (BranchActivity, 'branch'),
+        'restaurant': (RestaurantActivity, 'restaurant'),
+    }
     # Determine model and scope based on role value threshold
-    if role_value >= 5:  # Branch-level roles
-        return BranchActivity, 'branch'
-    elif 1 <= role_value <= 4:  # Company/Restaurant-level roles
-        return RestaurantActivity, 'restaurant'
+    if obj_type is None:
+        if role_value >= 5:  # Branch-level roles
+            return target_mapping['branch']
+        elif 1 <= role_value <= 4:  # Company/Restaurant-level roles
+            return target_mapping['restaurant']
+    if obj_type in target_mapping:
+        if role_value >= 1:  # All roles can act on branch/restaurant if authorized elsewhere
+            return target_mapping[obj_type]
+        raise PermissionDenied(_("Insufficient role for this action"))
     
     raise PermissionDenied(_("User has no valid scope for activity logging"))
 
 
-async def log_activity(user, activity_type, details=None, obj=None):
+async def log_activity(user, activity_type, details=None, obj=None, obj_type=None):
     """
     Logs an activity for a target user, choosing the model based on their role scope.
     
@@ -150,7 +158,7 @@ async def log_activity(user, activity_type, details=None, obj=None):
         obj: Object (e.g., Restaurant instance) to set as scope_field value.
     """
     # Determine model and scope field
-    model, scope_field = await sync_to_async(determine_activity_model)(user)
+    model, scope_field = await sync_to_async(determine_activity_model)(user, obj_type)
 
     # Validate and set scope_value from obj
     if obj:
