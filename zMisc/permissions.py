@@ -292,14 +292,21 @@ class EntityUpdatePermission(BasePermission):
     async def _get_object_scope_ids(self, obj, model):
         """Extract scope-relevant IDs from the object (reused from EntityUpdateViewSet)."""
         if model == CustomUser:
-            if hasattr(obj, 'companies'):
+            print(obj, model)
+            if await sync_to_async(obj.companies.exists)():
                 return await sync_to_async(lambda: set(obj.companies.values_list('id', flat=True)))()
-            elif hasattr(obj, 'restaurants'):
+            elif await sync_to_async(obj.restaurants.exists)():
                 return await sync_to_async(lambda: set(obj.restaurants.values_list('id', flat=True)))()
-            elif hasattr(obj, 'branches'):
+            elif await sync_to_async(obj.branches.exists)():
                 return await sync_to_async(lambda: set(obj.branches.values_list('id', flat=True)))()
         elif model == Branch:
-            return {obj.company_id} if obj.company_id else set()
+            if obj.company_id:
+                return {obj.company_id}
+            elif obj.restaurant_id:
+                return {obj.restaurant_id}
+            return {obj.id}
         elif model == Restaurant:
-            return {obj.company_id} if obj.company_id else set()
+            if obj.company_id:
+                return {obj.company_id}
+            return {obj.id}
         return set()

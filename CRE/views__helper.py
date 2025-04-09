@@ -16,7 +16,7 @@ from .models import Branch, Restaurant, Company, Country
 from .serializers import RestaurantSerializer, CompanySerializer, CountrySerializer, AssignmentSerializer
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.permissions import EntityUpdatePermission
-from zMisc.utils import log_activity
+# from zMisc.utils import log_activity
 
 import logging
 
@@ -203,7 +203,9 @@ class AssignmentView(APIView):
         if old_manager:
             details['old_manager'] = old_manager.id
         activity_type = 'manager_assign' if not old_manager else 'manager_replace'
-        await log_activity(self.request.user, activity_type, details, obj)
+        
+        from .tasks import log_activity
+        log_activity.delay(self.request.user.id, activity_type, details, obj.id)
         
         # Notify: Inform both managers
         object_type = model.__name__.lower()
@@ -234,9 +236,11 @@ class AssignmentView(APIView):
             'old_value': str(old_value) if old_value is not None else None,
             'new_value': str(field_value) if field_value is not None else None,
         }
-        await log_activity(self.request.user, 'field_update', details, obj)
 
-        user_to_notify = await sync_to_async(getattr)(obj, 'manager', None) or (obj if model == CustomUser else request.user)
+        from .tasks import log_activity
+        log_activity.delay(self.request.user.id, 'field_update', details, obj.id)
+
+        user_to_notify = await sync_to_async(getattr)(obj, 'manager', None) or (obj if model == CustomUser else self.request.user)
         if user_to_notify:
             await self._send_notifications(user_to_notify, model.__name__.lower(), obj.id, f"{field_name} to {field_value}")
 
@@ -254,7 +258,9 @@ class AssignmentView(APIView):
 
         # Track History
         details = {'field_name': field_name, 'old_manager': old_manager.id}
-        await log_activity(self.request.user, 'manager_remove', details, obj)
+
+        from .tasks import log_activity
+        log_activity.delay(self.request.user.id, 'manager_remove', details, obj.id)
 
         # Notify
         object_type = model.__name__.lower()
@@ -262,7 +268,7 @@ class AssignmentView(APIView):
 
     async def _send_notifications(self, user, object_type, object_id, field_update):
         from .tasks import send_assignment_email
-        # send_assignment_email.delay(user.id, object_type, object_id, field_update)
+        send_assignment_email.delay(user.id, object_type, object_id, field_update)
         # channel_layer = get_channel_layer()
         # await channel_layer.group_send(
         #     f"user_{user.id}",
