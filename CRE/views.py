@@ -317,12 +317,12 @@ class BranchViewSet(ModelViewSet):
         user_groups = await sync_to_async(lambda: set(user.groups.values_list('name', flat=True)))()
         if "CompanyAdmin" in user_groups:
             allowed_scopes['company'] = await sync_to_async(lambda: user.companies.values_list('id', flat=True))()
-            allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.values_list('id', flat=True))()
+            allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.filter(company_id__in=allowed_scopes['company']).values_list('id', flat=True))()
 
         elif "CountryManager" in user_groups:
             allowed_scopes['country'] = await sync_to_async(lambda: user.countries.values_list('id', flat=True))()
             allowed_scopes['company'] = await sync_to_async(lambda: user.companies.values_list('id', flat=True))()
-            allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.values_list('id', flat=True))()
+            allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.filter(company_id__in=allowed_scopes['company']).values_list('id', flat=True))()
 
         elif "RestaurantOwner" in user_groups:
             allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.values_list('id', flat=True))()
