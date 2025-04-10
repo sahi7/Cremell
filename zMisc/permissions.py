@@ -26,11 +26,14 @@ class UserCreationPermission(BasePermission):
         'company_admin': {
             'requires': ['companies'],
             'scopes': {
-                'companies': lambda user, ids: Company.objects.filter(Q(id__in=ids) & Q(status='active')).count(),
+                'companies': lambda user, ids: Company.objects.filter(Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).count(),
                 'countries': lambda user, ids: Country.objects.filter(Q(id__in=ids)).count(),
                 'restaurants': lambda user, ids: set(Restaurant.objects.filter( Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).values_list('id', flat=True)),
                 'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).count(),
-            }
+            },
+            'queryset_filters': lambda user, company_ids: CustomUser.objects.filter(
+                companies__id__in=company_ids
+            )
         },
         'country_manager': {
             'requires': ['companies', 'countries'],
@@ -38,27 +41,41 @@ class UserCreationPermission(BasePermission):
                 'countries': lambda user, ids: Country.objects.filter(Q(id__in=set(ids) & set(user.countries.values_list('id', flat=True)))).count(),
                 'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=ids) & Q(country_id__in=user.countries.all()) & Q(status='active')).count(),
                 'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(country_id__in=user.countries.all()) & Q(status='active')).count(),
-            }
+            },
+            'queryset_filters': lambda user, company_ids, country_ids: CustomUser.objects.filter(
+                Q(companies__id__in=company_ids) & 
+                Q(countries__id__in=country_ids)
+            )
         },
         'restaurant_owner': {
             'requires': ['restaurants'],
             'scopes': {
                 'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=set(ids) & set(user.restaurants.values_list('id', flat=True))) & Q(status='active')).count(),
                 'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(restaurant_id__in=user.restaurants.all()) & Q(status='active')).count(),
-            }
+            },
+            'queryset_filters': lambda user, restaurant_ids: CustomUser.objects.filter(
+                restaurants__id__in=restaurant_ids
+            )
         },
         'restaurant_manager': {
             'requires': ['restaurants'],
             'scopes': {
                 'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=set(ids) & set(user.restaurants.values_list('id', flat=True))) & Q(status='active')).count(),
                 'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(restaurant_id__in=user.restaurants.all()) & Q(status='active')).count(),
-            }
+            },
+            'queryset_filters': lambda user, restaurant_ids: CustomUser.objects.filter(
+                Q(restaurants__id__in=restaurant_ids) |
+                (Q(branches__restaurant_id__in=restaurant_ids) & Q(companies__in=user.companies.all()))
+            )
         },
         'branch_manager': {
             'requires': ['branches'],
             'scopes': {
                 'branches': lambda user, ids: user.branches.filter(id__in=ids, status='active').count()
-            }
+            },
+            'queryset_filters': lambda user, branch_ids: CustomUser.objects.filter(
+                branches__id__in=branch_ids
+            )
         },
     }
 
@@ -106,6 +123,31 @@ class UserCreationPermission(BasePermission):
         request.data['status'] = 'active' if role_to_create in self.SCOPE_RULES else ('active' if requested['branches'] else 'pending')
 
         return True
+    
+    async def _get_ids(self, relation):
+        """Helper to fetch IDs asynchronously from a user relation."""
+        return [item.id async for item in relation.all()]
+
+    async def get_queryset(self, request):
+        """
+        Async method to return a queryset of CustomUser objects within the requester’s scope.
+        """
+        user = request.user
+        role = user.role  # Assumes CustomUser has a 'role' field
+        if role not in self.SCOPE_RULES:
+            return await sync_to_async(CustomUser.objects.none)()
+
+        # Get the queryset filter for the user’s role
+
+        queryset_filter = self.SCOPE_RULES[role]['queryset_filters']
+        required_relations = self.SCOPE_RULES[role]['requires']
+
+        # Dynamically fetch required IDs
+        id_args = [await self._get_ids(getattr(user, rel)) for rel in required_relations]
+        print(id_args)
+
+        # Apply the filter with user and fetched IDs
+        return await sync_to_async(queryset_filter)(user, *id_args)
 
 class TransferPermission(BasePermission):
     async def has_permission(self, request, view):
@@ -181,25 +223,49 @@ class RManagerScopePermission(BasePermission):
 class BManagerScopePermission(BasePermission):
     """
     Ensures that the specified manager for a branch belongs to the correct scope.
+    If the requesting user has companies, a company field is required in the request,
+    and it must be within the user's companies. Optimized to reduce queries.
+    Uses .aget() (async get) and async iteration (async for).
+    Leverage Django’s async ORM methods (e.g., .aget(), .afilter(), .avalues_list()
     """
-    def has_permission(self, request, view):
+    async def has_permission(self, request, view):
         if view.action in ['create', 'update', 'partial_update']:
-            self._check_manager_for_branch(request)
+            await self._check_manager_for_branch(request)
         return True
 
-    def _check_manager_for_branch(self, request):
+    async def _check_manager_for_branch(self, request):
         manager_id = request.data.get('manager')
+        company_id = request.data.get('company')
+        user = request.user
 
+        # Fetch user's company IDs once and reuse
+        user_company_ids = set([company.id async for company in user.companies.all()]) # Query 1
+
+        # Check company requirement and validity
+        if user_company_ids:  # Non-empty set means user has companies
+            if not company_id:
+                raise PermissionDenied(_("A company is required."))
+            if company_id not in user_company_ids:
+                raise PermissionDenied(_("company must be one of your affiliated companies."))
+
+        # Validate manager if provided
         if manager_id:
+            # Fetch manager with groups and companies in one query
             try:
-                manager = CustomUser.objects.get(id=manager_id)
+                manager = await CustomUser.objects.prefetch_related('groups', 'companies').aget(id=manager_id) # Query 2
             except CustomUser.DoesNotExist:
-                raise PermissionDenied(_("The specified manager does not exist."))
+                raise PermissionDenied(_("manager does not exist."))
 
-            # Check if the manager belongs to the BranchManager group
-            if not manager.groups.filter(name="BranchManager").exists():
-                raise PermissionDenied(_("The manager must belong to the BranchManager group."))
+            # Check group membership in Python (groups already prefetched)
+            group_names = [group.name async for group in manager.groups.all()]
+            if "BranchManager" not in group_names:
+                raise PermissionDenied(_("The manager must be a BranchManager."))
 
+            # Check manager's company if company_id is provided (companies already prefetched)
+            if company_id:
+                manager_company_ids = {company.id async for company in manager.companies.all()}
+                if company_id not in manager_company_ids:
+                    raise PermissionDenied(_("The manager must belong to company."))
 
 class ObjectStatusPermission(BasePermission):
     """
@@ -292,7 +358,6 @@ class EntityUpdatePermission(BasePermission):
     async def _get_object_scope_ids(self, obj, model):
         """Extract scope-relevant IDs from the object (reused from EntityUpdateViewSet)."""
         if model == CustomUser:
-            print(obj, model)
             if await sync_to_async(obj.companies.exists)():
                 return await sync_to_async(lambda: set(obj.companies.values_list('id', flat=True)))()
             elif await sync_to_async(obj.restaurants.exists)():

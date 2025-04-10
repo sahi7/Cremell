@@ -90,23 +90,32 @@ class UserViewSet(ModelViewSet):
     permission_classes = [UserCreationPermission]
 
     async def get_queryset(self):
+        # Delegate to the permission class’s async get_queryset
+        queryset = await (UserCreationPermission().get_queryset)(self.request)
         user = self.request.user
-        scope_filter, min_role_value = await sync_to_async(get_scope_filters)(user)
-        queryset = CustomUser.objects.filter(scope_filter)
-        return queryset.filter(
-            id__in=await sync_to_async(
-                lambda: [u.id for u in queryset if user.get_role_value(u.role) >= min_role_value]
-            )()
-        )
 
+        requester_role_value = await sync_to_async(user.get_role_value)()
+        allowed_users = await sync_to_async(
+            lambda: queryset.filter(
+                id__in=[
+                    u.id for u in queryset 
+                    if u.get_role_value() >= requester_role_value
+                ]
+            )
+        )()
+
+        return allowed_users
+    
     async def list(self, request, *args, **kwargs):
         queryset = await self.get_queryset()
-        serializer = self.get_serializer(
-            await sync_to_async(lambda: list(queryset))(),
-            many=True
-        )
-        data = await sync_to_async(lambda: serializer.data)()
-        return Response(data)
+        serializer = await sync_to_async(self.get_serializer)(queryset, many=True)
+        response_data = await sync_to_async(lambda: serializer.data)()
+        return Response(response_data)
+    
+    async def retrieve(self, request, *args, **kwargs):
+        instance = await self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
     async def create(self, request, *args, **kwargs):
         user = request.user
@@ -170,6 +179,7 @@ class UserViewSet(ModelViewSet):
 class CompanyViewSet(ModelViewSet):
     queryset = Company.objects.all()
     serializer_class = CompanySerializer
+    permission_classes = [ScopeAccessPolicy]
     # CONDITIONS: 1. Already has company 2. Existing company has atleast 1 restaurant 3. Restaurant has atleast 1 branch 4. Must be CompanyAdmin
     # @TOD0: Log creation activity, add to user.companies
 
@@ -318,6 +328,7 @@ class BranchViewSet(ModelViewSet):
         if "CompanyAdmin" in user_groups:
             allowed_scopes['company'] = await sync_to_async(lambda: user.companies.values_list('id', flat=True))()
             allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.filter(company_id__in=allowed_scopes['company']).values_list('id', flat=True))()
+            serializer.context['is_CEO'] = True
 
         elif "CountryManager" in user_groups:
             allowed_scopes['country'] = await sync_to_async(lambda: user.countries.values_list('id', flat=True))()
@@ -326,7 +337,7 @@ class BranchViewSet(ModelViewSet):
 
         elif "RestaurantOwner" in user_groups:
             allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.values_list('id', flat=True))()
-            serializer.context['is_restaurant_owner'] = True
+            serializer.context['is_CEO'] = True
 
         elif "RestaurantManager" in user_groups:
             allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.values_list('id', flat=True))()

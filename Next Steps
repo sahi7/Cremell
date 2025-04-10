@@ -1,5 +1,6 @@
 # Add regional director role #
 
+Count number of DB Querries in each permission class, policy, view and optimize them
 Websocket notifications not beign sent
 A restau must have a branch before another restau can be created within thesame company. Restau owners can't create restaus
 Restrict creation of companyadmin and restauowner. Ownership can be transfered through an email - receipient would accept the ownership transfer for it to take effect.
@@ -27,4 +28,10 @@ Restrict creation of companyadmin and restauowner. Ownership can be transfered t
 - Complete View to transfer users within branches
 - Upgrade user roles (from branchmanager to restaurantmanager)
     Can be done in single steps - escalate notifications up the hierachy when it happens
+
+
+# REDUCE DB REQUESTS WITH CACHING #
+Try to create a system of prefetching and caching where only POST and PATCH requests hit the db. As soon as they hit, a background process updates cache/preload for that user. We need a robust system with cache, pickles and fast microservices (better retrival speed than db)
+This will create the fastest system for GET[FILTER] requests - Its like scaling REDIS to work with hundred million requests but the underlying hardware is very important.
+Third parties can learn how to use the DB we will create -- that works with this CACHE CLOUD
 

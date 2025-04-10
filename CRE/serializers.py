@@ -126,7 +126,7 @@ class UserSerializer(ModelSerializer):
                 m2m_fields[field] = validated_data.pop(field)
         
         # Create user
-        user = await sync_to_async(CustomUser.objects.create_user_with_role)(**validated_data, role=role)
+        user = await CustomUser.objects.create_user_with_role(**validated_data, role=role)
 
         # Process M2M relationships
         for field, values in m2m_fields.items():
@@ -299,7 +299,7 @@ class BranchSerializer(ModelSerializer):
 
     async def create(self, validated_data):
         request = self.context.get('request')
-        is_RO = self.context.get('is_restaurant_owner', False)
+        is_RO = self.context.get('is_CEO', False)
         if is_RO:
             validated_data['status'] = 'active'
         branch = await Branch.objects.acreate(**validated_data)

@@ -9,22 +9,22 @@ from django.conf import settings
 from django.db import models
 
 class CustomUserManager(BaseUserManager):
-    def create_user(self, email=None, username=None, phone_number=None, password=None, **extra_fields):
+    async def create_user(self, email=None, username=None, phone_number=None, password=None, **extra_fields):
         if not email and not username and not phone_number:
             raise ValueError(_('The Email, Username, or Phone number field must be set'))
         
         email = self.normalize_email(email) if email else None
         user = self.model(email=email, username=username, phone_number=phone_number, **extra_fields)
         user.set_password(password)
-        user.save(using=self._db)
+        user.asave(using=self._db)
         return user
 
-    def create_superuser(self, email=None, username=None, phone_number=None, password=None, **extra_fields):
+    async def create_superuser(self, email=None, username=None, phone_number=None, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
-        return self.create_user(email, username, phone_number, password, **extra_fields)
+        return await self.create_user(email, username, phone_number, password, **extra_fields)
 
-    def create_user_with_role(self, role, email, phone_number, password=None, **extra_fields):
+    async def create_user_with_role(self, role, email, phone_number, password=None, **extra_fields):
         if not email and not phone_number:
             raise ValueError(_('The Email or Phone number field must be set'))
         if not role:
@@ -33,11 +33,12 @@ class CustomUserManager(BaseUserManager):
         email = self.normalize_email(email) if email else None
         if role in ['company_admin', 'restaurant_owner']:
             extra_fields.setdefault('is_staff', True)
-        return self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
+        return await self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
 
     # Role-specific convenience method
-    def create_delivery_man(self, email=None, phone_number=None, password=None, **extra_fields):
-        return self.create_user_with_role('delivery_man', email=email, phone_number=phone_number, password=password, **extra_fields)
+    async def create_delivery_man(self, email=None, phone_number=None, password=None, **extra_fields):
+        return await self.create_user_with_role('delivery_man', email=email, phone_number=phone_number, password=password, **extra_fields)
+    
 
 class CustomUser(AbstractUser):
     GENDER_CHOICES = (

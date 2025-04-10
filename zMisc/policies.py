@@ -32,18 +32,21 @@ class ScopeAccessPolicy(AccessPolicy):
             "action": ["*"],
             "effect": "allow",
             "condition": "is_within_scope",
+            "requires": ["restaurants"],
         },
         {
             "principal": ["group:RestaurantManager"],
             "action": ["*"],
             "effect": "allow",
             "condition": "is_within_scope",
+            "requires": ["restaurants"],
         },
         {
             "principal": ["group:BranchManager"],
             "action": ["*"],
             "effect": "allow",
             "condition": "is_within_scope",
+            "requires": ["branches"],
         },
 
     ]
@@ -184,7 +187,7 @@ class RestaurantAccessPolicy(AccessPolicy):
             "effect": "allow",
         },
         {
-            "action": ["partial_update"],
+            "action": ["list", "partial_update"],
             "principal": ["group:RestaurantManager"],
             "effect": "allow",
         },
