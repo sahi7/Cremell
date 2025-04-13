@@ -63,8 +63,6 @@ def process_transfer(transfer_id, approve=False, reject=False, reviewer_id=None)
             return  # Already processed
 
         # Approval/Rejection logic
-        if approve and reject:
-            raise ValueError("Cannot both approve and reject a transfer.")
         elif reject:
             transfer.status = 'rejected'
             transfer.save()

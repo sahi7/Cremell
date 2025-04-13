@@ -135,7 +135,7 @@ class UserSerializer(ModelSerializer):
                 role_value = await sync_to_async(user.get_role_value)()
                 if role_value < 5:
                     user.status = 'active'
-                    await sync_to_async(user.save)(update_fields=['status'])
+                    await user.asave(update_fields=['status'])
 
         # Email handling
         self.context["email_sent"] = False

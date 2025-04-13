@@ -6,8 +6,6 @@ from django.db.models import Q
 from django.db import transaction
 
 from rest_framework.response import Response
-# from rest_framework.views import APIView
-# from rest_framework.viewsets import ModelViewSet
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
@@ -32,7 +30,7 @@ from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerial
 from .models import Company, Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
 from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy, ScopeAccessPolicy
 from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
-from zMisc.utils import validate_scope, filter_queryset_by_scopes, get_scope_filters
+from zMisc.utils import validate_scope
 
 CustomUser = get_user_model()
 def email_confirm_redirect(request, key):

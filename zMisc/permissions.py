@@ -1,3 +1,6 @@
+import redis.asyncio as redis
+from django.conf import settings
+from channels.layers import get_channel_layer
 from rest_framework.permissions import BasePermission
 from rest_framework.exceptions import PermissionDenied
 from django.utils.translation import gettext_lazy as _
@@ -95,8 +98,10 @@ class UserCreationPermission(BasePermission):
         requested = {field: request.data.get(field, []) for field in ['companies', 'countries', 'restaurants', 'branches']}
 
         user_role = user.role
-        # if not user_role or user_role not in self.SCOPE_RULES:
-        #     raise PermissionDenied(_("You do not have permission to create users."))
+        user_role_value = await sync_to_async(user.get_role_value)()
+        role_value_to_create = await sync_to_async(user.get_role_value)(role_to_create)
+        if not user_role or user_role not in self.SCOPE_RULES or user_role_value > 5 or user_role_value > role_value_to_create:
+            raise PermissionDenied(_("You do not have permission to create users."))
 
         rules = self.SCOPE_RULES[user_role]
         scope_checks = rules.get('scopes', {})
@@ -150,35 +155,101 @@ class UserCreationPermission(BasePermission):
         return await sync_to_async(queryset_filter)(user, *id_args)
 
 class TransferPermission(BasePermission):
+    # Redis client for caching
+    redis_client = redis.from_url(settings.REDIS_URL)
+
+    async def _get_cached_scope(self, user_id, model_name):
+        """Fetch or cache user's scope for branches/restaurants."""
+        cache_key = f"scope:{user_id}:{model_name}"
+        cached = await self.redis_client.get(cache_key)
+        if cached:
+            return set(cached.decode().split(","))
+        # Placeholder: Fetch scope async (assumes _is_object_in_scope is efficient)
+        scope_ids = []  # Implement based on _is_object_in_scope
+        await self.redis_client.setex(cache_key, 300, ",".join(map(str, scope_ids)))
+        return set(scope_ids)
+
     async def has_permission(self, request, view):
         if view.action != "create":
             return True
         
         user = request.user
+        employee_id = request.data.get('user')
+        from_branch = request.data.get('from_branch')
+        from_restaurant = request.data.get('from_restaurant')
         to_branch = request.data.get('to_branch')
         to_restaurant = request.data.get('to_restaurant')
+
+        if not from_branch and not from_restaurant:
+            raise PermissionDenied(_("At least one of from_branch or from_restaurant is required."))
+        if not employee_id:
+            raise PermissionDenied(_("Employee ID is required."))
 
         user_role = user.role
         if not user_role or user_role not in UserCreationPermission.SCOPE_RULES:
             raise PermissionDenied(_("You do not have permission to transfer users."))
+        
+        entity_permission = EntityUpdatePermission()
+        same_restaurant = False
 
-        rules = UserCreationPermission.SCOPE_RULES[user_role]
-        scope_checks = rules.get('scopes', {})
+        # Validate source (from_branch/from_restaurant)
+        if employee_id:
+            try:
+                employee = await CustomUser.objects.aget(pk=employee_id)
+                if not await entity_permission._is_object_in_scope(request, employee, CustomUser):
+                    raise PermissionDenied(_("Employee not in scope."))
+            except CustomUser.DoesNotExist:
+                raise PermissionDenied(_("Invalid Employee ID."))
+        if from_branch:
+            try:
+                branch = await Branch.objects.select_related('restaurant').aget(pk=from_branch)
+                in_scope = await entity_permission._is_object_in_scope(request, branch, Branch)
+                if not in_scope:
+                    user_restaurants = await self._get_cached_scope(user.id, 'restaurant')
+                    if str(branch.restaurant.pk) in user_restaurants:
+                        same_restaurant = True
+                    else:
+                        raise PermissionDenied(_("You are not authorized to transfer from this branch."))
+            except Branch.DoesNotExist:
+                raise PermissionDenied(_("Invalid from_branch ID."))
 
+        if from_restaurant:
+            try:
+                restaurant = await Restaurant.objects.aget(pk=from_restaurant)
+                if not await entity_permission._is_object_in_scope(request, restaurant, Restaurant):
+                    raise PermissionDenied(_("You are not authorized to transfer from this restaurant."))
+            except Restaurant.DoesNotExist:
+                raise PermissionDenied(_("Invalid from_restaurant ID."))
+
+        # Validate destination (to_branch/to_restaurant)
         if to_branch:
-            check_func = scope_checks.get('branches')
-            if user_role == 'branch_manager':
-                # BranchManager can only initiate out of their branches, not specify to_branch
-                if to_branch and (not check_func or await sync_to_async(check_func)(user, [to_branch]) != 1):
-                    raise PermissionDenied(_("You can only transfer users out of your branches. Destination must be set by a higher role."))
-            if not check_func or await sync_to_async(check_func)(user, [to_branch]) != 1:
-                raise PermissionDenied(_("You can only transfer to active branches within your scope."))
+            try:
+                branch = await Branch.objects.select_related('restaurant').aget(pk=to_branch)
+                if not await entity_permission._is_object_in_scope(request, branch, Branch):
+                    raise PermissionDenied(_("You can only transfer to active branches within your scope."))
+            except Branch.DoesNotExist:
+                raise PermissionDenied(_("Invalid to_branch ID."))
 
         if to_restaurant:
-            check_func = scope_checks.get('restaurants')
-            if not check_func or await sync_to_async(check_func)(user, [to_restaurant]) != 1:
-                raise PermissionDenied(_("You can only transfer to active restaurants within your scope."))
+            try:
+                restaurant = await Restaurant.objects.aget(pk=to_restaurant)
+                if not await entity_permission._is_object_in_scope(request, restaurant, Restaurant):
+                    raise PermissionDenied(_("You can only transfer to active restaurants within your scope."))
+            except Restaurant.DoesNotExist:
+                raise PermissionDenied(_("Invalid to_restaurant ID."))
 
+        # Branch manager: Allow omitting to_branch/to_restaurant
+        if user_role == 'branch_manager' and not to_branch and not to_restaurant:
+            if not from_branch:
+                raise PermissionDenied(_("Branch managers must specify a source branch."))
+            # Flag for view to handle as awaiting_destination
+            request.same_restaurant_transfer = False
+            request.awaiting_destination = True
+            return True
+
+        # Flag same-restaurant transfer for view
+        request.same_restaurant_transfer = same_restaurant
+        request.awaiting_destination = False
         return True
 
 class RManagerScopePermission(BasePermission):

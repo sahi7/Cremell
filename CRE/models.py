@@ -16,7 +16,7 @@ class CustomUserManager(BaseUserManager):
         email = self.normalize_email(email) if email else None
         user = self.model(email=email, username=username, phone_number=phone_number, **extra_fields)
         user.set_password(password)
-        user.asave(using=self._db)
+        await user.asave(using=self._db)
         return user
 
     async def create_superuser(self, email=None, username=None, phone_number=None, password=None, **extra_fields):

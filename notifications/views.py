@@ -1,11 +1,18 @@
+import dateutil.parser
+from asgiref.sync import sync_to_async 
+from rest_framework import status
+from rest_framework import serializers
+from rest_framework.response import Response
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from adrf.viewsets import ModelViewSet
+from channels.layers import get_channel_layer
+from django.utils import timezone
 from .models import EmployeeTransfer, TransferHistory
 from .tasks import process_transfer
 from .serializers import TransferSerializer, TransferHistorySerializer
-from asgiref.sync import sync_to_async 
-from rest_framework import status
-from rest_framework.response import Response
-from rest_framework.decorators import action
-from rest_framework.viewsets import ModelViewSet
+from CRE.models import Shift, Branch
+from zMisc.policies import ScopeAccessPolicy
 from zMisc.permissions import TransferPermission, UserCreationPermission
 
 class TransferViewSet(ModelViewSet):
@@ -24,20 +31,8 @@ class TransferViewSet(ModelViewSet):
     """
     queryset = EmployeeTransfer.objects.all()
     serializer_class = TransferSerializer
-    permission_classes = [TransferPermission]
+    permission_classes = (TransferPermission, ScopeAccessPolicy, )
 
-    async def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data, context=self.get_serializer_context())
-        await sync_to_async(serializer.is_valid)(raise_exception=True)
-        transfer = await sync_to_async(serializer.save)(initiated_by=request.user)
-
-        # Auto-approve for RestaurantOwner within their restaurants
-        if request.user.role == 'restaurant_owner' and (not transfer.to_branch or transfer.to_branch.restaurant in request.user.restaurants.all()):
-            process_transfer.delay(transfer.id, approve=True, reviewer_id=request.user.id)
-        
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-    
     @action(detail=True, methods=['patch'], url_path='review')
     async def review(self, request, pk=None):
         """
@@ -66,6 +61,70 @@ class TransferViewSet(ModelViewSet):
             reviewer_id=request.user.id
         )
         return Response({"detail": _("Transfer review queued.")}, status=status.HTTP_202_ACCEPTED)
+    
+    async def perform_create(self, serializer):
+        # Async checks for real-world scenarios
+        employee_id = self.request.data.get('user')
+        from_branch = self.request.data.get('from_branch')
+        end_date_str = self.request.data.get('end_date')
+
+        if end_date_str:
+            try:
+                # Parse ISO 8601 string to datetime
+                end_date = dateutil.parser.isoparse(end_date_str)
+                # Ensure end_date is in the future
+                if end_date <= timezone.now():
+                    raise ValidationError(_("end_date must be a future date."))
+            except ValueError as e:
+                raise ValidationError(_("end_date must be a valid ISO 8601 date (e.g., '2025-04-01T00:00:00Z')."))
+
+        # if employee_id and from_branch:
+        #     # Check shift conflicts
+        #     active_shifts = await Shift.objects.filter(
+        #         employee_id=employee_id, branch_id=from_branch, end_time__gte=timezone.now()
+        #     ).acount()
+        #     self.request.shift_conflicts = active_shifts > 0
+
+        #     # Check overlapping requests
+        #     existing = await EmployeeTransfer.objects.filter(
+        #         user_id=employee_id, status='pending'
+        #     ).acount()
+        #     if existing > 0:
+        #         raise serializers.ValidationError(_("Employee has a pending transfer request."))
+        # else:
+        #     self.request.shift_conflicts = False
+        
+
+    async def _notify_hierarchy(self, transfer_request, restaurant_id):
+        """Notify restaurant hierarchy via Channels."""
+        channel_layer = get_channel_layer()
+        await channel_layer.group_send(
+            f"restaurant_{restaurant_id}_hierarchy",
+            {
+                "type": "transfer.request",
+                "transfer_id": transfer_request.id,
+                "message": "New transfer request requires approval."
+            }
+        )
+
+    async def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        transfer = await serializer.asave()
+
+        # Notify hierarchy
+        if transfer.from_branch:
+            branch = await Branch.objects.select_related('restaurant').aget(pk=transfer.from_branch.id)
+            await self._notify_hierarchy(transfer, branch.restaurant.pk)
+
+        # Auto-approve for RestaurantOwner within their restaurants
+        if request.user.role == 'restaurant_owner' and (
+            not transfer.to_branch or transfer.to_branch.restaurant_id in await sync_to_async(lambda: request.user.restaurants.values_list('id', flat=True))()
+        ):
+            process_transfer.delay(transfer.id, approve=True, reviewer_id=request.user.id)
+        
+        return Response(self.get_serializer(transfer).data, status=status.HTTP_201_CREATED)
+    
 
 class TransferHistoryViewSet(ModelViewSet):
     """

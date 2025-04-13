@@ -9,6 +9,6 @@ router.register(r'transfer-history', TransferHistoryViewSet, basename='transfer-
 
 urlpatterns = [
 
-    path('api/', include(router.urls)),
+    path('n/', include(router.urls)),
 
 ]
