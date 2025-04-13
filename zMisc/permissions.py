@@ -251,6 +251,50 @@ class TransferPermission(BasePermission):
         request.same_restaurant_transfer = same_restaurant
         request.awaiting_destination = False
         return True
+    
+    async def has_object_permission(self, request, view, obj):
+        print(f"Checking review permission for TransferRequest {obj.id}, user {request.user.id}")
+        user = request.user
+        user_role = user.role
+        if not user_role or user_role not in UserCreationPermission.SCOPE_RULES:
+            raise PermissionDenied(_("You do not have permission to review transfers."))
+        # Check if transfer is in scope
+        entity_permission = EntityUpdatePermission()
+
+        # Check from_branch or to_branch
+        branches_to_check = []
+        if obj.from_branch:
+            branches_to_check.append(obj.from_branch)
+        if obj.to_branch:
+            branches_to_check.append(obj.to_branch)
+        print("branches_to_check: ", branches_to_check)
+
+        for branch in branches_to_check:
+            if await entity_permission._is_object_in_scope(request, branch, Branch):
+                print(f"Branch {branch.pk} in scope for user {user.id}")
+                return True
+
+        # Check from_restaurant or to_restaurant
+        restaurants_to_check = []
+        if obj.from_restaurant:
+            restaurants_to_check.append(obj.from_restaurant)
+        if obj.to_restaurant:
+            restaurants_to_check.append(obj.to_restaurant)
+
+        for restaurant in restaurants_to_check:
+            if await entity_permission._is_object_in_scope(request, restaurant, Restaurant):
+                print(f"Restaurant {restaurant.pk} in scope for user {user.id}")
+                return True
+
+        # If not in scope, check same-restaurant for from_branch
+        if obj.from_branch:
+            user_restaurants = await self._get_cached_scope(user.id, 'restaurant')
+            if str(obj.from_branch.restaurant.pk) in user_restaurants:
+                print(f"Same restaurant {obj.from_branch.restaurant.pk} for user {user.id}")
+                return True
+
+        print(f"TransferRequest {obj.id} not in scope for user {user.id}")
+        raise PermissionDenied(_("You can only review transfers within your scope."))
 
 class RManagerScopePermission(BasePermission):
     """

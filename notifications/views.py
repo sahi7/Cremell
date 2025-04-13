@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 from adrf.viewsets import ModelViewSet
 from channels.layers import get_channel_layer
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from .models import EmployeeTransfer, TransferHistory
 from .tasks import process_transfer
 from .serializers import TransferSerializer, TransferHistorySerializer
@@ -44,7 +45,12 @@ class TransferViewSet(ModelViewSet):
         }
         - Approves the transfer, processed by Celery.
         """
-        transfer = self.get_object()
+        transfer = await EmployeeTransfer.objects.select_related(
+                'from_branch__restaurant',  # from_branch and its restaurant
+                'to_branch__restaurant',    # to_branch and its restaurant
+                'from_restaurant',          # from_restaurant
+                'to_restaurant'             # to_restaurant
+            ).aget(pk=pk)
         if transfer.status != 'pending':
             return Response({"detail": _("Transfer already processed.")}, status=status.HTTP_400_BAD_REQUEST)
 

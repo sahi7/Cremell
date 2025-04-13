@@ -1,5 +1,6 @@
 from .models import Task, EmployeeTransfer, TransferHistory
 from CRE.models import CustomUser
+from asgiref.sync import async_to_sync
 from celery import shared_task
 from asgiref.sync import sync_to_async
 from channels.layers import get_channel_layer
