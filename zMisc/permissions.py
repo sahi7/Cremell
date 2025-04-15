@@ -262,29 +262,16 @@ class TransferPermission(BasePermission):
         entity_permission = EntityUpdatePermission()
 
         # Check from_branch or to_branch
-        branches_to_check = []
-        if obj.from_branch:
-            branches_to_check.append(obj.from_branch)
-        if obj.to_branch:
-            branches_to_check.append(obj.to_branch)
-        print("branches_to_check: ", branches_to_check)
-
-        for branch in branches_to_check:
-            if await entity_permission._is_object_in_scope(request, branch, Branch):
-                print(f"Branch {branch.pk} in scope for user {user.id}")
-                return True
-
+        for branch in [obj.from_branch, obj.to_branch]:
+            if branch and not await entity_permission._is_object_in_scope(request, branch, Branch):
+                print(f"Branch {branch.pk} not in scope for user {user.id}")
+                raise PermissionDenied(_("All branches must be within your scope."))
+        
         # Check from_restaurant or to_restaurant
-        restaurants_to_check = []
-        if obj.from_restaurant:
-            restaurants_to_check.append(obj.from_restaurant)
-        if obj.to_restaurant:
-            restaurants_to_check.append(obj.to_restaurant)
-
-        for restaurant in restaurants_to_check:
-            if await entity_permission._is_object_in_scope(request, restaurant, Restaurant):
-                print(f"Restaurant {restaurant.pk} in scope for user {user.id}")
-                return True
+        for restaurant in [obj.from_restaurant, obj.to_restaurant]:
+            if restaurant and not await entity_permission._is_object_in_scope(request, restaurant, Restaurant):
+                print(f"Restaurant {restaurant.pk} not in scope for user {user.id}")
+                raise PermissionDenied(_("All restaurants must be within your scope."))
 
         # If not in scope, check same-restaurant for from_branch
         if obj.from_branch:
@@ -473,20 +460,22 @@ class EntityUpdatePermission(BasePermission):
     async def _get_object_scope_ids(self, obj, model):
         """Extract scope-relevant IDs from the object (reused from EntityUpdateViewSet)."""
         if model == CustomUser:
-            if await sync_to_async(obj.companies.exists)():
-                return await sync_to_async(lambda: set(obj.companies.values_list('id', flat=True)))()
-            elif await sync_to_async(obj.restaurants.exists)():
-                return await sync_to_async(lambda: set(obj.restaurants.values_list('id', flat=True)))()
-            elif await sync_to_async(obj.branches.exists)():
-                return await sync_to_async(lambda: set(obj.branches.values_list('id', flat=True)))()
+            if await obj.branches.aexists():
+                return {branch.id async for branch in obj.branches.all()}
+            elif await obj.restaurants.aexists():
+                return {restaurant.id async for restaurant in obj.restaurants.all()}
+            elif await obj.companies.aexists():
+                return {company.id async for company in obj.companies.all()}
         elif model == Branch:
-            if obj.company_id:
-                return {obj.company_id}
+            if obj.id:  # Always true if object exists, but explicit for clarity
+                return {obj.id}
             elif obj.restaurant_id:
                 return {obj.restaurant_id}
-            return {obj.id}
-        elif model == Restaurant:
-            if obj.company_id:
+            elif obj.company_id:
                 return {obj.company_id}
-            return {obj.id}
+        elif model == Restaurant:
+            if obj.id:
+                return {obj.id}
+            elif obj.company_id:
+                return {obj.company_id}
         return set()

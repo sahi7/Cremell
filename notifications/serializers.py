@@ -11,7 +11,7 @@ class TransferSerializer(ModelSerializer):
         extra_kwargs = {
             'status': {'default': 'pending'},
             'initiated_by': {'read_only': True},
-        }
+        }  
 
         async def acreate(self, validated_data):
             """Custom async create method"""

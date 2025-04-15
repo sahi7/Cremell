@@ -32,7 +32,7 @@ class TransferViewSet(ModelViewSet):
     """
     queryset = EmployeeTransfer.objects.all()
     serializer_class = TransferSerializer
-    permission_classes = (TransferPermission, ScopeAccessPolicy, )
+    permission_classes = (ScopeAccessPolicy, TransferPermission, )
 
     @action(detail=True, methods=['patch'], url_path='review')
     async def review(self, request, pk=None):
@@ -72,17 +72,7 @@ class TransferViewSet(ModelViewSet):
         # Async checks for real-world scenarios
         employee_id = self.request.data.get('user')
         from_branch = self.request.data.get('from_branch')
-        end_date_str = self.request.data.get('end_date')
-
-        if end_date_str:
-            try:
-                # Parse ISO 8601 string to datetime
-                end_date = dateutil.parser.isoparse(end_date_str)
-                # Ensure end_date is in the future
-                if end_date <= timezone.now():
-                    raise ValidationError(_("end_date must be a future date."))
-            except ValueError as e:
-                raise ValidationError(_("end_date must be a valid ISO 8601 date (e.g., '2025-04-01T00:00:00Z')."))
+        
 
         # if employee_id and from_branch:
         #     # Check shift conflicts
@@ -114,6 +104,18 @@ class TransferViewSet(ModelViewSet):
         )
 
     async def create(self, request, *args, **kwargs):
+        end_date_str = request.data.get('end_date')
+
+        if end_date_str:
+            try:
+                # Parse ISO 8601 string to datetime
+                end_date = dateutil.parser.isoparse(end_date_str)
+                # Ensure end_date is in the future
+                if end_date <= timezone.now():
+                    raise serializers.ValidationError(_("end_date must be a future date."))
+            except ValueError as e:
+                raise serializers.ValidationError(_("end_date must be a valid ISO 8601 date (e.g., '2025-04-01T00:00:00Z')."))
+            
         serializer = self.get_serializer(data=request.data)
         await sync_to_async(serializer.is_valid)(raise_exception=True)
         transfer = await serializer.asave()
