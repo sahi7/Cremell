@@ -1,5 +1,6 @@
 import dateutil.parser
 from asgiref.sync import sync_to_async 
+from asgiref.sync import async_to_sync
 from rest_framework import status
 from rest_framework import serializers
 from rest_framework.response import Response
@@ -30,9 +31,19 @@ class TransferViewSet(ModelViewSet):
     }
     - Initiates a temporary transfer, validated against the initiator's scope.
     """
-    queryset = EmployeeTransfer.objects.all()
+    queryset = EmployeeTransfer.objects.select_related(
+                'from_branch__restaurant',  # from_branch and its restaurant
+                'to_branch__restaurant',    # to_branch and its restaurant
+                'from_restaurant',          # from_restaurant
+                'to_restaurant'             # to_restaurant
+            )
     serializer_class = TransferSerializer
     permission_classes = (ScopeAccessPolicy, TransferPermission, )
+
+    def get_queryset(self):
+        user = self.request.user
+        scope_filter = async_to_sync(ScopeAccessPolicy().get_queryset_scope)(user, view=self)
+        return self.queryset.filter(scope_filter)
 
     @action(detail=True, methods=['patch'], url_path='review')
     async def review(self, request, pk=None):
@@ -45,12 +56,12 @@ class TransferViewSet(ModelViewSet):
         }
         - Approves the transfer, processed by Celery.
         """
-        transfer = await EmployeeTransfer.objects.select_related(
-                'from_branch__restaurant',  # from_branch and its restaurant
-                'to_branch__restaurant',    # to_branch and its restaurant
-                'from_restaurant',          # from_restaurant
-                'to_restaurant'             # to_restaurant
-            ).aget(pk=pk)
+        obj = await sync_to_async(self.get_object)()
+        
+        # Manually check object-level permissions
+        await sync_to_async(self.check_object_permissions)(request, obj)
+        
+        transfer = await self.queryset.aget(pk=pk)
         if transfer.status != 'pending':
             return Response({"detail": _("Transfer already processed.")}, status=status.HTTP_400_BAD_REQUEST)
 

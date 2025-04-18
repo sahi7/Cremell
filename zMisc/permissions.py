@@ -198,6 +198,8 @@ class TransferPermission(BasePermission):
                 employee = await CustomUser.objects.aget(pk=employee_id)
                 if not await entity_permission._is_object_in_scope(request, employee, CustomUser):
                     raise PermissionDenied(_("Employee not in scope."))
+                if employee == user:
+                    raise PermissionDenied(_("Must be assigned."))
             except CustomUser.DoesNotExist:
                 raise PermissionDenied(_("Invalid Employee ID."))
         if from_branch:
@@ -280,8 +282,7 @@ class TransferPermission(BasePermission):
                 print(f"Same restaurant {obj.from_branch.restaurant.pk} for user {user.id}")
                 return True
 
-        print(f"TransferRequest {obj.id} not in scope for user {user.id}")
-        raise PermissionDenied(_("You can only review transfers within your scope."))
+        return True
 
 class RManagerScopePermission(BasePermission):
     """

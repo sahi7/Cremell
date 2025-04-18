@@ -5,6 +5,7 @@ from asgiref.sync import sync_to_async
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from CRE.models import Branch, Restaurant
+from notifications.models import EmployeeTransfer
 
 CustomUser = get_user_model()
 class ScopeAccessPolicy(AccessPolicy):
@@ -15,7 +16,7 @@ class ScopeAccessPolicy(AccessPolicy):
     statements = [
         {
             "principal": ["group:CompanyAdmin"],
-            "action": ["*"],
+            "action": ["*", "review"],
             "effect": "allow",
             "condition": "is_within_scope",
             "requires": ["companies"],
@@ -29,14 +30,14 @@ class ScopeAccessPolicy(AccessPolicy):
         },
         {
             "principal": ["group:RestaurantOwner"],
-            "action": ["*"],
+            "action": ["*", "review"],
             "effect": "allow",
             "condition": "is_within_scope",
             "requires": ["restaurants"],
         },
         {
             "principal": ["group:RestaurantManager"],
-            "action": ["*"],
+            "action": ["*", "review"],
             "effect": "allow",
             "condition": "is_within_scope",
             "requires": ["restaurants"],
@@ -60,10 +61,13 @@ class ScopeAccessPolicy(AccessPolicy):
                 'branches': set(Branch.objects.filter(company_id__in=user.companies.all()).values_list('id', flat=True)),
             },
             "queryset_filter": lambda user, model: (
-                Q(company__in=user.companies.all()) if model == Branch else
-                Q(company__in=user.companies.all()) if model == Restaurant else
-                Q(companies__in=user.companies.all()) if model == CustomUser else
-                Q()  # Default: no filter if model unrecognized
+                {
+                    Branch: Q(company__in=user.companies.all()),
+                    Restaurant: Q(company__in=user.companies.all()),
+                    EmployeeTransfer: Q(from_branch__restaurant__company__in=user.companies.all()) | 
+                                        Q(from_restaurant__company__in=user.companies.all()),
+                    CustomUser: Q(companies__in=user.companies.all())
+                }.get(model, Q(pk__in=[])) # Default: no filter if model unrecognized
             ),
         },
         "CountryManager": {
@@ -74,10 +78,15 @@ class ScopeAccessPolicy(AccessPolicy):
                 'branches': set(Branch.objects.filter(country_id__in=user.countries.all()).values_list('id', flat=True)),
             },
             "queryset_filter": lambda user, model: (
-                Q(country__in=user.countries.all()) if model == Branch else
-                Q(country__in=user.countries.all()) if model == Restaurant else
-                Q(countries__in=user.countries.all()) if model == CustomUser else
-                Q()
+                {
+                    Branch: Q(country__in=user.countries.all()),
+                    Restaurant: Q(country__in=user.countries.all()),
+                    EmployeeTransfer: Q(from_branch__restaurant__country__in=user.countries.all()) | 
+                                        Q(from_restaurant__country__in=user.countries.all()) | 
+                                        Q(to_branch__restaurant__country__in=user.countries.all()) | 
+                                        Q(to_restaurant__country__in=user.countries.all()),
+                    CustomUser: Q(countries__in=user.countries.all())
+                }.get(model, Q(pk__in=[]))
             ),
         },
         "RestaurantOwner": {
@@ -88,33 +97,40 @@ class ScopeAccessPolicy(AccessPolicy):
                 ).values_list('id', flat=True)),
             },
             "queryset_filter": lambda user, model: (
-                Q(restaurant__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(created_by=user))) if model == Branch else
-                Q(id__in=user.restaurants.all()) | Q(created_by=user) if model == Restaurant else
-                Q(restaurants__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(created_by=user))) if model == CustomUser else
-                Q()
+                {
+                    Branch: Q(restaurant__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(created_by=user))),
+                    Restaurant: Q(id__in=user.restaurants.all()) | Q(created_by=user),
+                    EmployeeTransfer: Q(from_branch__restaurant__in=user.restaurants.all()) | Q(initiated_by=user),
+                    CustomUser: Q(restaurants__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(created_by=user)))
+                }.get(model, Q(pk__in=[]))
             ),
         },
         "RestaurantManager": {
             "scopes": lambda user: {
                 'restaurants': set(Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(manager=user)).values_list('id', flat=True)),
                 'branches': set(Branch.objects.filter(
-                    restaurant_id__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(manager=user))
+                    restaurant_id__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()))
                 ).values_list('id', flat=True)),
             },
-            "queryset_filter": lambda user, model: (
-                Q(restaurant__in=user.restaurants.all()) if model == Branch else
-                Q(id__in=user.restaurants.all()) if model == Restaurant else
-                Q()
-            ),
+            'queryset_filter': lambda user, model: (
+                {
+                    Branch: Q(restaurant__in=user.restaurants.all()),
+                    Restaurant: Q(id__in=user.restaurants.all()),
+                    EmployeeTransfer: Q(from_branch__restaurant__in=user.restaurants.all()) | 
+                                    Q(from_restaurant__in=user.restaurants.all()) 
+                }.get(model, Q(pk__in=[]))
+            )
         },
         "BranchManager": {
             "scopes": lambda user: {
                 'branches': set(user.branches.values_list('id', flat=True)),
             },
             "queryset_filter": lambda user, model: (
-                Q(id__in=user.branches.all()) if model == Branch else
-                Q(branches__in=user.branches.all()) if model == Restaurant else
-                Q()
+                {
+                    Branch: Q(id__in=user.branches.all()),
+                    Restaurant: Q(branches__in=user.branches.all()),
+                    EmployeeTransfer: Q(from_branch__in=user.branches.all()) | Q(manager=user)
+                }.get(model, Q(pk__in=[]))
             ),
         },
     }

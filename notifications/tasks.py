@@ -14,7 +14,7 @@ def monitor_task_timeouts():
     from .models import Task
     from .signals import broadcast_task_update
 
-    timeout = timezone.now() - timedelta(minutes=3)
+    timeout = timezone.now() - timezone.timedelta(minutes=3)
     expired_tasks = Task.objects.filter(
         status='pending',
         timeout_at__lte=timezone.now()

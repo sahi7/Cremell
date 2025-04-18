@@ -26,6 +26,8 @@ Restrict creation of companyadmin and restauowner. Ownership can be transfered t
       Create a RestaurantActivity entry with manager_assign > details JSON stores old and new manager IDs for auditing.
       Offload objectActivity logging to celery
 - Complete View to transfer users within branches
+  User should not transfer themselves
+  from_branch/from_restaurant should be affiliated to user
 - Upgrade user roles (from branchmanager to restaurantmanager)
     Can be done in single steps - escalate notifications up the hierachy when it happens
 
