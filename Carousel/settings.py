@@ -263,6 +263,10 @@ EMAIL_CONFIRM_REDIRECT_BASE_URL = \
 PASSWORD_RESET_CONFIRM_REDIRECT_BASE_URL = \
     "http://localhost:8000/password/reset/confirm/"
 
+INVITATION_ACCEPT_REDIRECT_BASE_URL = \
+    "http://localhost:8000/api/a/role-assignments/handle/"
+
+
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
         "APP": {

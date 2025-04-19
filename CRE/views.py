@@ -92,17 +92,15 @@ class UserViewSet(ModelViewSet):
         queryset = await (UserCreationPermission().get_queryset)(self.request)
         user = self.request.user
 
-        requester_role_value = await sync_to_async(user.get_role_value)()
-        allowed_users = await sync_to_async(
-            lambda: queryset.filter(
-                id__in=[
-                    u.id for u in queryset 
-                    if u.get_role_value() >= requester_role_value
-                ]
-            )
-        )()
+        requester_role_value = await user.get_role_value()
+        # Async: Filter users with role >= requester's role
+        allowed_ids = []
+        async for u in queryset:
+            if await u.get_role_value() >= requester_role_value:
+                allowed_ids.append(u.id)
 
-        return allowed_users
+        # Return filtered queryset (sync operation, but no coroutine conflicts)
+        return queryset.filter(id__in=allowed_ids)
     
     async def list(self, request, *args, **kwargs):
         queryset = await self.get_queryset()
@@ -146,8 +144,8 @@ class UserViewSet(ModelViewSet):
 
         # Check hierarchy
         if not await user.groups.filter(name="CompanyAdmin").aexists():
-            user_role_value = await sync_to_async(user.get_role_value)()
-            role_to_create_value = await sync_to_async(user.get_role_value)(role_to_create)
+            user_role_value = await user.get_role_value()
+            role_to_create_value = await user.get_role_value(role_to_create)
             if role_to_create_value <= user_role_value:
                 return Response(
                     {"detail": _("Cannot create user with higher/equal role.")},

@@ -3,10 +3,11 @@
 Count number of DB Querries in each permission class, policy, view and optimize them
 Websocket notifications not beign sent
 A restau must have a branch before another restau can be created within thesame company. Restau owners can't create restaus
-Restrict creation of companyadmin and restauowner. Ownership can be transfered through an email - receipient would accept the ownership transfer for it to take effect.
-  companyadmin can ad another same role, restau owner can only transfer ownership
+✅Restrict creation of companyadmin and restauowner. 
+Ownership can be transfered through an email - recipient would accept the ownership transfer for it to take effect.
+  companyadmin and restau owner can only transfer ownership
     for compadmin they need to add the user first as a countrymanager and then send them an invite to be a compadmin (no direct creation) - i think it should be same for restauowner (they create the user as branchmanager and send transfer of ownership invitation)
-    companyadmin sends an invitation to join, restauowner sends a transer of ownership
+    companyadmin sends an invitation to join, restauowner sends a transfer of ownership
 
 - View to assign managers and users to branches/restaurant✅
   PERM

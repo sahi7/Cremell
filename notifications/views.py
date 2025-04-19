@@ -7,15 +7,21 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from adrf.viewsets import ModelViewSet
+from adrf.viewsets import ViewSet
 from channels.layers import get_channel_layer
+from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.conf import settings
 from django.utils.translation import gettext_lazy as _
-from .models import EmployeeTransfer, TransferHistory
-from .tasks import process_transfer
-from .serializers import TransferSerializer, TransferHistorySerializer
+from .models import EmployeeTransfer, TransferHistory, RoleAssignment
+from .tasks import process_transfer, send_role_assignment_email
+from .serializers import TransferSerializer, TransferHistorySerializer, RoleAssignmentSerializer
+from CRE.tasks import log_activity
 from CRE.models import Shift, Branch
 from zMisc.policies import ScopeAccessPolicy
-from zMisc.permissions import TransferPermission, UserCreationPermission
+from zMisc.permissions import TransferPermission, UserCreationPermission, RoleAssignmentPermission
+
+CustomUser = get_user_model()
 
 class TransferViewSet(ModelViewSet):
     """
@@ -172,3 +178,191 @@ class TransferHistoryViewSet(ModelViewSet):
             allowed_restaurants = restaurant_filter(user, self.request.query_params.get('restaurant', []))
             qs = qs.filter(restaurant__id__in=allowed_restaurants)
         return qs
+    
+
+class RoleAssignmentViewSet(ViewSet):
+    permission_classes = (ScopeAccessPolicy, RoleAssignmentPermission, )
+
+    async def send_notification(self, user_id, message):
+        channel_layer = get_channel_layer()
+        await channel_layer.group_send(
+            f"user_{user_id}",
+            {
+                'type': 'user.notification',
+                'message': message
+            }
+    )
+
+    @action(detail=False, methods=['post'], url_path='send')
+    async def send_assignment(self, request):
+        """
+        Sending an Invitation
+        POST /api/a/role-assignment/send/
+        {
+            "target_user": 2, / "target_email" : "anonymoususer@email"
+            "role": "cashier",
+            "type": "invitation" / "transfer",
+            "companies": [1], # ScopeAccessPolicy requires
+        }
+        """
+        data = request.data.copy()
+        field_mapping = {
+            'companies': 'company',
+            'countries': 'country',
+            'restaurants': 'restaurant',
+            'branches': 'branch'
+        }
+        for plural, singular in field_mapping.items():
+            if plural in data:
+                # Take the first ID (assuming single object per field)
+                data[singular] = data[plural][0] if isinstance(data[plural], list) and data[plural] else None
+                del data[plural]
+
+        serializer = RoleAssignmentSerializer(data=data, context={'request': request})
+        if await sync_to_async(serializer.is_valid)():
+            # Create assignment in serializer using validated_data as **kwargs
+            assignment = await serializer.asave()
+
+            # Send email
+            subject = f"{'Invitation to' if assignment.type == 'invitation' else 'Ownership Transfer for'} {assignment.role}"
+            message = f"""
+            You have been {'invited to become' if assignment.type == 'invitation' else 'offered ownership of'} a {assignment.role}.
+            Click here to accept: {settings.INVITATION_ACCEPT_REDIRECT_BASE_URL}{assignment.token}
+            This offer expires on {assignment.expires_at}.
+            """
+            target_user = await CustomUser.objects.aget(pk=assignment.target_user_id)
+            recipient_email = assignment.target_email or target_user.email
+            send_role_assignment_email.delay(assignment.id, subject, message, recipient_email)
+
+            # Send notification if target_user exists
+            if assignment.target_user:
+                target_user_id = target_user.id
+                await self.send_notification(
+                    target_user_id,
+                    f"New {assignment.type} for {assignment.role} received."
+                )
+
+            # Log activity
+            log_activity.delay(
+                user_id=request.user.id,
+                activity_type=f'{assignment.type}_sent',
+                details={
+                    'type': 'RoleAssignment',
+                    'target_user_id': target_user.id if assignment.target_user else None,
+                    'target_email': assignment.target_email,
+                    'role': assignment.role,
+                    'assignment_id': assignment.id
+                },
+                # obj_id=None,
+                # obj_type=None
+            )
+
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], url_path='handle/(?P<token>[^/.]+)')
+    async def handle_assignment(self, request, token):
+        """
+        POST /api/a/role-assignment/handle/<token>/
+        {"action": "accept"} / {"action": "reject"}
+        """
+        try:
+            assignment = await RoleAssignment.objects.select_related('target_user', 'initiated_by', 'company', 'country', 'restaurant', 'branch').aget(token=token, status='pending')
+            if assignment.expires_at < timezone.now():
+                assignment.status = 'expired'
+                await assignment.asave()
+                return Response({"error": _("Assignment expired.")}, status=status.HTTP_400_BAD_REQUEST)
+
+            action = request.data.get('action')
+            if action not in ['accept', 'reject']:
+                return Response({"error": _("Invalid action. Use 'accept' or 'reject'.")}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Handle invitation for non-existing user
+            target_user = assignment.target_user
+            if not target_user and assignment.target_email:
+                target_user = await CustomUser.objects.filter(email=assignment.target_email).afirst()
+                if not target_user:
+                    return Response(
+                        {"error": _("Please register with this email to proceed.")},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                assignment.target_user = target_user
+                await assignment.asave()
+
+                log_activity.delay(
+                    user_id=target_user.id,
+                    activity_type='invitation_linked',
+                    details={
+                        'assignment_id': assignment.id,
+                        'role': assignment.role,
+                        'email': assignment.target_email
+                    },
+                    # obj_id=assignment.id,
+                    # obj_type='role_assignment'
+                )
+
+            # Process accept or reject
+            initiator = assignment.initiated_by
+            if action == 'accept':
+                # Map scope fields to their ManyToMany relations
+                scope_mappings = {
+                    'company': ('companies', assignment.company),
+                    'country': ('countries', assignment.country),
+                    'restaurant': ('restaurants', assignment.restaurant),
+                    'branch': ('branches', assignment.branch),
+                }
+
+                # Update scope in bulk
+                for field, (relation_name, value) in scope_mappings.items():
+                    if value:
+                        relation = getattr(target_user, relation_name)
+                        await relation.aadd(value)
+
+                # Update role
+                if target_user.role:
+                    await target_user.remove_from_group(target_user.role)
+                target_user.role = assignment.role
+                await target_user.add_to_group(assignment.role)
+
+                # Handle ownership transfer
+                if assignment.type == 'transfer' and assignment.restaurant:
+                    await initiator.restaurants.aremove(assignment.restaurant)
+                    await initiator.remove_from_group(assignment.role)
+                    if not await initiator.restaurants.aexists():
+                        initiator.role = 'restaurant_manager'  # Downgrade
+                        await initiator.asave()
+
+                assignment.status = 'accepted'
+                message = _("User is now a {role}.").format(role=assignment.role)
+            else:  # reject
+                assignment.status = 'rejected'
+                message = _("You have rejected the {type} for {role}.").format(
+                                type=assignment.type,
+                                role=assignment.role
+                            )
+
+            await target_user.asave()
+            await assignment.asave()
+
+            # Send notification
+            await self.send_notification(target_user.id, message)
+
+            # Log activity
+            log_activity.delay(
+                user_id=target_user.id,
+                activity_type=f'{assignment.type}_{assignment.status}',
+                details={
+                    'role': assignment.role,
+                    'assignment_id': assignment.id,
+                    'action': action
+                },
+                # obj_id=assignment.id,
+                # obj_type='role_assignment'
+            )
+
+            return Response(
+                {"message": message},
+                status=status.HTTP_200_OK
+            )
+        except RoleAssignment.DoesNotExist:
+            return Response({"error": _("Invalid assignment.")}, status=status.HTTP_404_NOT_FOUND)

@@ -1,7 +1,9 @@
 from django.db import models
-from django.conf import settings
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from django.contrib.auth import get_user_model
+
+CustomUser = get_user_model()
 
 class Task(models.Model):
     TASK_TYPES = [
@@ -18,7 +20,7 @@ class Task(models.Model):
         ('completed', 'Completed'),
         ('escalated', 'Escalated')
     ])
-    claimed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    claimed_by = models.ForeignKey(CustomUser, null=True, on_delete=models.SET_NULL)
     preparation_time = models.DurationField(null=True, blank=True)
     version = models.IntegerField(default=0)
     timeout_at = models.DateTimeField()
@@ -78,7 +80,7 @@ class RestaurantActivity(models.Model):
     
     restaurant = models.ForeignKey('CRE.Restaurant', null=True, blank=True, on_delete=models.CASCADE, verbose_name=_('Restaurant'))
     activity_type = models.CharField(max_length=20, choices=ACTIVITY_CHOICES, verbose_name=_('Activity Type'))
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='restaurant_activities', verbose_name=_('User'))
+    user = models.ForeignKey(CustomUser, null=True, blank=True, on_delete=models.SET_NULL, related_name='restaurant_activities', verbose_name=_('User'))
     timestamp = models.DateTimeField(auto_now_add=True, verbose_name=_('Timestamp'))
     details = models.JSONField(default=dict, verbose_name=_('Details'))
 
@@ -138,7 +140,7 @@ class BranchActivity(models.Model):
     
     branch = models.ForeignKey('CRE.Branch', null=True, on_delete=models.CASCADE)
     activity_type = models.CharField(max_length=20, choices=ACTIVITY_CHOICES)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='branch_activities')
+    user = models.ForeignKey(CustomUser, null=True, on_delete=models.SET_NULL, related_name='branch_activities')
     timestamp = models.DateTimeField(auto_now_add=True)
     details = models.JSONField()
 
@@ -165,15 +167,15 @@ class EmployeeTransfer(models.Model):
         ('approved', _('Approved')),
         ('rejected', _('Rejected')),
     )
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='transfers', verbose_name=_('User'))
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='transfers', verbose_name=_('User'))
     from_branch = models.ForeignKey('CRE.Branch', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_from', verbose_name=_('From Branch'))
-    to_branch = models.ForeignKey('CRE.Branch', on_delete=models.CASCADE, related_name='transfers_to', verbose_name=_('To Branch'))
+    to_branch = models.ForeignKey('CRE.Branch', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_to', verbose_name=_('To Branch'))
     from_restaurant = models.ForeignKey('CRE.Restaurant', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_out', verbose_name=_('From Restaurant'))
     to_restaurant = models.ForeignKey('CRE.Restaurant', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_in', verbose_name=_('To Restaurant'))
     transfer_type = models.CharField(max_length=10, choices=TRANSFER_TYPES, verbose_name=_('Transfer Type'))
     start_date = models.DateTimeField(auto_now_add=True, verbose_name=_('Start Date'))
     end_date = models.DateTimeField(null=True, blank=True, verbose_name=_('End Date'))  # Null for permanent
-    initiated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='initiated_transfers', verbose_name=_('Initiated By'))
+    initiated_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name='initiated_transfers', verbose_name=_('Initiated By'))
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending', verbose_name=_('Status'))
 
     class Meta:
@@ -215,3 +217,58 @@ class TransferHistory(models.Model):
         ]
         verbose_name = _("Transfer History")
         verbose_name_plural = _("Transfer Histories")
+
+
+class RoleAssignment(models.Model):
+    """
+    Model to handle both invitations and ownership transfers, with a type field to distinguish them.
+    Invite a user to a role (cashier, restaumanager)
+    Transfer ownership for restauowner
+    Fields:
+        initiated_by: The user sending the invitation/transfer (e.g., company_admin, restaurant_manager).
+        target_user: The user receiving the assignment (null for invitations to non-existing users).
+        target_email: Used for invitations when the user doesn't exist yet.
+        role: The target role (e.g., cashier, company_admin).
+        type: invitation for role promotions/invites, transfer for ownership transfers.
+        company, country, restaurant, branch: Contextual scope for the assignment.
+    """
+    TYPE_CHOICES = (
+        ('invitation', _('Invitation')),  # E.g., promote cook to cashier or invite company_admin
+        ('transfer', _('Ownership Transfer')),  # E.g., transfer restaurant_owner
+    )
+    STATUS_CHOICES = (
+        ('pending', _('Pending')),
+        ('accepted', _('Accepted')),
+        ('rejected', _('Rejected')),
+        ('expired', _('Expired')),
+    )
+    initiated_by = models.ForeignKey(CustomUser, related_name='initiated_assignments', on_delete=models.CASCADE)
+    target_user = models.ForeignKey(CustomUser, related_name='received_assignments', on_delete=models.CASCADE, null=True)
+    target_email = models.EmailField(blank=True)  # For invitations to non-existing users
+    role = models.CharField(max_length=50, choices=CustomUser.ROLE_CHOICES)
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    token = models.CharField(max_length=100, unique=True)
+    company = models.ForeignKey('CRE.Company', on_delete=models.CASCADE, null=True, blank=True)
+    country = models.ForeignKey('CRE.Country', on_delete=models.CASCADE, null=True, blank=True)
+    restaurant = models.ForeignKey('CRE.Restaurant', on_delete=models.CASCADE, null=True, blank=True)
+    branch = models.ForeignKey('CRE.Branch', on_delete=models.CASCADE, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    async def asave(self, *args, **kwargs):
+        if not self.token:
+            self.token = self._generate_token()
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timezone.timedelta(days=7)  # 7-day expiry
+        await super().asave(*args, **kwargs)
+
+    def _generate_token(self):
+        import uuid
+        return str(uuid.uuid4())
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['token']),
+            models.Index(fields=['status']),
+        ]

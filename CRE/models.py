@@ -92,7 +92,7 @@ class CustomUser(AbstractUser):
 
     objects = CustomUserManager()
 
-    def get_role_value(self, role=None):
+    async def get_role_value(self, role=None):
         """
         Map the role string to a numeric value for comparison.
         """
@@ -112,9 +112,10 @@ class CustomUser(AbstractUser):
         }
         return role_hierarchy.get(role or self.role, 0)  # If no role is specified, default to the instance's role
 
-    async def add_to_group(self, role):
+    async def manage_group(self, role, action='add'):
         """
-        Add the user to the corresponding group based on their role.
+        Add or remove user from the corresponding group based on their role.
+        Actions: 'add' or 'remove'
         """
         group_map = {
             'company_admin': 'CompanyAdmin',
@@ -127,7 +128,16 @@ class CustomUser(AbstractUser):
         group_name = group_map.get(role)
         if group_name:
             group = await Group.objects.aget(name=group_name)
-            await self.groups.aadd(group)
+            if action == 'add':
+                await self.groups.aadd(group)
+            elif action == 'remove':
+                await self.groups.aremove(group)
+    
+    async def add_to_group(self, role):
+        await self.manage_group(role, action='add')
+
+    async def remove_from_group(self, role):
+        await self.manage_group(role, action='remove')
 
     
     def save(self, *args, **kwargs):

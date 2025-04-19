@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 from asgiref.sync import sync_to_async
 from CRE.models import Branch, Restaurant, Country, Company
+from notifications.models import RoleAssignment
 from zMisc.policies import ScopeAccessPolicy
 
 CustomUser = get_user_model()
@@ -98,8 +99,8 @@ class UserCreationPermission(BasePermission):
         requested = {field: request.data.get(field, []) for field in ['companies', 'countries', 'restaurants', 'branches']}
 
         user_role = user.role
-        user_role_value = await sync_to_async(user.get_role_value)()
-        role_value_to_create = await sync_to_async(user.get_role_value)(role_to_create)
+        user_role_value = await user.get_role_value()
+        role_value_to_create = await user.get_role_value(role_to_create)
         if not user_role or user_role not in self.SCOPE_RULES or user_role_value > 5 or user_role_value > role_value_to_create:
             raise PermissionDenied(_("You do not have permission to create users."))
 
@@ -479,3 +480,51 @@ class EntityUpdatePermission(BasePermission):
             elif obj.company_id:
                 return {obj.company_id}
         return set()
+
+class RoleAssignmentPermission(BasePermission):
+    async def has_permission(self, request, view):
+        data = request.data
+        target_user_id = data.get('target_user')
+        assignment_type = data.get('type')
+        role = data.get('role')
+
+        entity_permission = EntityUpdatePermission()
+            
+        if view.action == 'send_assignment':
+            if not assignment_type or not target_user_id or not role:
+                raise PermissionDenied(_("Assignment type/target_user/role required."))
+            
+            if assignment_type == 'transfer' and not data.get('restaurants'):
+                raise PermissionDenied("Restaurant is required for ownership transfer.")
+            
+            if target_user_id:
+                try:
+                    target_user = await CustomUser.objects.aget(id=target_user_id)
+                    if not await entity_permission._is_object_in_scope(request, target_user, CustomUser):
+                        return False
+                    if target_user.role == role:
+                        return False
+                except CustomUser.DoesNotExist:
+                    return False
+            return True
+
+        elif view.action == 'handle_assignment':
+            try:
+                assignment = await RoleAssignment.objects.select_related('target_user').aget(
+                        token=view.kwargs['token'],
+                        status='pending'
+                    )
+
+                # Check if the requesting user is the target user or matches the target email
+                if assignment.target_user:
+                    if request.user.id != assignment.target_user.id:
+                        return True
+                elif assignment.target_email:
+                    if request.user.email != assignment.target_email:
+                        raise PermissionDenied(_("Sign up with the invited email."))
+                else:
+                    return False
+            except RoleAssignment.DoesNotExist:
+                return False
+        return True
+            

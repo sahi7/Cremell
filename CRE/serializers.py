@@ -132,7 +132,7 @@ class UserSerializer(ModelSerializer):
         for field, values in m2m_fields.items():
             if values:
                 await sync_to_async(getattr(user, field).set)(values)
-                role_value = await sync_to_async(user.get_role_value)()
+                role_value = await user.get_role_value()
                 if role_value < 5:
                     user.status = 'active'
                     await user.asave(update_fields=['status'])

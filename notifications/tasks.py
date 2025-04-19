@@ -2,16 +2,14 @@ from .models import Task, EmployeeTransfer, TransferHistory
 from CRE.models import CustomUser
 from asgiref.sync import async_to_sync
 from celery import shared_task
-from asgiref.sync import sync_to_async
 from channels.layers import get_channel_layer
+from django.core.mail import send_mail
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ObjectDoesNotExist
 
 @shared_task
 def monitor_task_timeouts():
-    from django.utils import timezone
-    from .models import Task
     from .signals import broadcast_task_update
 
     timeout = timezone.now() - timezone.timedelta(minutes=3)
@@ -27,9 +25,6 @@ def monitor_task_timeouts():
 
 @shared_task
 def broadcast_to_channel(branch_id, message_type, data):
-    from channels.layers import get_channel_layer
-    from asgiref.sync import async_to_sync
-    
     channel_layer = get_channel_layer()
     group_name = f"branch_{branch_id}_{data.get('channel_type', 'kitchen')}"
     
@@ -209,3 +204,13 @@ def revert_transfer(transfer_id):
 
     except ObjectDoesNotExist:
         pass
+
+@shared_task
+def send_role_assignment_email(assignment_id, subject, message, recipient_email):
+    send_mail(
+        subject,
+        message,
+        'from@example.com',
+        [recipient_email],
+        fail_silently=False
+    )
