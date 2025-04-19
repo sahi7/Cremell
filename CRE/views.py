@@ -167,7 +167,7 @@ class UserViewSet(ModelViewSet):
         user = await serializer.create(validated_data)
         
         # Add to group
-        await sync_to_async(user.add_to_group)(role_to_create)
+        await user.add_to_group(role_to_create)
 
         # Prepare response
         serializer.instance = user
@@ -186,7 +186,7 @@ class CompanyViewSet(ModelViewSet):
 
     @action(detail=False, methods=['get'])
     async def stats(self, request):
-        count = await sync_to_async(self.queryset.count)()
+        count = await self.queryset.acount()
         return Response({'total_companies': count})
 
     async def create(self, request, *args, **kwargs):

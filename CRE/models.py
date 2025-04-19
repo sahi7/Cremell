@@ -112,7 +112,7 @@ class CustomUser(AbstractUser):
         }
         return role_hierarchy.get(role or self.role, 0)  # If no role is specified, default to the instance's role
 
-    def add_to_group(self, role):
+    async def add_to_group(self, role):
         """
         Add the user to the corresponding group based on their role.
         """
@@ -126,8 +126,8 @@ class CustomUser(AbstractUser):
         }
         group_name = group_map.get(role)
         if group_name:
-            group = Group.objects.get(name=group_name)
-            self.groups.add(group)
+            group = await Group.objects.aget(name=group_name)
+            await self.groups.aadd(group)
 
     
     def save(self, *args, **kwargs):

@@ -244,11 +244,11 @@ class RegistrationSerializer(Serializer):
             company_data['created_by'] = user
             company = await CompanySerializer().create(company_data)
 
-            await sync_to_async(user.companies.add)(company)
+            await user.companies.aadd(company)
 
             # Add the user to the CompanyAdmin group
-            company_admin_group, created = await sync_to_async(Group.objects.get_or_create)(name='CompanyAdmin')
-            await sync_to_async(user.groups.add)(company_admin_group)
+            company_admin_group, created = await Group.objects.aget_or_create(name='CompanyAdmin')
+            await user.groups.aadd(company_admin_group)
 
             # Create the restaurant if provided
             if 'restaurant_data' in validated_data:
@@ -258,18 +258,18 @@ class RegistrationSerializer(Serializer):
                     restaurant_data['company'] = company   
                     
                 restaurant = await RestaurantSerializer().create(restaurant_data)
-                await sync_to_async(user.restaurants.add)(restaurant)
+                await user.restaurants.aadd(restaurant)
 
         elif 'restaurant_data' in validated_data:
             restaurant_data = validated_data.pop('restaurant_data')
             restaurant_data['created_by'] = user
             restaurant = await RestaurantSerializer().create(restaurant_data)
 
-            await sync_to_async(user.restaurants.add)(restaurant)
+            await user.restaurants.aadd(restaurant)
 
             # Assign the user to the RestaurantOwner group
-            restaurant_owner_group, created = await sync_to_async(Group.objects.get_or_create)(name='RestaurantOwner')
-            await sync_to_async(user.groups.add)(restaurant_owner_group)
+            restaurant_owner_group, created = await Group.objects.aget_or_create(name='RestaurantOwner')
+            await user.groups.aadd(restaurant_owner_group)
 
 
         else:
