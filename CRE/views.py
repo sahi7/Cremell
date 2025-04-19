@@ -129,20 +129,23 @@ class UserViewSet(ModelViewSet):
 
         # Check restrictions
         restrictions = {
-            'CompanyAdmin': 'restaurant_owner',
-            'RestaurantOwner': 'company_admin',
+            'CompanyAdmin': {'restaurant_owner', 'company_admin'},
+            'RestaurantOwner': {'company_admin', 'restaurant_owner'},
         }
         
-        for group_name, restricted_role in restrictions.items():
-            if await sync_to_async(user.groups.filter(name=group_name).exists)():
-                if role_to_create == restricted_role:
-                    return Response(
-                        {"detail": f"{group_name} cannot create {restricted_role}."},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
+        # Fetch user groups asynchronously with a single query
+        user_groups = {group.name async for group in user.groups.all()}
+        
+        # Check restrictions
+        for group_name in user_groups:
+            if group_name in restrictions and role_to_create.lower() in restrictions[group_name]:
+                return Response(
+                    {"detail": _("Cannot create {role}.").format(role=role_to_create)},
+                    status=status.HTTP_403_FORBIDDEN
+                )
 
         # Check hierarchy
-        if not await sync_to_async(user.groups.filter(name="CompanyAdmin").exists)():
+        if not await user.groups.filter(name="CompanyAdmin").aexists():
             user_role_value = await sync_to_async(user.get_role_value)()
             role_to_create_value = await sync_to_async(user.get_role_value)(role_to_create)
             if role_to_create_value <= user_role_value:

@@ -29,7 +29,7 @@ class UserCreationPermission(BasePermission):
         'company_admin': {
             'requires': ['companies'],
             'scopes': {
-                'companies': lambda user, ids: Company.objects.filter(Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).count(),
+                'companies': lambda user, ids: Company.objects.filter(Q(id__in=ids) & Q(id__in=user.companies.all()) & Q(status='active')).count(),
                 'countries': lambda user, ids: Country.objects.filter(Q(id__in=ids)).count(),
                 'restaurants': lambda user, ids: set(Restaurant.objects.filter( Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).values_list('id', flat=True)),
                 'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).count(),
@@ -149,7 +149,6 @@ class UserCreationPermission(BasePermission):
 
         # Dynamically fetch required IDs
         id_args = [await self._get_ids(getattr(user, rel)) for rel in required_relations]
-        print(id_args)
 
         # Apply the filter with user and fetched IDs
         return await sync_to_async(queryset_filter)(user, *id_args)
