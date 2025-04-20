@@ -203,7 +203,7 @@ class RestaurantAccessPolicy(AccessPolicy):
             "effect": "allow",
         },
         {
-            "action": ["list", "partial_update"],
+            "action": ["list", "partial_update", "branches", "employees"],
             "principal": ["group:RestaurantManager"],
             "effect": "allow",
         },

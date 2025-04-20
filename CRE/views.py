@@ -226,20 +226,18 @@ class RestaurantViewSet(ModelViewSet):
         return self.queryset.filter(scope_filter)
 
     async def create(self, request, *args, **kwargs):
-        user = request.user
-
-        # Define allowed scopes for the user
         allowed_scopes = {}
-
-        # Get data from the request
+        user = request.user
         data = request.data
 
+        user_groups = {group.name async for group in user.groups.all()}
+
         # Validation for role-based creation permissions
-        if await sync_to_async(user.groups.filter(name="CompanyAdmin").exists)():
+        if "CompanyAdmin" in user_groups:
             allowed_scopes['company'] = await sync_to_async(user.companies.values_list)('id', flat=True)
             
 
-        elif await sync_to_async(user.groups.filter(name="CountryManager").exists)():
+        elif "CountryManager" in user_groups:
             # CountryManager: Restricted by country and company
             allowed_scopes['country'] = await sync_to_async(user.countries.values_list)('id', flat=True)
             allowed_scopes['company'] = await sync_to_async(user.companies.values_list)('id', flat=True)

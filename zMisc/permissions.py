@@ -289,37 +289,33 @@ class RManagerScopePermission(BasePermission):
     """
     Ensures that the specified manager for a restaurant belongs to the correct scope.
     """
-    def has_permission(self, request, view):
+    async def has_permission(self, request, view):
         if view.action in ['create', 'update', 'partial_update']:
-            self._check_manager_for_restaurant(request)
+            await self._check_manager_for_restaurant(request)
         return True
 
-    def _check_manager_for_restaurant(self, request):
+    async def _check_manager_for_restaurant(self, request):
         manager_id = request.data.get('manager')
         company_id = request.data.get('company')
 
         if manager_id:
             try:
-                manager = CustomUser.objects.get(id=manager_id)
+                manager = await CustomUser.objects.prefetch_related('groups', 'companies').aget(id=manager_id)
             except CustomUser.DoesNotExist:
                 raise PermissionDenied(_("The specified manager does not exist."))
 
             # Check if the manager belongs to the RestaurantManager group
-            if not manager.groups.filter(name="RestaurantManager").exists():
+            if not await manager.groups.filter(name="RestaurantManager").aexists():
                 raise PermissionDenied(_("The manager must be a restaurant manager."))
 
             # If company_id is provided, validate the manager belongs to the company
             if company_id:
-                if not manager.companies.filter(id=company_id).exists():
+                if not await manager.companies.filter(id=company_id).aexists():
                     raise PermissionDenied(_("The manager must belong to the specified company."))
 
             # For standalone restaurants
             else:
-                if manager.created_by != request.user:
-                    raise PermissionDenied(
-                        _("For standalone restaurants, the manager must be created by the owner.")
-                    )
-                if manager.companies.exists():
+                if await manager.companies.aexists():
                     raise PermissionDenied(
                         _("The manager cannot belong to any company.")
                     )
