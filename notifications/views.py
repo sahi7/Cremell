@@ -181,7 +181,7 @@ class TransferHistoryViewSet(ModelViewSet):
     
 
 class RoleAssignmentViewSet(ViewSet):
-    permission_classes = (ScopeAccessPolicy, RoleAssignmentPermission, )
+    permission_classes = ( RoleAssignmentPermission, )
 
     async def send_notification(self, user_id, message):
         channel_layer = get_channel_layer()

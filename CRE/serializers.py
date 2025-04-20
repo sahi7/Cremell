@@ -9,6 +9,7 @@ from dj_rest_auth.serializers import UserDetailsSerializer
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group
+from django.db import transaction
 from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState, Branch, Menu, MenuCategory, MenuItem, StaffShift, OvertimeRequest, StaffAvailability
 from .tasks import log_activity
 # from zMisc.utils import log_activity
@@ -125,17 +126,18 @@ class UserSerializer(ModelSerializer):
             if field in validated_data:
                 m2m_fields[field] = validated_data.pop(field)
         
-        # Create user
-        user = await CustomUser.objects.create_user_with_role(**validated_data, role=role)
+        async with transaction.atomic():
+            # Create user
+            user = await CustomUser.objects.create_user_with_role(**validated_data, role=role)
+            role_value = await user.get_role_value()
 
-        # Process M2M relationships
-        for field, values in m2m_fields.items():
-            if values:
-                await sync_to_async(getattr(user, field).set)(values)
-                role_value = await user.get_role_value()
-                if role_value < 5:
-                    user.status = 'active'
-                    await user.asave(update_fields=['status'])
+            # Process M2M relationships
+            for field, values in m2m_fields.items():
+                if values:
+                    await sync_to_async(getattr(user, field).set)(values)
+            if role_value < 5:
+                user.status = 'active'
+                await user.asave(update_fields=['status'])
 
         # Email handling
         self.context["email_sent"] = False

@@ -4,25 +4,11 @@ from rest_framework.exceptions import ValidationError
 from asgiref.sync import sync_to_async
 from django.utils.translation import gettext as _
 from django.db.models import Q
+from django.contrib.auth import get_user_model
 from notifications.models import BranchActivity, RestaurantActivity
 from CRE.models import Branch, Restaurant
 
-def check_user_role(user, max_role_value=4):
-    """
-    Check if a user's role value is within the allowed range.
-    Raises a PermissionDenied exception if not.
-
-    Args:
-        user (CustomUser): The user object to check.
-        max_role_value (int): The maximum allowed role value.
-
-    Returns:
-        None: If the user is authorized.
-    """
-    role_value = user.get_role_value()
-    if role_value is None or role_value > max_role_value:
-        raise PermissionDenied(_("You are not authorized to perform this action."))
-    return role_value
+CustomUser = get_user_model()
 
 def validate_scope(user, data, allowed_scopes):
     """
@@ -46,34 +32,6 @@ def validate_scope(user, data, allowed_scopes):
             raise ValidationError({
                 field: _("You cannot create objects outside your assigned {}.").format(field)
             })
-
-def filter_queryset_by_scopes(queryset, user, allowed_scopes):
-    """
-    Filters the queryset based on user roles and allowed scopes with complex logic.
-    
-    :param queryset: The original queryset to filter.
-    :param user: The current user performing the query.
-    :param allowed_scopes: Dictionary of fields with the corresponding scope to filter.
-    :return: Filtered queryset based on the allowed scopes.
-    """
-    if not allowed_scopes:
-        return queryset.none()
-    for field, scope in allowed_scopes.items():
-        # Apply complex filtering for specific fields based on the type of scope
-        if isinstance(scope, Q):  # If the scope is a complex Q object
-            queryset = queryset.filter(scope)
-        elif isinstance(scope, tuple):  # Check if scope is a tuple (field, value)
-            queryset = queryset.filter(**{field: scope[0]})
-        elif isinstance(scope, dict):  # Handling more complex nested filters
-            for key, value in scope.items():
-                queryset = queryset.filter(**{key: value})
-        elif callable(scope):  # If scope is a callable function (custom logic)
-            queryset = scope(queryset, user)
-
-        if not queryset.exists():
-            raise PermissionDenied(_("You do not have permission to access this data."))
-
-    return queryset
 
 
 # async def determine_activity_model(user):
@@ -104,35 +62,33 @@ def determine_activity_model(user, obj_type):
     raise PermissionDenied(_("User has no valid scope for activity logging"))
 
 
-async def log_activity(user, activity_type, details=None, obj=None, obj_type=None):
+def validate_role(role_to_create):
     """
-    Logs an activity for a target user, choosing the model based on their role scope.
-    
+    Validate if the role to create is in the available roles.
+
     Args:
-        activity_type: Matches ACTIVITY_CHOICES (e.g., 'manager_assign', 'status_update').
-        user: The CustomUser performing the action (e.g., request.user).
-        details: JSON-compatible dict with additional info (optional).
-        obj: Object (e.g., Restaurant instance) to set as scope_field value.
+        role_to_create: The role to create.
+        available_roles: A set of available roles.
+
+    Returns:
+        bool: True if the role is valid, False otherwise.
     """
-    # Determine model and scope field
-    model, scope_field = await sync_to_async(determine_activity_model)(user, obj_type)
+    available_roles = {role for role, _ in CustomUser.ROLE_CHOICES}
+    return role_to_create in available_roles
 
-    # Validate and set scope_value from obj
-    if obj:
-        expected_obj = Restaurant if scope_field == 'restaurant' else Branch
-        if not isinstance(obj, expected_obj):
-            raise ValueError(_("{scope_field} object must be a {expected_obj}").format(scope_field=scope_field, expected_obj=expected_obj.__name__))
-        scope_value = obj
-    else:
-        scope_value = None
 
-    # Prepare activity data
-    activity_data = {
-        scope_field: scope_value,
-        'activity_type': activity_type,
-        'user': user,
-        'details': details or {},
-    }
+async def compare_role_values(user, role_to_create):
+    """
+    Compare the role value of the user with the role value to create.
 
-    # Create activity
-    await sync_to_async(model.objects.create)(**activity_data)
+    Args:
+        user: The user object.
+        role_to_create: The role to create.
+
+    Returns:
+        bool: True if the role to create has a lower or equal value than the user's role, False otherwise.
+    """
+    user_role_value = await user.get_role_value()
+    role_to_create_value = await user.get_role_value(role_to_create)
+    return role_to_create_value <= user_role_value
+

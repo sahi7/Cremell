@@ -10,6 +10,7 @@ from asgiref.sync import sync_to_async
 from CRE.models import Branch, Restaurant, Country, Company
 from notifications.models import RoleAssignment
 from zMisc.policies import ScopeAccessPolicy
+from zMisc.utils import compare_role_values, validate_role
 
 CustomUser = get_user_model()
 
@@ -101,7 +102,7 @@ class UserCreationPermission(BasePermission):
         user_role = user.role
         user_role_value = await user.get_role_value()
         role_value_to_create = await user.get_role_value(role_to_create)
-        if not user_role or user_role not in self.SCOPE_RULES or user_role_value > 5 or user_role_value > role_value_to_create:
+        if not user_role or user_role not in self.SCOPE_RULES or user_role_value > 5 or user_role_value >= role_value_to_create:
             raise PermissionDenied(_("You do not have permission to create users."))
 
         rules = self.SCOPE_RULES[user_role]
@@ -456,7 +457,7 @@ class EntityUpdatePermission(BasePermission):
         obj_scope_ids = await self._get_object_scope_ids(obj, model)
 
         return obj_scope_ids and any(obj_scope_ids.issubset(allowed_scopes.get(scope, set())) 
-                                    for scope in ['companies', 'restaurants', 'branches'])
+                                    for scope in ['companies', 'countries', 'restaurants', 'branches'])
 
     async def _get_object_scope_ids(self, obj, model):
         """Extract scope-relevant IDs from the object (reused from EntityUpdateViewSet)."""
@@ -479,9 +480,12 @@ class EntityUpdatePermission(BasePermission):
                 return {obj.id}
             elif obj.company_id:
                 return {obj.company_id}
+        elif model == Country:
+            if obj.id:
+                return {obj.id}
         return set()
 
-class RoleAssignmentPermission(BasePermission):
+class     RoleAssignmentPermission(BasePermission):
     async def has_permission(self, request, view):
         data = request.data
         target_user_id = data.get('target_user')
@@ -497,12 +501,16 @@ class RoleAssignmentPermission(BasePermission):
             if assignment_type == 'transfer' and not data.get('restaurants'):
                 raise PermissionDenied("Restaurant is required for ownership transfer.")
             
+            if not validate_role(role):
+                return False
+            
+            if await compare_role_values(request.user, role):
+                return False
+            
             if target_user_id:
                 try:
                     target_user = await CustomUser.objects.aget(id=target_user_id)
                     if not await entity_permission._is_object_in_scope(request, target_user, CustomUser):
-                        return False
-                    if target_user.role == role:
                         return False
                 except CustomUser.DoesNotExist:
                     return False
@@ -518,7 +526,7 @@ class RoleAssignmentPermission(BasePermission):
                 # Check if the requesting user is the target user or matches the target email
                 if assignment.target_user:
                     if request.user.id != assignment.target_user.id:
-                        return True
+                        return False
                 elif assignment.target_email:
                     if request.user.email != assignment.target_email:
                         raise PermissionDenied(_("Sign up with the invited email."))
