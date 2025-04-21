@@ -10,7 +10,7 @@ from asgiref.sync import sync_to_async
 from CRE.models import Branch, Restaurant, Country, Company
 from notifications.models import RoleAssignment
 from zMisc.policies import ScopeAccessPolicy
-from zMisc.utils import compare_role_values, validate_role
+from zMisc.utils import compare_role_values, validate_role, get_scopes_and_groups
 
 CustomUser = get_user_model()
 
@@ -285,40 +285,62 @@ class TransferPermission(BasePermission):
 
         return True
 
-class RManagerScopePermission(BasePermission):
+class RestaurantPermission(BasePermission):
     """
     Ensures that the specified manager for a restaurant belongs to the correct scope.
     """
     async def has_permission(self, request, view):
-        if view.action in ['create', 'update', 'partial_update']:
-            await self._check_manager_for_restaurant(request)
-        return True
-
-    async def _check_manager_for_restaurant(self, request):
+        if view.action != 'create':
+            return True  # Only apply to restaurant creation
+        
+        user = request.user
         manager_id = request.data.get('manager')
         company_id = request.data.get('company')
+        scopes_and_groups = await get_scopes_and_groups(user)
+        print("comp: ", scopes_and_groups)
+        print("sc comp: ", scopes_and_groups['company'])
+
+        try:
+            if company_id:
+                if company_id not in scopes_and_groups['company']:
+                    raise PermissionDenied(_("You do not have permission to create restaurants in this company."))
+                restaurant = await Restaurant.objects.aget(company_id=company_id)
+                has_branches = await restaurant.branches.aexists()
+                return has_branches
+        except Restaurant.DoesNotExist:
+            return False  # No restaurant found, so no branches
+        except Exception as e:
+            raise PermissionDenied(f"Error checking restaurant or branches: {str(e)}")
+
+        # Attach to request for reuse in view
+        request.user_scope = scopes_and_groups
 
         if manager_id:
-            try:
-                manager = await CustomUser.objects.prefetch_related('groups', 'companies').aget(id=manager_id)
-            except CustomUser.DoesNotExist:
-                raise PermissionDenied(_("The specified manager does not exist."))
+            await self._check_manager_for_restaurant(request, manager_id, company_id)
+        return True
 
-            # Check if the manager belongs to the RestaurantManager group
-            if not await manager.groups.filter(name="RestaurantManager").aexists():
-                raise PermissionDenied(_("The manager must be a restaurant manager."))
+    async def _check_manager_for_restaurant(self, request, manager_id, company_id=None):
 
-            # If company_id is provided, validate the manager belongs to the company
-            if company_id:
-                if not await manager.companies.filter(id=company_id).aexists():
-                    raise PermissionDenied(_("The manager must belong to the specified company."))
+        try:
+            manager = await CustomUser.objects.prefetch_related('groups', 'companies').aget(id=manager_id)
+        except CustomUser.DoesNotExist:
+            raise PermissionDenied(_("The specified manager does not exist."))
 
-            # For standalone restaurants
-            else:
-                if await manager.companies.aexists():
-                    raise PermissionDenied(
-                        _("The manager cannot belong to any company.")
-                    )
+        # Check if the manager belongs to the RestaurantManager group
+        if not await manager.groups.filter(name="RestaurantManager").aexists():
+            raise PermissionDenied(_("The manager must be a restaurant manager."))
+
+        # If company_id is provided, validate the manager belongs to the company
+        if company_id:
+            if not await manager.companies.filter(id=company_id).aexists():
+                raise PermissionDenied(_("The manager must belong to the specified company."))
+
+        # For standalone restaurants
+        else:
+            if await manager.companies.aexists():
+                raise PermissionDenied(
+                    _("The manager cannot belong to any company.")
+                )
 
 class BManagerScopePermission(BasePermission):
     """

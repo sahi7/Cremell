@@ -6,7 +6,9 @@ from django.utils.translation import gettext as _
 from django.db.models import Q
 from django.contrib.auth import get_user_model
 from notifications.models import BranchActivity, RestaurantActivity
-from CRE.models import Branch, Restaurant
+from django.db.models import Prefetch
+from django.contrib.auth.models import Group
+from CRE.models import Branch, Restaurant, Company, Country
 
 CustomUser = get_user_model()
 
@@ -91,4 +93,16 @@ async def compare_role_values(user, role_to_create):
     user_role_value = await user.get_role_value()
     role_to_create_value = await user.get_role_value(role_to_create)
     return role_to_create_value <= user_role_value
+
+
+async def get_scopes_and_groups(user):
+    # Prefetch companies, countries, and groups in one query
+    user = await CustomUser.objects.prefetch_related('companies', 'countries', 'groups').aget(id=user.id)
+    
+    result = {
+        'company': [c.id async for c in user.companies.all()], 
+        'country': [c.id async for c in user.countries.all()],
+        'groups': {g.name async for g in user.groups.all()}
+    }
+    return result
 

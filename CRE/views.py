@@ -29,7 +29,7 @@ from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationS
 from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
 from .models import Company, Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
 from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy, ScopeAccessPolicy
-from zMisc.permissions import UserCreationPermission, RManagerScopePermission, BManagerScopePermission, ObjectStatusPermission
+from zMisc.permissions import UserCreationPermission, RestaurantPermission, BManagerScopePermission, ObjectStatusPermission
 from zMisc.utils import validate_scope, validate_role, compare_role_values
 
 CustomUser = get_user_model()
@@ -190,8 +190,8 @@ class CompanyViewSet(ModelViewSet):
 class RestaurantViewSet(ModelViewSet):
     queryset = Restaurant.objects.all()
     serializer_class = RestaurantSerializer
-    permission_classes = (RestaurantAccessPolicy, RManagerScopePermission, ObjectStatusPermission)
-    # permission_classes = (ScopeAccessPolicy, RManagerScopePermission, ObjectStatusPermission)
+    permission_classes = (RestaurantAccessPolicy, RestaurantPermission, ObjectStatusPermission)
+    # permission_classes = (ScopeAccessPolicy, RestaurantPermission, ObjectStatusPermission)
 
     # Custom action to list all branches of a restaurant
     @action(detail=True, methods=['get'])
@@ -230,17 +230,17 @@ class RestaurantViewSet(ModelViewSet):
         user = request.user
         data = request.data
 
-        user_groups = {group.name async for group in user.groups.all()}
-
+        user_scope = getattr(request, 'user_scope', None)
+        user_groups = user_scope['groups']
+        print("company, country, goups ", user_scope['company'], user_scope['country'], user_groups)
         # Validation for role-based creation permissions
         if "CompanyAdmin" in user_groups:
-            allowed_scopes['company'] = await sync_to_async(user.companies.values_list)('id', flat=True)
+            allowed_scopes['company'] = user_scope['company']
             
-
         elif "CountryManager" in user_groups:
             # CountryManager: Restricted by country and company
-            allowed_scopes['country'] = await sync_to_async(user.countries.values_list)('id', flat=True)
-            allowed_scopes['company'] = await sync_to_async(user.companies.values_list)('id', flat=True)
+            allowed_scopes['country'] = user_scope['country']
+            allowed_scopes['company'] = user_scope['company']
 
         else:
             # Other roles cannot create restaurants
