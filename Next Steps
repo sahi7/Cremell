@@ -2,7 +2,7 @@
 
 Count number of DB Querries in each permission class, policy, view and optimize them
 Websocket notifications not beign sent
-A restau must have a branch before another restau can be created within thesame company. Restau owners can't create restaus
+✅A restau must have a branch before another restau can be created within thesame company. Restau owners can't create restaus
 ✅Restrict creation of companyadmin and restauowner. 
 ✅Ownership can be transfered through an email - recipient would accept the ownership transfer for it to take effect.
   ✅companyadmin and restau owner can only transfer ownership

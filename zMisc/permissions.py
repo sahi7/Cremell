@@ -297,23 +297,19 @@ class RestaurantPermission(BasePermission):
         manager_id = request.data.get('manager')
         company_id = request.data.get('company')
         scopes_and_groups = await get_scopes_and_groups(user)
-        print("comp: ", scopes_and_groups)
-        print("sc comp: ", scopes_and_groups['company'])
+
+        # Attach to request for reuse in view
+        request.user_scope = scopes_and_groups
 
         try:
             if company_id:
                 if company_id not in scopes_and_groups['company']:
                     raise PermissionDenied(_("You do not have permission to create restaurants in this company."))
-                restaurant = await Restaurant.objects.aget(company_id=company_id)
-                has_branches = await restaurant.branches.aexists()
-                return has_branches
+                restaurant = await Restaurant.objects.filter(company_id=company_id).afirst()
+                has_branch = await restaurant.branches.aexists()
+                return has_branch
         except Restaurant.DoesNotExist:
             return False  # No restaurant found, so no branches
-        except Exception as e:
-            raise PermissionDenied(f"Error checking restaurant or branches: {str(e)}")
-
-        # Attach to request for reuse in view
-        request.user_scope = scopes_and_groups
 
         if manager_id:
             await self._check_manager_for_restaurant(request, manager_id, company_id)
