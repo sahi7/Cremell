@@ -10,7 +10,7 @@ from asgiref.sync import sync_to_async
 from CRE.models import Branch, Restaurant, Country, Company
 from notifications.models import RoleAssignment
 from zMisc.policies import ScopeAccessPolicy
-from zMisc.utils import compare_role_values, validate_role, get_scopes_and_groups
+from zMisc.utils import AttributeChecker, compare_role_values, validate_role, get_scopes_and_groups
 
 CustomUser = get_user_model()
 
@@ -290,113 +290,66 @@ class RestaurantPermission(BasePermission):
     Ensures that the specified manager for a restaurant belongs to the correct scope.
     """
     async def has_permission(self, request, view):
-        if view.action != 'create':
-            return True  # Only apply to restaurant creation
+        if view.action not in ['create', 'update', 'partial_update']:
+            return True  # Only apply to these actions
+        user = request.user
+        manager_id = request.data.get('manager')
+        company_id = request.data.get('company')
+        scopes_and_groups = await get_scopes_and_groups(user.id)
+        
+        # Attach to request for reuse in view
+        request.user_scope = scopes_and_groups
+        if manager_id:
+            await AttributeChecker().check_manager(manager_id, company_id)
+        if company_id:
+            if company_id not in scopes_and_groups['company']:
+                raise PermissionDenied(_("You do not have permission to create restaurants in this company."))
+            restaurant = await Restaurant.objects.filter(company_id=company_id).afirst()
+            if not restaurant:
+                return False
+            has_branch = await restaurant.branches.aexists()
+            return has_branch       
+        
+        raise PermissionDenied(_("Either company or manager must be provided."))
+
+
+class BranchPermission(BasePermission):
+    """
+    Ensures that the specified manager for a branch belongs to the correct scope.
+    If the requesting user has companies, a company field is required in the request,
+    and it must be within the user's companies. 
+    """
+    async def has_permission(self, request, view):
+        if view.action not in ['create', 'update', 'partial_update']:
+            return True  # Only apply to these actions
         
         user = request.user
         manager_id = request.data.get('manager')
         company_id = request.data.get('company')
-        scopes_and_groups = await get_scopes_and_groups(user)
+        scopes_and_groups = await get_scopes_and_groups(user.id)
 
         # Attach to request for reuse in view
         request.user_scope = scopes_and_groups
-
-        try:
-            if company_id:
-                if company_id not in scopes_and_groups['company']:
-                    raise PermissionDenied(_("You do not have permission to create restaurants in this company."))
-                restaurant = await Restaurant.objects.filter(company_id=company_id).afirst()
-                has_branch = await restaurant.branches.aexists()
-                return has_branch
-        except Restaurant.DoesNotExist:
-            return False  # No restaurant found, so no branches
-
         if manager_id:
-            await self._check_manager_for_restaurant(request, manager_id, company_id)
+            await AttributeChecker().check_manager(manager_id, company_id, 'branch')
         return True
-
-    async def _check_manager_for_restaurant(self, request, manager_id, company_id=None):
-
-        try:
-            manager = await CustomUser.objects.prefetch_related('groups', 'companies').aget(id=manager_id)
-        except CustomUser.DoesNotExist:
-            raise PermissionDenied(_("The specified manager does not exist."))
-
-        # Check if the manager belongs to the RestaurantManager group
-        if not await manager.groups.filter(name="RestaurantManager").aexists():
-            raise PermissionDenied(_("The manager must be a restaurant manager."))
-
-        # If company_id is provided, validate the manager belongs to the company
-        if company_id:
-            if not await manager.companies.filter(id=company_id).aexists():
-                raise PermissionDenied(_("The manager must belong to the specified company."))
-
-        # For standalone restaurants
-        else:
-            if await manager.companies.aexists():
-                raise PermissionDenied(
-                    _("The manager cannot belong to any company.")
-                )
-
-class BManagerScopePermission(BasePermission):
-    """
-    Ensures that the specified manager for a branch belongs to the correct scope.
-    If the requesting user has companies, a company field is required in the request,
-    and it must be within the user's companies. Optimized to reduce queries.
-    Uses .aget() (async get) and async iteration (async for).
-    Leverage Django’s async ORM methods (e.g., .aget(), .afilter(), .avalues_list()
-    """
-    async def has_permission(self, request, view):
-        if view.action in ['create', 'update', 'partial_update']:
-            await self._check_manager_for_branch(request)
-        return True
-
-    async def _check_manager_for_branch(self, request):
-        manager_id = request.data.get('manager')
-        company_id = request.data.get('company')
-        user = request.user
-
-        # Fetch user's company IDs once and reuse
-        user_company_ids = set([company.id async for company in user.companies.all()]) # Query 1
-
-        # Check company requirement and validity
-        if user_company_ids:  # Non-empty set means user has companies
-            if not company_id:
-                raise PermissionDenied(_("A company is required."))
-            if company_id not in user_company_ids:
-                raise PermissionDenied(_("company must be one of your affiliated companies."))
-
-        # Validate manager if provided
-        if manager_id:
-            # Fetch manager with groups and companies in one query
-            try:
-                manager = await CustomUser.objects.prefetch_related('groups', 'companies').aget(id=manager_id) # Query 2
-            except CustomUser.DoesNotExist:
-                raise PermissionDenied(_("manager does not exist."))
-
-            # Check group membership in Python (groups already prefetched)
-            group_names = [group.name async for group in manager.groups.all()]
-            if "BranchManager" not in group_names:
-                raise PermissionDenied(_("The manager must be a BranchManager."))
-
-            # Check manager's company if company_id is provided (companies already prefetched)
-            if company_id:
-                manager_company_ids = {company.id async for company in manager.companies.all()}
-                if company_id not in manager_company_ids:
-                    raise PermissionDenied(_("The manager must belong to company."))
 
 class ObjectStatusPermission(BasePermission):
     """
     Ensures that actions are allowed only on objects with status "active".
     """
-    def has_object_permission(self, request, view, obj):
+    async def has_object_permission(self, request, view, obj):
         """
         Check the status of the restaurant or branch.
         Deny any actions on inactive objects.
         """
         if obj.status != 'active':
-            # Only (CompanyAdmin, CountryManager) can modify the status
-            if not request.user.groups.filter(name__in=["CompanyAdmin", "CountryManager", "RestaurantOwner"]).exists():
+        # Only (CompanyAdmin, RestaurantOwner) can modify inactive objects
+            has_privileged_group = await request.user.groups.filter(
+                name__in=["CompanyAdmin", "RestaurantOwner"]
+            ).aexists()
+            
+            if not has_privileged_group:
                 raise PermissionDenied(_("This object is inactive and cannot be modified."))
         return True
 

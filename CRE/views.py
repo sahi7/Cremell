@@ -2,8 +2,8 @@ from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
-from django.db.models import Q
 from django.db import transaction
+from django.utils import timezone
 
 from rest_framework.response import Response
 from rest_framework import status
@@ -29,7 +29,7 @@ from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationS
 from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
 from .models import Company, Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
 from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy, ScopeAccessPolicy
-from zMisc.permissions import UserCreationPermission, RestaurantPermission, BManagerScopePermission, ObjectStatusPermission
+from zMisc.permissions import UserCreationPermission, RestaurantPermission, BranchPermission, ObjectStatusPermission
 from zMisc.utils import validate_scope, validate_role, compare_role_values
 
 CustomUser = get_user_model()
@@ -232,7 +232,7 @@ class RestaurantViewSet(ModelViewSet):
 
         user_scope = getattr(request, 'user_scope', None)
         user_groups = user_scope['groups']
-        print("company, country, goups ", user_scope['company'], user_scope['country'], user_groups)
+
         # Validation for role-based creation permissions
         if "CompanyAdmin" in user_groups:
             allowed_scopes['company'] = user_scope['company']
@@ -263,7 +263,7 @@ class RestaurantViewSet(ModelViewSet):
 class BranchViewSet(ModelViewSet):
     queryset = Branch.objects.all()
     serializer_class = BranchSerializer
-    permission_classes = (BranchAccessPolicy, ObjectStatusPermission, BManagerScopePermission,)
+    permission_classes = (BranchAccessPolicy, BranchPermission, ObjectStatusPermission,)
 
     # Custom action to list all employees of a branch
     @action(detail=True, methods=['get'])
@@ -299,34 +299,33 @@ class BranchViewSet(ModelViewSet):
         return self.queryset.filter(scope_filter)
 
     async def create(self, request, *args, **kwargs):
-        user = request.user
-
-        # Define allowed scopes for the user
         allowed_scopes = {}
-
-        # Get data from the request
+        user = request.user
         data = request.data
         serializer = self.get_serializer(data=data)
         await sync_to_async(serializer.is_valid)(raise_exception=True)
 
+        user_scope = getattr(request, 'user_scope', None)
+        user_groups = user_scope['groups']
+        print("user_scope: ", user_scope)
+
         # Validation for role-based creation permissions
-        user_groups = await sync_to_async(lambda: set(user.groups.values_list('name', flat=True)))()
         if "CompanyAdmin" in user_groups:
-            allowed_scopes['company'] = await sync_to_async(lambda: user.companies.values_list('id', flat=True))()
-            allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.filter(company_id__in=allowed_scopes['company']).values_list('id', flat=True))()
+            allowed_scopes['company'] = user_scope['company']
+            allowed_scopes['restaurant'] = user_scope['restaurant']
             serializer.context['is_CEO'] = True
 
         elif "CountryManager" in user_groups:
-            allowed_scopes['country'] = await sync_to_async(lambda: user.countries.values_list('id', flat=True))()
-            allowed_scopes['company'] = await sync_to_async(lambda: user.companies.values_list('id', flat=True))()
-            allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.filter(company_id__in=allowed_scopes['company']).values_list('id', flat=True))()
+            allowed_scopes['country'] = user_scope['country']
+            allowed_scopes['company'] = user_scope['company']
+            allowed_scopes['restaurant'] = user_scope['restaurant']
 
         elif "RestaurantOwner" in user_groups:
-            allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.values_list('id', flat=True))()
+            allowed_scopes['restaurant'] = user_scope['restaurant']
             serializer.context['is_CEO'] = True
 
         elif "RestaurantManager" in user_groups:
-            allowed_scopes['restaurant'] = await sync_to_async(lambda: user.restaurants.values_list('id', flat=True))()
+            allowed_scopes['restaurant'] = user_scope['restaurant']
         else:
             # Other roles cannot create restaurants
             return Response({"detail": _("You do not have permission to create a branch.")},
@@ -376,7 +375,7 @@ class OrderModifyView(APIView):
     Uses optimistic locking to prevent concurrent modifications.
     """
 
-    def put(self, request, order_id):
+    async def put(self, request, order_id):
         """
         Handles PUT requests for order modifications.
         
@@ -404,7 +403,7 @@ class OrderModifyView(APIView):
             # Start an atomic transaction to ensure data consistency
             with transaction.atomic():
                 # Lock the order row to prevent concurrent modifications
-                order = Order.objects.select_for_update().get(id=order_id)
+                order = await Order.objects.select_for_update().aget(id=order_id)
                 
                 # Check for version mismatch (optimistic locking)
                 if order.version != request.data.get('expected_version'):
@@ -417,18 +416,18 @@ class OrderModifyView(APIView):
                 for change in request.data.get('changes', []):
                     if change['action'] == 'add':
                         # Add a new item to the order
-                        OrderItem.objects.create(
+                        await OrderItem.objects.acreate(
                             order=order,
                             menu_item_id=change['menu_item'],
                             quantity=change['quantity'],
-                            item_price=MenuItem.objects.get(id=change['menu_item']).price
+                            item_price=await MenuItem.objects.aget(id=change['menu_item']).price
                         )
                     elif change['action'] == 'remove':
                         # Remove an item from the order
-                        OrderItem.objects.filter(id=change['order_item']).delete()
+                        await OrderItem.objects.filter(id=change['order_item']).adelete()
                 
                 # Refresh the order object to reflect changes
-                order.refresh_from_db()
+                await order.arefresh_from_db()
                 
                 # Return the updated order version and total price
                 return Response({

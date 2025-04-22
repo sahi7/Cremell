@@ -32,6 +32,8 @@ Websocket notifications not beign sent
 - Upgrade user roles (from branchmanager to restaurantmanager)
     Can be done in single steps - escalate notifications up the hierachy when it happens
 
+When deleting a restaurant, branches will be deleted or reassigned if multiple restaurants exist
+
 
 # REDUCE DB REQUESTS WITH CACHING #
 Try to create a system of prefetching and caching where only POST and PATCH requests hit the db. As soon as they hit, a background process updates cache/preload for that user. We need a robust system with cache, pickles and fast microservices (better retrival speed than db)

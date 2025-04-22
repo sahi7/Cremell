@@ -95,14 +95,44 @@ async def compare_role_values(user, role_to_create):
     return role_to_create_value <= user_role_value
 
 
-async def get_scopes_and_groups(user):
+async def get_scopes_and_groups(user_id):
     # Prefetch companies, countries, and groups in one query
-    user = await CustomUser.objects.prefetch_related('companies', 'countries', 'groups').aget(id=user.id)
+    user = await CustomUser.objects.prefetch_related('companies', 'countries', 'restaurants', 'groups').aget(id=user_id)
     
     result = {
         'company': [c.id async for c in user.companies.all()], 
         'country': [c.id async for c in user.countries.all()],
+        'restaurant': [c.id async for c in user.restaurants.all()],
         'groups': {g.name async for g in user.groups.all()}
     }
     return result
+
+class AttributeChecker:
+    async def check_manager(self, manager_id, company_id=None, manager_type='restaurant'):
+        """
+        Validates that a user has the specified manager role and belongs to the correct company.
+        Args:
+            manager_id: ID of the user to check.
+            company_id: Optional company ID to validate against
+        """
+        try:
+            manager = await get_scopes_and_groups(manager_id)
+            manager_group = manager['groups']
+        except CustomUser.DoesNotExist:
+            raise PermissionDenied(_("The specified manager does not exist."))
+
+        # Check if the manager belongs to the appropriate group
+        expected_group = "RestaurantManager" if manager_type == 'restaurant' else "BranchManager"
+        if expected_group not in manager_group:
+            raise PermissionDenied(_(f"The manager must be a {manager_type} manager."))
+
+        # If company_id is provided, validate the manager belongs to the company
+        if company_id:
+            if company_id not in manager['company']:
+                raise PermissionDenied(_("The manager must belong to your company."))
+
+        # For standalone restaurants
+        else:
+            if await manager.companies.aexists():
+                raise PermissionDenied(_("The manager cannot belong to any company."))
 

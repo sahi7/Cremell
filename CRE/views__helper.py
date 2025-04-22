@@ -26,22 +26,28 @@ CustomUser = get_user_model()
 class CheckUserExistsView(APIView):
     """
     API View to check if a user exists based on email or phone number.
+    GET: check-user/?email=mail@gmail.com
     """
 
-    def get(self, request, *args, **kwargs):
+    async def get(self, request, *args, **kwargs):
         email = request.query_params.get('email')
-        phone_number = request.query_params.get('phone_number')
+        phone_number = request.query_params.get('phone_number') # without '+'
+
 
         if not email and not phone_number:
             return Response(
                 {"detail": _("Please provide either 'email' or 'phone_number' as a query parameter.")},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        
+        # Build filter kwargs dynamically
+        filter_kwargs = {}
+        if email:
+            filter_kwargs['email'] = email
+        if phone_number:
+            filter_kwargs['phone_number'] = phone_number
 
-        user_exists = CustomUser.objects.filter(
-            email=email if email else None,
-            phone_number=phone_number if phone_number else None
-        ).exists()
+        user_exists = await CustomUser.objects.filter(**filter_kwargs).aexists()
 
         return Response({"user_exists": user_exists}, status=status.HTTP_200_OK)
 

@@ -198,7 +198,7 @@ class RestaurantSerializer(ModelSerializer):
 
     class Meta:
         model = Restaurant
-        fields = ['name', 'address', 'city', 'country', 'company', 'status', 'created_by']
+        fields = ['id', 'name', 'address', 'city', 'country', 'company', 'status', 'manager', 'created_by']
 
     async def create(self, validated_data):
         validated_data['status'] = 'active'
@@ -358,7 +358,7 @@ class StaffAvailabilitySerializer(ModelSerializer):
         fields = '__all__'
 
 
-class AssignmentSerializer(serializers.Serializer):
+class AssignmentSerializer(Serializer):
     object_type = serializers.ChoiceField(choices=['user', 'branch', 'restaurant'])
     object_id = serializers.IntegerField()
     field_name = serializers.CharField()
