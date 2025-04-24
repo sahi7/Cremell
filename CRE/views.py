@@ -29,7 +29,7 @@ from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationS
 from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
 from .models import Company, Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
 from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy, ScopeAccessPolicy
-from zMisc.permissions import UserCreationPermission, RestaurantPermission, BranchPermission, ObjectStatusPermission
+from zMisc.permissions import UserCreationPermission, RestaurantPermission, BranchPermission, ObjectStatusPermission, DeletionPermission
 from zMisc.utils import validate_scope, validate_role, compare_role_values
 
 CustomUser = get_user_model()
@@ -167,7 +167,7 @@ class UserViewSet(ModelViewSet):
 class CompanyViewSet(ModelViewSet):
     queryset = Company.objects.all()
     serializer_class = CompanySerializer
-    permission_classes = [ScopeAccessPolicy]
+    permission_classes = [ScopeAccessPolicy, DeletionPermission]
     # CONDITIONS: 1. Already has company 2. Existing company has atleast 1 restaurant 3. Restaurant has atleast 1 branch 4. Must be CompanyAdmin
     # @TOD0: Log creation activity, add to user.companies
 
@@ -190,7 +190,7 @@ class CompanyViewSet(ModelViewSet):
 class RestaurantViewSet(ModelViewSet):
     queryset = Restaurant.objects.all()
     serializer_class = RestaurantSerializer
-    permission_classes = (RestaurantAccessPolicy, RestaurantPermission, ObjectStatusPermission)
+    permission_classes = (RestaurantAccessPolicy, RestaurantPermission, ObjectStatusPermission, DeletionPermission, )
     # permission_classes = (ScopeAccessPolicy, RestaurantPermission, ObjectStatusPermission)
 
     # Custom action to list all branches of a restaurant
@@ -263,7 +263,7 @@ class RestaurantViewSet(ModelViewSet):
 class BranchViewSet(ModelViewSet):
     queryset = Branch.objects.all()
     serializer_class = BranchSerializer
-    permission_classes = (BranchAccessPolicy, BranchPermission, ObjectStatusPermission,)
+    permission_classes = (BranchAccessPolicy, BranchPermission, ObjectStatusPermission, DeletionPermission, )
 
     # Custom action to list all employees of a branch
     @action(detail=True, methods=['get'])

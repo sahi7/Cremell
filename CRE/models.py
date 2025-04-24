@@ -79,6 +79,7 @@ class CustomUser(AbstractUser):
         ('utility_worker', _('Utility Worker')),
     )
     STATUS_CHOICES = (
+        ('inactive', _('Inactive')),
         ('pending', _('Pending schedule')),
         ('active', _('Active')),
         ('suspended', _('Suspended')),
@@ -265,7 +266,7 @@ class Branch(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.name} - {self.restaurant.name}" 
+        return f"{self.name} - Restau#{self.restaurant_id}"
 
     def local_now(self):
         """Get current time in branch's timezone."""

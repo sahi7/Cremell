@@ -222,21 +222,18 @@ class BranchAccessPolicy(AccessPolicy):
             "action": ["list", "retrieve", "create", "update", "partial_update", "destroy", "menus", "menu_detail", "employees"],
             "principal": ["group:RestaurantOwner"],
             "effect": "allow",
-            "condition": "is_owner_of_restaurant",
         },
         # Restaurant Manager: Limited access to their branches, including creation if they belong to a company
         {
             "action": ["list", "retrieve", "create", "update", "partial_update"],
             "principal": ["group:RestaurantManager"],
             "effect": "allow",
-            "condition": "is_manager_of_restaurant",
         },
         # Country Manager: Can view all branches in their country
         {
             "action": ["list", "retrieve", "create", "update"],
             "principal": ["group:CountryManager"],
             "effect": "allow",
-            "condition": "is_in_country_manager_country",
         },
         # Company Admin: Full access to all branches
         {
@@ -249,71 +246,7 @@ class BranchAccessPolicy(AccessPolicy):
             "action": ["list", "retrieve", "update", "partial_update", "employees", "menus", "menu_detail"],
             "principal": ["group:BranchManager"],
             "effect": "allow",
-            "condition": "is_manager_of_branch",
         },
     ]
 
-    def is_owner_of_restaurant(self, request, view, action):
-        """
-        Check if the branch is linked to a restaurant created by the current user (for create, update, delete).
-        Also, check if the restaurant is active before allowing branch creation.
-        """
-        if view.action == "create":
-            # For creating a branch, check if the restaurant belongs to the current user.
-            restaurant = view.request.data.get('restaurant')
-            if restaurant:
-                return Restaurant.objects.filter(id=restaurant, created_by=request.user, status='active').exists()
-        if view.action in ["update", "partial_update", "destroy"]:
-                # Get the branch instance from the view (pk from URL)
-                branch = view.get_object()  # Assumes viewset with get_object()
-                current_restaurant_id = branch.restaurant_id
-                # Otherwise, check the existing restaurant
-                return Restaurant.objects.filter(id=current_restaurant_id, created_by=request.user, status='active' ).exists()
-        elif action in ["list", "retrieve"]:
-            return True
-        return False  # For non-create actions, allow if already satisfied
-
-    def is_manager_of_restaurant(self, request, view, action):
-        """
-        Check if the branch belongs to a restaurant managed by the current user (for update, delete).
-        Also, allow branch creation if the user belongs to a company.
-        """
-        if action in ["update", "partial_update", "destroy"]:
-            branch = view.get_object()  # Assumes viewset with get_object()
-            current_restaurant_id = branch.restaurant_id
-            # Otherwise, check the existing restaurant
-            return Restaurant.objects.filter(id=current_restaurant_id, manager=request.user, status='active' ).exists()
-        elif action in ["retrieve"]:
-            restaurant_id = view.kwargs.get('pk')
-            if restaurant_id:
-                return Restaurant.objects.filter(id=restaurant_id, manager=request.user).exists()
-        elif action == "create":
-            # For branch creation, check if the user belongs to a company.
-            restaurant = view.request.data.get('restaurant')
-            if restaurant:
-                return Restaurant.objects.filter(id=restaurant, manager=request.user).exists()
-        return True
-
-    def is_in_country_manager_country(self, request, view, action):
-        """
-        Check if the branch is located within the country managed by the current user.
-        """
-        if action in ["list", "retrieve"]:
-            restaurant = view.request.data.get('restaurant')
-            if restaurant:
-                return Restaurant.objects.filter(id=restaurant, country__in=request.user.countries.all()).exists()
-        return False
-
-    def is_manager_of_branch(self, request, view, action):
-        """
-        Check if the branch is managed by the current user (BranchManager).
-        BranchManagers can only view and manage the branch they are assigned to.
-        """
-        if action in ["list", "retrieve", "update", "partial_update"]:
-            # For list/retrieve, ensure the user can only view their branch.
-            branch_id = view.kwargs.get('pk')  # Assuming the branch ID is passed in the URL
-            if branch_id:
-                return Branch.objects.filter(id=branch_id, manager=request.user).exists()
-        return False
-
-
+    

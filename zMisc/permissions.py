@@ -6,6 +6,8 @@ from rest_framework.exceptions import PermissionDenied
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from django.db.models import Q
+from django.apps import apps
+from django.db.models import ForeignKey
 from asgiref.sync import sync_to_async
 from CRE.models import Branch, Restaurant, Country, Company
 from notifications.models import RoleAssignment
@@ -323,16 +325,16 @@ class BranchPermission(BasePermission):
         if view.action not in ['create', 'update', 'partial_update']:
             return True  # Only apply to these actions
         
-        user = request.user
         manager_id = request.data.get('manager')
         company_id = request.data.get('company')
-        scopes_and_groups = await get_scopes_and_groups(user.id)
+        scopes_and_groups = await get_scopes_and_groups(request.user.id)
 
         # Attach to request for reuse in view
         request.user_scope = scopes_and_groups
         if manager_id:
             await AttributeChecker().check_manager(manager_id, company_id, 'branch')
         return True
+
 
 class ObjectStatusPermission(BasePermission):
     """
@@ -502,4 +504,81 @@ class     RoleAssignmentPermission(BasePermission):
             except RoleAssignment.DoesNotExist:
                 return False
         return True
+    
+class DeletionPermission(BasePermission):
+
+    async def has_object_permission(self, request, view, obj):
+        print(f"Checking deletion permission for {obj.__class__.__name__} {obj.id}, user {request.user.id}")
+        user = request.user
+        user_role = getattr(user, 'role', None)
+        if not user_role:
+            raise False
+
+        # Check if object is in scope
+        entity_permission = EntityUpdatePermission()
+        model = obj.__class__
+        if not await entity_permission._is_object_in_scope(request, obj, model):
+            print(f"{model.__name__} {obj.id} not in scope for user {user.id}")
+            raise PermissionDenied(_(f"You can only delete {model.__name__.lower()}s within your scope."))
+        
+        if view.action == 'destroy':
+            # Get all models with ForeignKey to the target model
+            dependent_models = []
+            for app_model in apps.get_models():
+                for field in app_model._meta.get_fields():
+                    if isinstance(field, ForeignKey) and field.related_model == model:
+                        dependent_models.append((app_model, field.name))
+                        print(f"Found dependent model: {app_model.__name__} via field {field.name}")
+
+            # Check if force=True for privileged users
+            force_delete = request.data.get('force', False)
+            is_privileged = user_role == 'company_admin' and model.__name__ == 'Company' or \
+                            user_role == 'restau_owner' and model.__name__ in ('Restaurant', 'Branch')
+            
+            if is_privileged and force_delete:
+                print(f"Privileged user {user.id} with force=true, auto-setting inactive")
+                try:
+                    for dep_model, fk_field in dependent_models:
+                        # Try status field
+                        if hasattr(dep_model, 'status'):
+                            count = await dep_model.objects.filter(**{fk_field: obj, 'status': 'active'}).aupdate(status='inactive')
+                            print(f"Set {count} {dep_model.__name__} objects to inactive")
+                        # Try is_active field
+                        elif hasattr(dep_model, 'is_active'):
+                            count = await dep_model.objects.filter(**{fk_field: obj, 'is_active': True}).aupdate(is_active=False)
+                            print(f"Set {count} {dep_model.__name__} objects to is_active=False")
+                        # Handle SET_NULL or CASCADE (no status/is_active)
+                        else:
+                            print(f"No status/is_active for {dep_model.__name__}, relying on on_delete")
+                    # Set target object to inactive
+                    if hasattr(obj, 'status'):
+                        obj.status = 'inactive'
+                    elif hasattr(obj, 'is_active'):
+                        obj.is_active = False
+                    await obj.asave()
+                    print(f"Set {model.__name__} {obj.id} to inactive")
+                except Exception as e:
+                    print(f"Failed to auto-set inactive: {str(e)}")
+                    raise PermissionDenied(_(f"Failed to set dependent objects to inactive: {str(e)}"))
+                return True
+
+            # Default: Check if dependent objects are inactive
+            try:
+                for dep_model, fk_field in dependent_models:
+                    if hasattr(dep_model, 'status'):
+                        if await dep_model.objects.filter(**{fk_field: obj, 'status': 'active'}).acount() > 0:
+                            print(f"Active {dep_model.__name__} objects found")
+                            raise PermissionDenied(_(f"All {dep_model.__name__.lower()} objects must be inactive before deletion."))
+                    elif hasattr(dep_model, 'is_active'):
+                        if await dep_model.objects.filter(**{fk_field: obj, 'is_active': True}).acount() > 0:
+                            print(f"Active {dep_model.__name__} objects found")
+                            raise PermissionDenied(_(f"All {dep_model.__name__.lower()} objects must be inactive before deletion."))
+                    else:
+                        print(f"No status/is_active for {dep_model.__name__}, skipping active check")
+            except Exception as e:
+                print(f"Error checking dependent objects: {str(e)}")
+                raise PermissionDenied(_(f"Error checking dependent objects: {str(e)}"))
+            
+            print(f"Deletion permission granted for {model.__name__} {obj.id}")
+            return True
             
