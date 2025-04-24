@@ -9,6 +9,7 @@ from django.db.models import Q
 from django.apps import apps
 from django.db.models import ForeignKey
 from asgiref.sync import sync_to_async
+from CRE.tasks import log_activity
 from CRE.models import Branch, Restaurant, Country, Company
 from notifications.models import RoleAssignment
 from zMisc.policies import ScopeAccessPolicy
@@ -297,12 +298,16 @@ class RestaurantPermission(BasePermission):
         user = request.user
         manager_id = request.data.get('manager')
         company_id = request.data.get('company')
+        country_id = request.data.get('country')
         scopes_and_groups = await get_scopes_and_groups(user.id)
         
         # Attach to request for reuse in view
         request.user_scope = scopes_and_groups
         if manager_id:
             await AttributeChecker().check_manager(manager_id, company_id)
+        if country_id and "CountryManager" in scopes_and_groups['groups']:
+            if country_id not in scopes_and_groups['country']:
+                raise PermissionDenied(_("You do not have permission to create branches in this country."))
         if company_id:
             if company_id not in scopes_and_groups['company']:
                 raise PermissionDenied(_("You do not have permission to create restaurants in this company."))
@@ -327,32 +332,78 @@ class BranchPermission(BasePermission):
         
         manager_id = request.data.get('manager')
         company_id = request.data.get('company')
+        country_id = request.data.get('country')
         scopes_and_groups = await get_scopes_and_groups(request.user.id)
 
         # Attach to request for reuse in view
         request.user_scope = scopes_and_groups
         if manager_id:
             await AttributeChecker().check_manager(manager_id, company_id, 'branch')
+        if company_id:
+            if company_id not in scopes_and_groups['company']:
+                raise PermissionDenied(_("You do not have permission to create branches in this company."))
+        if country_id and "CountryManager" in scopes_and_groups['groups']:
+            if country_id not in scopes_and_groups['country']:
+                raise PermissionDenied(_("You do not have permission to create branches in this country."))
         return True
 
 
 class ObjectStatusPermission(BasePermission):
     """
-    Ensures that actions are allowed only on objects with status "active".
+    Ensures that actions are allowed only on objects with status 'active'.
+    Prevents setting objects to 'active' if their direct parent is inactive.
     """
+    """
+    Ensures that actions are allowed only on objects with status 'active'.
+    Prevents setting objects to 'active' if their direct parent is inactive.
+    """
+    async def check_parent_status(self, obj, field_name, field_value):
+        """
+        Check if setting field_name to field_value is allowed based on parent status.
+        Blocks setting status='active' if parent is inactive or is_active=False.
+        """
+        print(f"Checking parent status for {obj.__class__.__name__} {obj.id}, field {field_name}={field_value}")
+
+        # Check if action is trying to set status='active'
+        if field_name != 'status' or field_value != 'active':
+            return  # Not an activation attempt, no parent check needed
+
+        # Define parent relationships
+        parent_field_map = {
+            Branch: ('restaurant', Restaurant),
+            Restaurant: ('company', Company),
+            Company: (None, None)  # No parent
+        }
+        parent_field, parent_model = parent_field_map.get(obj.__class__, (None, None))
+
+        # Check parent status if applicable
+        if parent_field:
+            try:
+                parent_obj = await sync_to_async(getattr)(obj, parent_field)
+                if parent_obj is None:
+                    print(f"Parent {parent_model.__name__} not found for {obj.__class__.__name__} {obj.id}")
+                    raise PermissionDenied(_(f"Parent {parent_model.__name__.lower()} does not exist."))
+                parent_inactive = (hasattr(parent_obj, 'status') and parent_obj.status == 'inactive') or \
+                                 (hasattr(parent_obj, 'is_active') and not parent_obj.is_active)
+                if parent_inactive:
+                    print(f"Parent {parent_model.__name__} is inactive for {obj.__class__.__name__} {obj.id}")
+                    raise PermissionDenied(_(f"Cannot set {obj.__class__.__name__.lower()} to active: parent {parent_model.__name__.lower()} is inactive."))
+            except parent_model.DoesNotExist:
+                print(f"Parent {parent_model.__name__} not found for {obj.__class__.__name__} {obj.id}")
+                raise PermissionDenied(_(f"Parent {parent_model.__name__.lower()} does not exist."))
+
     async def has_object_permission(self, request, view, obj):
-        """
-        Check the status of the restaurant or branch.
-        Deny any actions on inactive objects.
-        """
-        if obj.status != 'active':
-        # Only (CompanyAdmin, RestaurantOwner) can modify inactive objects
+        # Check object status
+        if hasattr(obj, 'status') and obj.status != 'active':
+            # Only CompanyAdmin or RestaurantOwner can modify inactive objects
             has_privileged_group = await request.user.groups.filter(
                 name__in=["CompanyAdmin", "RestaurantOwner"]
             ).aexists()
-            
             if not has_privileged_group:
+                print(f"Non-privileged user {request.user.id} cannot modify inactive {obj.__class__.__name__} {obj.id}")
                 raise PermissionDenied(_("This object is inactive and cannot be modified."))
+
+        print(f"Status permission granted for {obj.__class__.__name__} {obj.id}")
         return True
 
 
@@ -507,8 +558,18 @@ class     RoleAssignmentPermission(BasePermission):
     
 class DeletionPermission(BasePermission):
 
+    async def _set_inactive(self, obj):
+        """Set object to inactive based on status or is_active field."""
+        model = obj.__class__
+        if hasattr(obj, 'status'):
+            obj.status = 'inactive'
+        elif hasattr(obj, 'is_active'):
+            obj.is_active = False
+        await obj.asave()
+        # print(f"Set {model.__name__} {obj.id} to inactive")
+
     async def has_object_permission(self, request, view, obj):
-        print(f"Checking deletion permission for {obj.__class__.__name__} {obj.id}, user {request.user.id}")
+        # print(f"Checking deletion permission for {obj.__class__.__name__} {obj.id}, user {request.user.id}")
         user = request.user
         user_role = getattr(user, 'role', None)
         if not user_role:
@@ -518,7 +579,7 @@ class DeletionPermission(BasePermission):
         entity_permission = EntityUpdatePermission()
         model = obj.__class__
         if not await entity_permission._is_object_in_scope(request, obj, model):
-            print(f"{model.__name__} {obj.id} not in scope for user {user.id}")
+            # print(f"{model.__name__} {obj.id} not in scope for user {user.id}")
             raise PermissionDenied(_(f"You can only delete {model.__name__.lower()}s within your scope."))
         
         if view.action == 'destroy':
@@ -528,12 +589,15 @@ class DeletionPermission(BasePermission):
                 for field in app_model._meta.get_fields():
                     if isinstance(field, ForeignKey) and field.related_model == model:
                         dependent_models.append((app_model, field.name))
-                        print(f"Found dependent model: {app_model.__name__} via field {field.name}")
+                        # print(f"Found dependent model: {app_model.__name__} via field {field.name}")
 
-            # Check if force=True for privileged users
+            # Check if force=True for privileged 
+            PRIVILEGED_MODELS = {
+                'company_admin': {'Restaurant', 'Company'},
+                'restau_owner': {'Restaurant', 'Branch'}
+            }
             force_delete = request.data.get('force', False)
-            is_privileged = user_role == 'company_admin' and model.__name__ == 'Company' or \
-                            user_role == 'restau_owner' and model.__name__ in ('Restaurant', 'Branch')
+            is_privileged = model.__name__ in PRIVILEGED_MODELS.get(user_role, set())
             
             if is_privileged and force_delete:
                 print(f"Privileged user {user.id} with force=true, auto-setting inactive")
@@ -548,17 +612,11 @@ class DeletionPermission(BasePermission):
                             count = await dep_model.objects.filter(**{fk_field: obj, 'is_active': True}).aupdate(is_active=False)
                             print(f"Set {count} {dep_model.__name__} objects to is_active=False")
                         # Handle SET_NULL or CASCADE (no status/is_active)
-                        else:
-                            print(f"No status/is_active for {dep_model.__name__}, relying on on_delete")
+                        # else:
+                        #     print(f"No status/is_active for {dep_model.__name__}, relying on on_delete")
                     # Set target object to inactive
-                    if hasattr(obj, 'status'):
-                        obj.status = 'inactive'
-                    elif hasattr(obj, 'is_active'):
-                        obj.is_active = False
-                    await obj.asave()
-                    print(f"Set {model.__name__} {obj.id} to inactive")
                 except Exception as e:
-                    print(f"Failed to auto-set inactive: {str(e)}")
+                    # print(f"Failed to auto-set inactive: {str(e)}")
                     raise PermissionDenied(_(f"Failed to set dependent objects to inactive: {str(e)}"))
                 return True
 
@@ -573,12 +631,30 @@ class DeletionPermission(BasePermission):
                         if await dep_model.objects.filter(**{fk_field: obj, 'is_active': True}).acount() > 0:
                             print(f"Active {dep_model.__name__} objects found")
                             raise PermissionDenied(_(f"All {dep_model.__name__.lower()} objects must be inactive before deletion."))
-                    else:
-                        print(f"No status/is_active for {dep_model.__name__}, skipping active check")
+                    # else:
+                    #     print(f"No status/is_active for {dep_model.__name__}, skipping active check")
             except Exception as e:
-                print(f"Error checking dependent objects: {str(e)}")
+                # print(f"Error checking dependent objects: {str(e)}")
                 raise PermissionDenied(_(f"Error checking dependent objects: {str(e)}"))
             
-            print(f"Deletion permission granted for {model.__name__} {obj.id}")
+            # Set target object to inactive (common for both cases)
+            await self._set_inactive(obj)
+
+            # Log deletion activity
+            model_name = model.__name__.lower()
+            is_special_model = model_name in {'branch', 'restaurant'}
+
+            # Build the base arguments that are always needed
+            log_args = [
+                user.id,
+                f'{model_name}_delete',
+                f'{{{model.__name__}: {obj.id}, message: {model.__name__} marked inactive}}' 
+            ]
+            # Conditionally extend with additional arguments
+            if is_special_model:
+                log_args.extend([obj.id, model_name])
+            log_activity.delay(*log_args)
+
+            print(f"Deletion permission granted for {model.__name__} {obj.id}")    
             return True
             

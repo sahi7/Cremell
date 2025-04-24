@@ -14,7 +14,7 @@ from django.contrib.auth import get_user_model
 from .models import Branch, Restaurant, Company, Country 
 from .serializers import RestaurantSerializer, CompanySerializer, CountrySerializer, AssignmentSerializer
 from zMisc.policies import ScopeAccessPolicy
-from zMisc.permissions import EntityUpdatePermission
+from zMisc.permissions import EntityUpdatePermission, ObjectStatusPermission
 # from zMisc.utils import log_activity
 
 import logging
@@ -128,7 +128,7 @@ class AssignmentView(APIView):
 
         # Use MODEL_MAP from permission class
         model = EntityUpdatePermission.MODEL_MAP.get(object_type)
-        obj = await sync_to_async(model.objects.get)(id=object_id)
+        obj = await model.objects.aget(id=object_id)
 
         # Validate field (minimal check since permission already ensures existence)
         if not field_value:
@@ -219,6 +219,7 @@ class AssignmentView(APIView):
             await self._send_notifications(old_manager, object_type, obj.id, f"removed as {field_name}")
 
     async def _handle_field_update(self, obj, field_name, field_value, model):
+        await ObjectStatusPermission().check_parent_status(obj, field_name, field_value)
         # Validate field
         if field_name not in [f.name for f in model._meta.fields]:
             raise PermissionDenied(_("{model_name} has no field '{field_name}'").format(model_name=model.__name__, field_name=field_name))

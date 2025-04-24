@@ -25,12 +25,16 @@ from asgiref.sync import sync_to_async
 from adrf.views import APIView
 from adrf.viewsets import ModelViewSet
 
+from .tasks import finalize_deletion, handle_deletion_tasks
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer, MenuSerializer, MenuCategorySerializer
 from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
 from .models import Company, Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
 from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy, ScopeAccessPolicy
 from zMisc.permissions import UserCreationPermission, RestaurantPermission, BranchPermission, ObjectStatusPermission, DeletionPermission
 from zMisc.utils import validate_scope, validate_role, compare_role_values
+import logging
+
+logger = logging.getLogger(__name__)
 
 CustomUser = get_user_model()
 def email_confirm_redirect(request, key):
@@ -44,6 +48,11 @@ def password_reset_confirm_redirect(request, uidb64, token):
         f"{settings.PASSWORD_RESET_CONFIRM_REDIRECT_BASE_URL}{uidb64}/{token}/"
     )
 
+def is_deleted(obj):
+    try:
+        return obj.status == 'inactive' or not obj.is_active
+    except AttributeError:
+        return False
 
 class GoogleLogin(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
@@ -167,7 +176,7 @@ class UserViewSet(ModelViewSet):
 class CompanyViewSet(ModelViewSet):
     queryset = Company.objects.all()
     serializer_class = CompanySerializer
-    permission_classes = [ScopeAccessPolicy, DeletionPermission]
+    permission_classes = (ScopeAccessPolicy, DeletionPermission, )
     # CONDITIONS: 1. Already has company 2. Existing company has atleast 1 restaurant 3. Restaurant has atleast 1 branch 4. Must be CompanyAdmin
     # @TOD0: Log creation activity, add to user.companies
 
@@ -185,9 +194,27 @@ class CompanyViewSet(ModelViewSet):
             self.get_serializer(company).data,
             status=status.HTTP_201_CREATED
         )
+    
+    async def destroy(self, request, *args, **kwargs):
+        # Get validated object from permission check
+        pk = kwargs['pk']
+        view_name = self.__class__.__name__ 
+        # Fetch object for permission check
+        try:
+            company = await Company.objects.aget(pk=kwargs['pk'])
+        except Company.DoesNotExist:
+            logger.error(f'Company {pk} not found in view {view_name}')
+            raise ValidationError(_("Company does not exist."))
+        # Check if already deleted
+        if is_deleted(company):
+            raise ValidationError(_("Does Not Exist"))
+        await sync_to_async(self.check_object_permissions)(request, company)
+
+        return Response(status=204)
 
         
 class RestaurantViewSet(ModelViewSet):
+    # queryset = Restaurant.objects.filter(is_active=True)
     queryset = Restaurant.objects.all()
     serializer_class = RestaurantSerializer
     permission_classes = (RestaurantAccessPolicy, RestaurantPermission, ObjectStatusPermission, DeletionPermission, )
@@ -258,9 +285,47 @@ class RestaurantViewSet(ModelViewSet):
         restaurant = await serializer.save()
 
         return Response(self.get_serializer(restaurant).data, status=status.HTTP_201_CREATED)
+    
+    async def destroy(self, request, *args, **kwargs):
+        # Get validated object from permission check
+        pk = kwargs['pk']
+        view_name = self.__class__.__name__ 
+        # Fetch object for permission check
+        try:
+            restaurant = await Restaurant.objects.aget(pk=kwargs['pk'])
+        except Restaurant.DoesNotExist:
+            logger.error(f'Restaurant {pk} not found in view {view_name}')
+            raise ValidationError(_("Restaurant does not exist."))
+        # Check if already deleted
+        if is_deleted(restaurant):
+            raise ValidationError(_("Does Not Exist"))
+        await sync_to_async(self.check_object_permissions)(request, restaurant)
+
+        # Offload DeletedObject creation and notifications to Celery
+        # serialized_data = RestaurantSerializer(obj).data
+        # DeletedObject will help to keep track of objects that have been deleted until we can move them to another database
+        handle_deletion_tasks.delay(
+            object_type='Restaurant',
+            object_id=restaurant.id,
+            user_id=request.user.id,
+            # serialized_data=serialized_data
+        )
+        print(f"Queued deletion tasks for Restaurant {restaurant.id}")
+
+        # Schedule finalization
+        # TOD0: It seems finalize will still execute even if the status changes within this time
+        finalize = timezone.now() + timezone.timedelta(hours=24)
+        finalize_deletion.apply_async(
+            args=['Restaurant', restaurant.id, finalize],
+            eta=finalize
+        )
+        print(f"Scheduled finalization for Restaurant {restaurant.id} at {finalize}")
+        
+        return Response(status=204)
 
 
 class BranchViewSet(ModelViewSet):
+    # queryset = Branch.objects.filter(is_active=True)
     queryset = Branch.objects.all()
     serializer_class = BranchSerializer
     permission_classes = (BranchAccessPolicy, BranchPermission, ObjectStatusPermission, DeletionPermission, )
@@ -340,6 +405,31 @@ class BranchViewSet(ModelViewSet):
         branch = await serializer.save()
 
         return Response(self.get_serializer(branch).data, status=status.HTTP_201_CREATED)
+    
+    async def destroy(self, request, *args, **kwargs):
+        # Get validated object from permission check
+        pk = kwargs['pk']
+        view_name = self.__class__.__name__ 
+        # Fetch object for permission check
+        try:
+            branch = await Branch.objects.aget(pk=kwargs['pk'])
+        except Branch.DoesNotExist:
+            logger.error(f'Branch {pk} not found in view {view_name}')
+            raise ValidationError(_("Branch does not exist."))
+        # Check if already deleted
+        if is_deleted(branch):
+            raise ValidationError(_("Does Not Exist"))
+        await sync_to_async(self.check_object_permissions)(request, branch)
+        
+        # Log deletion activity
+        # details = f'{{"branch_id": {pk}, "message": "Branch ID: {pk} marked inactive for deletion"}}'
+        # log_activity.delay(
+        #     request.user.id,
+        #     'branch_delete',
+        #     details,
+        #     pk
+        # )
+        return Response(status=204)
 
 class MenuViewSet(ModelViewSet):
     """

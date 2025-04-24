@@ -1,13 +1,11 @@
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
 
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync
 from django.utils.translation import gettext as _
 from django.db.models import Q
 from django.contrib.auth import get_user_model
 from notifications.models import BranchActivity, RestaurantActivity
-from django.db.models import Prefetch
-from django.contrib.auth.models import Group
 from CRE.models import Branch, Restaurant, Company, Country
 
 CustomUser = get_user_model()
@@ -44,7 +42,7 @@ def determine_activity_model(user, obj_type):
     Raises PermissionDenied if no valid scope is found.
     """
     # Check user role and get numeric value
-    role_value = user.get_role_value()
+    role_value = async_to_sync(user.get_role_value)()
     target_mapping = {
         'branch': (BranchActivity, 'branch'),
         'restaurant': (RestaurantActivity, 'restaurant'),
