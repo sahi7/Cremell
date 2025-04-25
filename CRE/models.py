@@ -175,7 +175,6 @@ class Company(models.Model):
 
 
 class Country(models.Model):
-    # usa = Country.objects.create(name="United States", code="USA")
     name = models.CharField(max_length=100, unique=True)
     code = models.CharField(max_length=3, unique=True)  # ISO 3166-1 alpha-3 code
     currency = models.CharField(max_length=100, blank=True, null=True)
@@ -190,7 +189,6 @@ class Country(models.Model):
 
 
 class RegionOrState(models.Model):
-    # california = RegionOrState.objects.create(name="California", country=usa, type="state")
     name = models.CharField(max_length=100)
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='regions_or_states')
     type = models.CharField(
@@ -213,7 +211,6 @@ class RegionOrState(models.Model):
 
 
 class City(models.Model):
-    # los_angeles = City.objects.create(name="Los Angeles", region_or_state=california)
     name = models.CharField(max_length=100)
     region_or_state = models.ForeignKey(RegionOrState, on_delete=models.CASCADE, related_name='cities')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -228,9 +225,7 @@ class City(models.Model):
 
 class Restaurant(models.Model):
     name = models.CharField(max_length=100)
-    company = models.ForeignKey(
-        Company, null=True, blank=True, on_delete=models.CASCADE, related_name='restaurants'
-    )  # Company is optional for standalone restaurants
+    company = models.ForeignKey(Company, null=True, blank=True, on_delete=models.CASCADE, related_name='restaurants')  
     address = models.TextField()
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='restaurants')
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='restaurants')
@@ -240,6 +235,7 @@ class Restaurant(models.Model):
         related_name="managed_restaurant",
         help_text="User assigned as the manager of this restaurant",
     )
+    is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="restaurant")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -260,6 +256,7 @@ class Branch(models.Model):
         related_name="managed_branch",
         help_text="User assigned as the manager of this branch",
     )
+    is_active = models.BooleanField(default=True)
     timezone = models.CharField(max_length=50, choices=[(tz, tz) for tz in pytz.common_timezones], default='UTC')
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="branch")
     created_at = models.DateTimeField(auto_now_add=True)

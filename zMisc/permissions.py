@@ -364,6 +364,7 @@ class ObjectStatusPermission(BasePermission):
         Check if setting field_name to field_value is allowed based on parent status.
         Blocks setting status='active' if parent is inactive or is_active=False.
         """
+        from archive.utils import revert_deletion
         print(f"Checking parent status for {obj.__class__.__name__} {obj.id}, field {field_name}={field_value}")
 
         # Check if action is trying to set status='active'
@@ -393,10 +394,16 @@ class ObjectStatusPermission(BasePermission):
             except parent_model.DoesNotExist:
                 # print(f"Parent {parent_model.__name__} not found for {obj.__class__.__name__} {obj.id}")
                 raise PermissionDenied(_(f"Parent {parent_model.__name__.lower()} does not exist."))
+        
+        # await revert_deletion(obj.__class__.__name__, obj.id, self.request.user.id)
 
     async def has_object_permission(self, request, view, obj):
         # Check object status
-        if hasattr(obj, 'status') and obj.status != 'active':
+        status = getattr(obj, 'status', None)
+        is_active = getattr(obj, 'is_active', None)
+        if status != 'active':
+            if is_active == False:
+                raise PermissionDenied(_("Object does not exist"))
             allowed_fields = {'status', 'manager'}
             modified_fields = set(request.data.keys())
             user_groups = await get_scopes_and_groups(request.user.id)

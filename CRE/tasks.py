@@ -3,7 +3,6 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from allauth.account.utils import send_email_confirmation
 
-from django.apps import apps
 from django.utils import timezone
 from django.http import HttpRequest
 from django.contrib.sites.models import Site
@@ -121,71 +120,3 @@ def log_activity(user_id, activity_type, details=None, obj_id=None, obj_type=Non
     model.objects.create(**activity_data)
 
     return True
-
-
-@shared_task
-def finalize_deletion(object_type, object_id, finalize_time):
-    """Set is_active=False after grace period."""
-    model = apps.get_model('your_app', object_type)
-    obj = model.objects.get(pk=object_id)
-    obj.is_active = False
-    obj.save()
-    logger.info(f"Finalized deletion for {object_type} {object_id}")
-    archive_data = {
-        'object_type': object_type,
-        'object_id': object_id,
-        'related_models': []  # Populate with related data if needed
-    }
-    logger.info(f"Archived {object_type} {object_id}: {json.dumps(archive_data)}")
-
-@shared_task
-def send_email_notification(user_id, message):
-    """Send email to critical stakeholders."""
-    logger.info(f"Sending email to user {user_id}: {message}")
-    # Implement email logic
-
-@shared_task
-def handle_deletion_tasks(object_type, object_id, user_id, serialized_data):
-    """Handle DeletedObject creation and notifications."""
-    try:
-        deleted_timestamp = timezone.now()
-        finalize = deleted_timestamp + timezone.timedelta(hours=24)
-        
-        # Create DeletedObject
-        # DeletedObject will help to keep track of objects that have been deleted until we can move them to another database
-        deleted_obj = DeletedObject(
-            object_type=object_type,
-            object_id=object_id,
-            data=serialized_data,
-            deleted_timestamp=deleted_timestamp,
-            finalize=finalize,
-            user_id=user_id
-        )
-        deleted_obj.save()
-        logger.info(f"Created DeletedObject for {object_type} {object_id}")
-
-        # Notify stakeholders via Channels
-        channel_layer = get_channel_layer()
-        group_name = f"{object_type.lower()}_{object_id}_staff"
-        channel_layer.group_send(
-            group_name,
-            {
-                "type": "deletion.update",
-                "object_type": object_type,
-                "object_id": object_id,
-                "message": f"{object_type} {object_id} marked inactive, revert by {finalize}.",
-                "grace_period_expiry": finalize.isoformat()
-            }
-        )
-
-        # Notify managers via email
-        managers = User.objects.filter(role__in=['restau_owner', 'regional_admin']).values_list('id', flat=True)
-        for manager_id in managers:
-            send_email_notification.delay(
-                manager_id,
-                f"{object_type} {object_id} marked inactive by user {user_id}, revert by {finalize}."
-            )
-        logger.info(f"Notified stakeholders for {object_type} {object_id}")
-    except Exception as e:
-        logger.error(f"Error in handle_deletion_tasks for {object_type} {object_id}: {str(e)}")
-        raise

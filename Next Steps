@@ -35,7 +35,7 @@ Websocket notifications not beign sent
 When deleting a restaurant, branches will be deleted or reassigned if multiple restaurants exist
   1. When deleting an object, Prompt user to set dependent object status to inactive first, by deleting them OR Set the status of dependent objects to inactive (force="true" for CA and RO only).
   2. Set the object’s status to inactive.
-  3. Populate the DeletedObject model with deleted object, ID, deleted_timestamp=now, and finalize=deleted_timestamp + 24 hours.
+  3. Populate the DeletedObject model with deleted object, ID, deleted_timestamp=now, and finalize=deleted_timestamp + 24 hours. DeletedObject will help to keep track of objects that have been deleted until we can move them to another database
   4. Notify affiliated users of deleted object with notifications (Channels for normal users and Celery emails for critical stakeholders like managers).
   5. Allow reversion during grace period.
   6. When the finalize field reaches its mark (grace period ends), a background task sets is_active=False for deleted objects (creates a JSON map for all related models to the deleted object for use when copying data to another database and removing from the active database).

@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'analytics.apps.AnalyticsConfig',       # analytics App
     'subscriptions.apps.SubscriptionsConfig',
     'payments.apps.PaymentsConfig',
+    'archive.apps.ArchiveConfig',
 
     # django-allauth
     'allauth',

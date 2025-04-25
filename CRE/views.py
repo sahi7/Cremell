@@ -25,10 +25,10 @@ from asgiref.sync import sync_to_async
 from adrf.views import APIView
 from adrf.viewsets import ModelViewSet
 
-from .tasks import finalize_deletion, handle_deletion_tasks
 from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer, MenuSerializer, MenuCategorySerializer
 from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
 from .models import Company, Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
+from archive.tasks import finalize_deletion, handle_deletion_tasks
 from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy, ScopeAccessPolicy
 from zMisc.permissions import UserCreationPermission, RestaurantPermission, BranchPermission, ObjectStatusPermission, DeletionPermission
 from zMisc.utils import validate_scope, validate_role, compare_role_values
@@ -301,26 +301,22 @@ class RestaurantViewSet(ModelViewSet):
             raise ValidationError(_("Does Not Exist"))
         await sync_to_async(self.check_object_permissions)(request, restaurant)
 
+        # Schedule finalization
+        finalize = timezone.now() + timezone.timedelta(hours=24)
+        finalize_task  = finalize_deletion.apply_async(
+            args=['Restaurant', restaurant.id],
+            eta=finalize
+        )
+        print(f"Scheduled finalization for Restaurant {restaurant.id} at {finalize}")
+
         # Offload DeletedObject creation and notifications to Celery
-        # serialized_data = RestaurantSerializer(obj).data
-        # DeletedObject will help to keep track of objects that have been deleted until we can move them to another database
         handle_deletion_tasks.delay(
             object_type='Restaurant',
             object_id=restaurant.id,
             user_id=request.user.id,
-            serialized_data='user_id'
-            # serialized_data=serialized_data
+            cleanup_task_id=finalize_task.id
         )
         print(f"Queued deletion tasks for Restaurant {restaurant.id}")
-
-        # Schedule finalization
-        # TOD0: It seems finalize will still execute even if the status changes within this time
-        finalize = timezone.now() + timezone.timedelta(hours=24)
-        finalize_deletion.apply_async(
-            args=['Restaurant', restaurant.id, finalize],
-            eta=finalize
-        )
-        print(f"Scheduled finalization for Restaurant {restaurant.id} at {finalize}")
         
         return Response(status=204)
 
@@ -417,19 +413,32 @@ class BranchViewSet(ModelViewSet):
         except Branch.DoesNotExist:
             logger.error(f'Branch {pk} not found in view {view_name}')
             raise ValidationError(_("Branch does not exist."))
+        app_label = branch._meta.app_label
+        model_name = branch.__class__.__name__
+        print(f'model_name: {app_label}.{model_name}')
         # Check if already deleted
         if is_deleted(branch):
             raise ValidationError(_("Does Not Exist"))
+
         await sync_to_async(self.check_object_permissions)(request, branch)
         
-        # Log deletion activity
-        # details = f'{{"branch_id": {pk}, "message": "Branch ID: {pk} marked inactive for deletion"}}'
-        # log_activity.delay(
-        #     request.user.id,
-        #     'branch_delete',
-        #     details,
-        #     pk
-        # )
+        # Schedule finalization
+        finalize = timezone.now() + timezone.timedelta(hours=48)
+        finalize_task  = finalize_deletion.apply_async(
+            args=[model_name, branch.id],
+            eta=finalize
+        )
+        print(f"Scheduled finalization for Branch {branch.id} at {finalize}")
+
+        # Offload DeletedObject creation and notifications to Celery
+        handle_deletion_tasks.delay(
+            object_type=f'{app_label}.{model_name}',
+            object_id=branch.id,
+            user_id=request.user.id,
+            cleanup_task_id=finalize_task.id
+        )
+        print(f"Queued deletion tasks for Branch {branch.id}")
+
         return Response(status=204)
 
 class MenuViewSet(ModelViewSet):
