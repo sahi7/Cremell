@@ -319,7 +319,7 @@ class RestaurantPermission(BasePermission):
                 return has_branch
             return True   
         
-        raise PermissionDenied(_("Either company or manager must be provided."))
+        return True
 
 
 class BranchPermission(BasePermission):
@@ -383,15 +383,15 @@ class ObjectStatusPermission(BasePermission):
             try:
                 parent_obj = await sync_to_async(getattr)(obj, parent_field)
                 if parent_obj is None:
-                    print(f"Parent {parent_model.__name__} not found for {obj.__class__.__name__} {obj.id}")
+                    # print(f"Parent {parent_model.__name__} not found for {obj.__class__.__name__} {obj.id}")
                     raise PermissionDenied(_(f"Parent {parent_model.__name__.lower()} does not exist."))
                 parent_inactive = (hasattr(parent_obj, 'status') and parent_obj.status == 'inactive') or \
                                  (hasattr(parent_obj, 'is_active') and not parent_obj.is_active)
                 if parent_inactive:
-                    print(f"Parent {parent_model.__name__} is inactive for {obj.__class__.__name__} {obj.id}")
+                    # print(f"Parent {parent_model.__name__} is inactive for {obj.__class__.__name__} {obj.id}")
                     raise PermissionDenied(_(f"Cannot set {obj.__class__.__name__.lower()} to active: parent {parent_model.__name__.lower()} is inactive."))
             except parent_model.DoesNotExist:
-                print(f"Parent {parent_model.__name__} not found for {obj.__class__.__name__} {obj.id}")
+                # print(f"Parent {parent_model.__name__} not found for {obj.__class__.__name__} {obj.id}")
                 raise PermissionDenied(_(f"Parent {parent_model.__name__.lower()} does not exist."))
 
     async def has_object_permission(self, request, view, obj):
@@ -406,8 +406,20 @@ class ObjectStatusPermission(BasePermission):
             
             # Only CompanyAdmin or RestaurantOwner can modify inactive objects
             if not any(group in ["CompanyAdmin", "RestaurantOwner"] for group in user_groups['groups']):
-                print(f"Non-privileged user {request.user.id} cannot modify inactive {obj.__class__.__name__} {obj.id}")
+                # print(f"Non-privileged user {request.user.id} cannot modify inactive {obj.__class__.__name__} {obj.id}")
                 raise PermissionDenied(_("This object is inactive and cannot be modified."))
+            
+            field_map = {'manager': 'manager_id'}  # Field name mappings
+            obj_attrs = {
+                field_map.get(field, field): getattr(obj, field_map.get(field, field))
+                for field in modified_fields
+                if field in request.data
+            }
+            if all(obj_attrs[field] == request.data[field] for field in obj_attrs):
+                raise PermissionDenied(_("No changes to modified fields"))
+                        
+            if 'status' in request.data and request.data['status'] == 'active':
+                await self.check_parent_status(obj, 'status', 'active')
             
         return True
 
