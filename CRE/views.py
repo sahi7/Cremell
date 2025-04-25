@@ -308,6 +308,7 @@ class RestaurantViewSet(ModelViewSet):
             object_type='Restaurant',
             object_id=restaurant.id,
             user_id=request.user.id,
+            serialized_data='user_id'
             # serialized_data=serialized_data
         )
         print(f"Queued deletion tasks for Restaurant {restaurant.id}")

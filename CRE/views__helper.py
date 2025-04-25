@@ -78,7 +78,7 @@ class UserScopeView(APIView):
     
 class AssignmentView(APIView):
     """
-    Method: PATCH
+    Method: PATCH assignments/
     Rule: Add Policy requires for scope
     Assign User to a Branch:
         Sets Branch(id=3).manager = CustomUser(id=5)
@@ -219,7 +219,10 @@ class AssignmentView(APIView):
             await self._send_notifications(old_manager, object_type, obj.id, f"removed as {field_name}")
 
     async def _handle_field_update(self, obj, field_name, field_value, model):
-        await ObjectStatusPermission().check_parent_status(obj, field_name, field_value)
+        if field_name == 'status':
+            if obj.status == field_value:
+                raise PermissionDenied(_("Already set"))
+            await ObjectStatusPermission().check_parent_status(obj, field_name, field_value)
         # Validate field
         if field_name not in [f.name for f in model._meta.fields]:
             raise PermissionDenied(_("{model_name} has no field '{field_name}'").format(model_name=model.__name__, field_name=field_name))
