@@ -152,7 +152,7 @@ class AssignmentView(APIView):
             user = await sync_to_async(CustomUser.objects.get)(id=user_id)  # consider using user from permission to avoid extra db hit
             await self._handle_user_assignment(obj, user, field_name, model, data, old_manager)
         elif field_value is not None:
-            await self._handle_field_update(obj, field_name, field_value, model)
+            await self._handle_field_update(obj, field_name, field_value, model, request)
 
         return Response({"message": _("Updated {object_type} successfully").format(object_type=object_type)}, 
                         status=status.HTTP_200_OK)
@@ -218,11 +218,11 @@ class AssignmentView(APIView):
         if old_manager and old_manager != user:
             await self._send_notifications(old_manager, object_type, obj.id, f"removed as {field_name}")
 
-    async def _handle_field_update(self, obj, field_name, field_value, model):
+    async def _handle_field_update(self, obj, field_name, field_value, model, request=None):
         if field_name == 'status':
             if obj.status == field_value:
                 raise PermissionDenied(_("Already set"))
-            await ObjectStatusPermission().check_parent_status(obj, field_name, field_value)
+            await ObjectStatusPermission().check_parent_status(obj, field_name, field_value, request)
         # Validate field
         if field_name not in [f.name for f in model._meta.fields]:
             raise PermissionDenied(_("{model_name} has no field '{field_name}'").format(model_name=model.__name__, field_name=field_name))

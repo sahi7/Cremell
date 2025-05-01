@@ -215,7 +215,7 @@ class CompanyViewSet(ModelViewSet):
         
 class RestaurantViewSet(ModelViewSet):
     # queryset = Restaurant.objects.filter(is_active=True)
-    queryset = Restaurant.objects.all()
+    queryset = Restaurant.objects.filter(is_active=True)
     serializer_class = RestaurantSerializer
     permission_classes = (RestaurantAccessPolicy, RestaurantPermission, ObjectStatusPermission, DeletionPermission, )
     # permission_classes = (ScopeAccessPolicy, RestaurantPermission, ObjectStatusPermission)
@@ -323,7 +323,7 @@ class RestaurantViewSet(ModelViewSet):
 
 class BranchViewSet(ModelViewSet):
     # queryset = Branch.objects.filter(is_active=True)
-    queryset = Branch.objects.all()
+    queryset = Branch.objects.filter(is_active=True)
     serializer_class = BranchSerializer
     permission_classes = (BranchAccessPolicy, BranchPermission, ObjectStatusPermission, DeletionPermission, )
 
@@ -415,7 +415,6 @@ class BranchViewSet(ModelViewSet):
             raise ValidationError(_("Branch does not exist."))
         app_label = branch._meta.app_label
         model_name = branch.__class__.__name__
-        print(f'model_name: {app_label}.{model_name}')
         # Check if already deleted
         if is_deleted(branch):
             raise ValidationError(_("Does Not Exist"))
@@ -423,9 +422,9 @@ class BranchViewSet(ModelViewSet):
         await sync_to_async(self.check_object_permissions)(request, branch)
         
         # Schedule finalization
-        finalize = timezone.now() + timezone.timedelta(hours=48)
+        finalize = timezone.now() + timezone.timedelta(minutes=1)
         finalize_task  = finalize_deletion.apply_async(
-            args=[model_name, branch.id],
+            args=[f'{app_label}.{model_name}', branch.id, request.user.id],
             eta=finalize
         )
         print(f"Scheduled finalization for Branch {branch.id} at {finalize}")

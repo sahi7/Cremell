@@ -359,12 +359,12 @@ class ObjectStatusPermission(BasePermission):
     Ensures that actions are allowed only on objects with status 'active'.
     Prevents setting objects to 'active' if their direct parent is inactive.
     """
-    async def check_parent_status(self, obj, field_name, field_value):
+    async def check_parent_status(self, obj, field_name, field_value, request=None):
         """
         Check if setting field_name to field_value is allowed based on parent status.
         Blocks setting status='active' if parent is inactive or is_active=False.
         """
-        from archive.utils import revert_deletion
+        from archive.tasks import revert_deletion_task
         print(f"Checking parent status for {obj.__class__.__name__} {obj.id}, field {field_name}={field_value}")
 
         # Check if action is trying to set status='active'
@@ -395,12 +395,17 @@ class ObjectStatusPermission(BasePermission):
                 # print(f"Parent {parent_model.__name__} not found for {obj.__class__.__name__} {obj.id}")
                 raise PermissionDenied(_(f"Parent {parent_model.__name__.lower()} does not exist."))
         
-        # await revert_deletion(obj.__class__.__name__, obj.id, self.request.user.id)
+        app_label = obj._meta.app_label
+        model_name = obj.__class__.__name__
+        revert_deletion_task.delay(f'{app_label}.{model_name}', obj.id, request.user.id)
 
     async def has_object_permission(self, request, view, obj):
         # Check object status
         status = getattr(obj, 'status', None)
         is_active = getattr(obj, 'is_active', None)
+        if view.action == 'partial_update':
+            if request.data.get('status') == status:
+                raise PermissionDenied(_("Already set"))
         if status != 'active':
             if is_active == False:
                 raise PermissionDenied(_("Object does not exist"))
@@ -426,7 +431,7 @@ class ObjectStatusPermission(BasePermission):
                 raise PermissionDenied(_("No changes to modified fields"))
                         
             if 'status' in request.data and request.data['status'] == 'active':
-                await self.check_parent_status(obj, 'status', 'active')
+                await self.check_parent_status(obj, 'status', 'active', request)
             
         return True
 

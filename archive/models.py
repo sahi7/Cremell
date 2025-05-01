@@ -10,12 +10,12 @@ class DeletedObject(models.Model):
         ('branch', 'Branch')
     ])
     object_id = models.PositiveIntegerField()
-    object_graph = models.JSONField(),
+    object_map = models.JSONField(default=dict)
     grace_period_expiry = models.DateTimeField()
     deleted_on = models.DateTimeField(default=timezone.now)
-    deleted_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name='deleted_objects')
-    reverted_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name='reverted_objects')
-    reverted_at = models.DateTimeField()
+    deleted_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name='deleted_objects')
+    reverted_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name='reverted_objects')
+    reverted_at = models.DateTimeField(null=True, blank=True)
     cleanup_task_id = models.CharField(max_length=255, blank=True)
     status = models.CharField(max_length=20, choices=[
         ('pending', 'Pending Deletion'),
@@ -46,7 +46,7 @@ class ObjectHistory(models.Model):
     ])
     object_id = models.PositiveIntegerField()
     action = models.CharField(max_length=50)  # e.g., "pending_deletion", "reverted", "migrated"
-    user = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name='object_history')
+    user_id = models.PositiveIntegerField(null=True) # modify to user_id in signals.py
     timestamp = models.DateTimeField(default=timezone.now)
     deleted_object = models.ForeignKey(DeletedObject, on_delete=models.SET_NULL, null=True, related_name='history')
     details = models.TextField(blank=True)  # e.g., "Migrated 5 branches"

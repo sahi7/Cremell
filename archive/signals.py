@@ -16,20 +16,20 @@ def create_object_history(sender, instance, created, **kwargs):
     """
     if created:  # Only create a history entry if the DeletedObject was newly created
         ObjectHistory.objects.create(
-            object_type=instance.object_type.lower(),  
+            object_type=instance.object_type,  
             object_id=instance.object_id,
             action=instance.status, 
-            user_id=instance.deleted_by,  
+            user_id=instance.deleted_by_id,  
             timestamp=now(),
             deleted_object=instance,  # Link back to the DeletedObject instance
             details=f"Grace period expiry: {instance.grace_period_expiry}"
         )
     elif instance.reverted_by: 
         ObjectHistory.objects.create(
-            object_type=instance.object_type.lower(),  
+            object_type=instance.object_type,  
             object_id=instance.object_id,
             action=instance.status, 
-            user_id=instance.reverted_by,  
+            user_id=instance.reverted_by_id,  
             timestamp=now(),
             deleted_object=instance,  # Link back to the DeletedObject instance
             details=f"Migration status: {instance.migration_status}"

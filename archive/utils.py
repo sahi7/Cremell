@@ -22,88 +22,39 @@ def get_object_graph(target_model, target_id):
         }
     }
     """
+    # Initialize the graph structure
     graph = {
         'main_object': {
-            'model': f'{target_model._meta.app_label}.{target_model.__name__}',
-            # 'model': f'{target_model}',
+            'model': target_model,  # e.g. 'CRE.Branch'
             'id': target_id
         },
         'dependencies': defaultdict(list)
     }
     
-    # Track processed objects to avoid cycles
-    processed = set()
+    # Split target_model into app_label and model_name
+    app_label, model_name = target_model.split('.')
     
-    def traverse(model, obj_id):
-        key = f"{model._meta.app_label}.{model.__name__}|{obj_id}"
-        if key in processed:
-            return
-        processed.add(key)
-        
-        # Get the actual instance
-        obj = model.objects.get(pk=obj_id)
-        
-        # Check all relation types
-        for field in model._meta.get_fields():
-            if isinstance(field, (ForeignKey, OneToOneField)):
-                related_obj = getattr(obj, field.name)
-                if related_obj:
-                    related_model = field.related_model
-                    graph['dependencies'][f"{related_model._meta.app_label}.{related_model.__name__}"].append(related_obj.id)
-                    traverse(related_model, related_obj.id)
-            
-            elif isinstance(field, ManyToManyField):
-                related_manager = getattr(obj, field.name)
-                for related_obj in related_manager.all():
-                    related_model = field.related_model
-                    graph['dependencies'][f"{related_model._meta.app_label}.{related_model.__name__}"].append(related_obj.id)
-                    traverse(related_model, related_obj.id)
+    # Get the actual model class
+    try:
+        model = apps.get_model(app_label, model_name)
+    except LookupError:
+        raise ValueError(f"Model {target_model} not found")
     
-    traverse(target_model, target_id)
+    # Find all dependent models and their related objects
+    for related_model in apps.get_models():
+        for field in related_model._meta.get_fields():
+            # Check all relation types that could point to our target model
+            if isinstance(field, (ForeignKey, OneToOneField, ManyToManyField)):
+                if field.related_model == model:
+                    # Get the related objects
+                    related_objects = field.model.objects.filter(**{field.name: target_id})
+                    
+                    # Add to dependencies
+                    model_key = f"{related_model._meta.app_label}.{related_model.__name__}"
+                    graph['dependencies'][model_key].extend(
+                        obj.id for obj in related_objects
+                    )
     
     # Convert defaultdict to regular dict for JSON serialization
     graph['dependencies'] = dict(graph['dependencies'])
-    print(graph)
     return graph
-
-async def revert_deletion(object_type, object_id, user_id):
-    """
-    Cancel pending deletion before grace period expires
-    stateDiagram-v2
-        [*] --> Active
-        Active --> Inactive: User deletes
-        Inactive --> Active: User reverts
-        Inactive --> Deleted: Grace period expires
-        Deleted --> [*]
-    """
-    try:
-        model = apps.get_model(object_type)
-        async with transaction.atomic():
-            deleted_obj = await DeletedObject.objects.select_for_update().aget(
-                object_type=object_type,
-                object_id=object_id,
-                status='pending_deletion'
-            )
-            
-            # Revoke the scheduled task
-            Control().revoke(deleted_obj.cleanup_task_id)
-            
-            # Restore the original object
-            obj = await model.objects.aget(pk=object_id)
-            if not obj.is_active:
-                obj.is_active = True
-                await obj.asave()
-                        
-            # Mark as reverted
-            deleted_obj.status = 'reverted'
-            deleted_obj.reverted_by = user_id
-            deleted_obj.reverted_at = timezone.now()
-            await deleted_obj.asave()
-
-
-            
-            return True
-            
-    except DeletedObject.DoesNotExist:
-        logger.warning(f"No pending deletion found for {object_type} ID {object_id}")
-        return False
