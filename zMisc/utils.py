@@ -243,6 +243,7 @@ async def get_stakeholders(
     branch = await Branch.objects.aget(id=branch_id) if branch_id else None
     restaurant = await Restaurant.objects.aget(id=restaurant_id) if restaurant_id else None
     company = await Company.objects.aget(id=company_id) if company_id else None
+    country = await Country.objects.aget(id=country_id) if country_id else None
     chunk_size: int = 1000
     if branch_id:
         querysets.append(Branch.objects.filter(id=branch_id).values('employees__id', 'employees__username', 'employees__email', 'employees__role').exclude(employees__id__isnull=True))
@@ -290,14 +291,12 @@ async def get_stakeholders(
                 continue
             # Determine organization_name using provided scope objects
             organization_name = 'Unknown'
-            branch_name = None
-            if branch_id and branch:
-                organization_name = branch.name
-                branch_name = branch.name
+            if company_id and company:
+                organization_name = company.name
             elif restaurant_id and restaurant:
                 organization_name = restaurant.name
-            elif company_id and company:
-                organization_name = company.name
+            elif branch_id and branch:
+                organization_name = branch.name
             else:
                 # Fallback for users with other associations
                 branch = await user.get_associated_branch()
@@ -322,7 +321,9 @@ async def get_stakeholders(
                 'timezone': timezones[user.id]['timezone'],
                 'language': timezones[user.id]['language'],
                 'organization_name': organization_name,
-                'branch_name': branch_name
+                'restaurant_name': restaurant.name if restaurant else None,
+                'country_name': country.name if country else None,
+                'branch_name': branch.name if branch else None
             }
 
             # Include related data only if requested

@@ -124,10 +124,12 @@ def handle_deletion_tasks(object_type, object_id, user_id, cleanup_task_id, fina
         if model_name == 'Branch':
             branch_id = object_id
             restaurant_id = obj.restaurant_id
+            country_id = obj.country_id
             # Handle both company-owned and standalone restaurants
             company_id = getattr(obj.restaurant, 'company_id', None)
         elif model_name == 'Restaurant':
             restaurant_id = object_id
+            country_id = obj.country_id
             # Handle standalone restaurants (company_id may be None)
             company_id = getattr(obj, 'company_id', None)
         elif model_name == 'Company':
