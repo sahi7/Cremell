@@ -427,6 +427,8 @@ class Branch(models.Model):
     
     def __str__(self):
         return f"{self.name} - Restau#{self.restaurant_id}"
+    
+    # models.Index(fields=['manager']), 
 
 
 class Menu(models.Model):

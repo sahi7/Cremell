@@ -268,7 +268,6 @@ async def get_stakeholders(
 
     # Pre-fetch related objects in bulk
     user_ids = []
-
     async for user_data in queryset:
         user_id = user_data['employees__id'] if branch_id or restaurant_id else user_data['users__id']
         if user_id:  # Skip None values
@@ -289,6 +288,32 @@ async def get_stakeholders(
             role_value = await user.get_role_value()
             if role_value > max_role_value and not include_lower_roles:
                 continue
+
+            # Validate role-specific assignments
+            valid_user = False
+            if user.role == 'branch_manager' and branch_id and branch:
+                # Check if user is the branch manager
+                valid_user = branch.manager_id == user.id
+            elif user.role == 'restaurant_manager' and restaurant_id and restaurant:
+                # Check if user is the restaurant manager
+                valid_user = restaurant.manager_id == user.id
+            elif user.role == 'country_manager' and country_id and company_id:
+                # Check if user is associated with both country and company
+                valid_user = await user.countries.filter(id=country_id).aexists() and await user.companies.filter(id=company_id).aexists()
+            elif user.role == 'restaurant_owner' and restaurant_id and restaurant:
+                valid_user = restaurant.created_by_id == user.id or await user.restaurants.filter(id=restaurant_id).aexists()
+            elif user.role == 'company_admin' and company_id:
+                # Check if user is associated with the company
+                valid_user = await user.companies.filter(id=company_id).aexists()
+            elif role_value > 5 and branch_id:
+                valid_user = await user.branches.filter(id=branch_id).aexists()
+            else:
+                # Fallback: allow user if no specific validation applies
+                valid_user = True
+
+            if not valid_user:
+                continue
+
             # Determine organization_name using provided scope objects
             organization_name = 'Unknown'
             if company_id and company:
