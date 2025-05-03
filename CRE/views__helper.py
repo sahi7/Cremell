@@ -89,12 +89,12 @@ class AssignmentView(APIView):
             "field_name": "manager"
         }
     Set Object Status:
-        Sets CustomUser(id=5).email = "newemail@example.com"
+        Sets CustomUser(id=5).email = "newemail@localhost"
         {
             "object_type": "user",
             "object_id": 5,
             "field_name": "email",
-            "field_value": "newemail@example.com"
+            "field_value": "newemail@localhost"
         }
         Sets Branch(id=3).name = "Downtown Branch"
         {

@@ -126,18 +126,17 @@ class UserSerializer(ModelSerializer):
             if field in validated_data:
                 m2m_fields[field] = validated_data.pop(field)
         
-        async with transaction.atomic():
-            # Create user
-            user = await CustomUser.objects.create_user_with_role(**validated_data, role=role)
-            role_value = await user.get_role_value()
+        # Create user
+        user = await CustomUser.objects.create_user_with_role(**validated_data, role=role)
+        role_value = await user.get_role_value()
 
-            # Process M2M relationships
-            for field, values in m2m_fields.items():
-                if values:
-                    await sync_to_async(getattr(user, field).set)(values)
-            if role_value < 5:
-                user.status = 'active'
-                await user.asave(update_fields=['status'])
+        # Process M2M relationships
+        for field, values in m2m_fields.items():
+            if values:
+                await getattr(user, field).aset(values)
+        if role_value < 5:
+            user.status = 'active'
+            await user.asave(update_fields=['status'])
 
         # Email handling
         self.context["email_sent"] = False

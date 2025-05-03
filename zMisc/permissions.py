@@ -259,7 +259,7 @@ class TransferPermission(BasePermission):
         return True
     
     async def has_object_permission(self, request, view, obj):
-        print(f"Checking review permission for TransferRequest {obj.id}, user {request.user.id}")
+        print(_(f"Checking review permission for TransferRequest {obj.id}, user {request.user.id}"))
         user = request.user
         user_role = user.role
         if not user_role or user_role not in UserCreationPermission.SCOPE_RULES:

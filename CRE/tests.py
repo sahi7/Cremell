@@ -9,7 +9,7 @@ class CompanyTests(TestCase):
         data = {
             'name': 'Test Company',
             'about': 'Test About',
-            'contact_email': 'test@example.com',
+            'contact_email': 'test@localhost',
             'contact_phone': '+1234567890',
         }
         serializer = CompanySerializer(data=data, context={'request': type('Request', (), {'user': user})})

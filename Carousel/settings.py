@@ -90,7 +90,7 @@ ROOT_URLCONF = 'Carousel.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'notifications/templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -318,3 +318,9 @@ LOGGING = {
         'level': 'INFO',
     },
 }
+
+LANGUAGES = [
+    ('en', _('English')),
+    ('fr', _('French')),
+    # Add more as needed
+]

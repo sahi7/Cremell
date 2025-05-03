@@ -3,14 +3,13 @@ from django.apps import apps
 from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ObjectDoesNotExist
-from celery.app.control import Control
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from celery import shared_task
 
 from .utils import get_object_graph
 from .models import DeletedObject, ObjectHistory
+from notifications.tasks import send_batch_notifications
 import logging
 
 CustomUser = get_user_model()
@@ -28,7 +27,7 @@ def finalize_deletion(self, object_type, object_id, user_id):
         
         if not deleted_obj:
             logger.info(f"Deletion was already reverted for {object_type} {object_id}")
-            return
+            return False
 
         # Proceed with finalization
         model = apps.get_model(object_type)
@@ -63,12 +62,11 @@ def send_email_notification(user_id, message):
     # Implement email logic
 
 @shared_task
-def handle_deletion_tasks(object_type, object_id, user_id, cleanup_task_id):
+def handle_deletion_tasks(object_type, object_id, user_id, cleanup_task_id, finalize):
     """Handle DeletedObject creation and notifications."""
     try:
-        # model = apps.get_model(object_type)
-        # obj = model.objects.get(pk=object_id)
-        finalize = timezone.now() + timezone.timedelta(hours=48)
+        model = apps.get_model(object_type)
+        obj = model.objects.get(pk=object_id)
 
         try:
             user = CustomUser.objects.get(id=user_id)
@@ -105,14 +103,49 @@ def handle_deletion_tasks(object_type, object_id, user_id, cleanup_task_id):
                 "grace_period_expiry": finalize.isoformat()
             }
         )
+        app_label, model_name = object_type.split('.')
 
-        # Notify managers via email
-        # managers = CustomUser.objects.filter(role__in=['restau_owner', 'regional_admin']).values_list('id', flat=True)
-        # for manager_id in managers:
-        #     send_email_notification.delay(
-        #         manager_id,
-        #         f"{object_type} {object_id} marked inactive by user {user_id}, revert by {finalize}."
-        #     )
+        # Prepare notification details
+        message = f"The {model_name} '{obj.name}' has been marked for deletion."
+        subject = f"{model_name} Deletion Notification"
+        extra_context = {
+                        'object_type': object_type,
+                        'object_name': obj.name,
+                        'finalize': finalize,
+                        'initiator_name': f"{user.first_name} {user.last_name}" ,
+                        'initiator_role': user.role
+                    }
+        # Determine scope for stakeholders
+        company_id = None
+        restaurant_id = None
+        branch_id = None
+        country_id = None
+
+        if model_name == 'Branch':
+            branch_id = object_id
+            restaurant_id = obj.restaurant_id
+            # Handle both company-owned and standalone restaurants
+            company_id = getattr(obj.restaurant, 'company_id', None)
+        elif model_name == 'Restaurant':
+            restaurant_id = object_id
+            # Handle standalone restaurants (company_id may be None)
+            company_id = getattr(obj, 'company_id', None)
+        elif model_name == 'Company':
+            company_id = object_id
+        elif model_name == 'Country':
+            country_id = object_id
+        # Send notifications to stakeholders
+        send_batch_notifications.delay(
+            company_id=company_id,
+            restaurant_id=restaurant_id,
+            branch_id=branch_id,
+            country_id=country_id,
+            message=message,
+            subject=subject,
+            # max_role_value=12,  # All roles 
+            # include_lower_roles=True,
+            extra_context=extra_context
+        )
         logger.info(f"Notified stakeholders for {object_type} {object_id}")
         return True
     except Exception as e:

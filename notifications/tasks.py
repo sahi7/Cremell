@@ -1,5 +1,8 @@
+import asyncio
+
 from .models import Task, EmployeeTransfer, TransferHistory
 from CRE.models import CustomUser
+from zMisc.utils import get_user_data, render_notification_template, get_stakeholders
 from asgiref.sync import async_to_sync
 from celery import shared_task
 from channels.layers import get_channel_layer
@@ -7,6 +10,7 @@ from django.core.mail import send_mail
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ObjectDoesNotExist
+from django.core.mail import send_mass_mail
 
 @shared_task
 def monitor_task_timeouts():
@@ -210,7 +214,84 @@ def send_role_assignment_email(assignment_id, subject, message, recipient_email)
     send_mail(
         subject,
         message,
-        'from@example.com',
+        'from@localhost',
         [recipient_email],
         fail_silently=False
     )
+
+@shared_task
+def send_notification_task(
+        user_id,
+        message,
+        subject,
+        branch_id=None,
+        company_id=None,
+        restaurant_id=None
+    ):
+    """Send a notification to a single user."""
+    # Run async get_user_data
+    user_data = asyncio.run(get_user_data(user_id, branch_id, company_id, restaurant_id))
+    
+    # Select template based on role
+    template_name = 'emails/critical_alert.html' if user_data['role_value'] <= 5 else 'emails/general_notification.html'
+    
+    # Run async render_notification_template
+    email_body = asyncio.run(render_notification_template(user_data, message, template_name))
+    
+    # Send email (using sync send_mail for simplicity; see below for async alternative)
+    send_mail(
+        subject=subject,
+        message=email_body,
+        from_email='no-reply@restaurantapp.com',
+        recipient_list=[user_data['email']],
+        html_message=email_body,
+    )
+
+@shared_task
+def send_batch_notifications(
+        company_id=None,
+        restaurant_id=None,
+        branch_id=None,
+        country_id=None,
+        message=None,
+        subject=None,
+        max_role_value=5,
+        include_lower_roles=False,
+        limit=1000,
+        offset=0,
+        extra_context = {}
+    ):
+    """Send notifications to stakeholders in a specific scope."""
+    # Run async get_stakeholders
+    stakeholders = asyncio.run(get_stakeholders(
+        company_id=company_id,
+        restaurant_id=restaurant_id,
+        branch_id=branch_id,
+        country_id=country_id,
+        max_role_value=max_role_value,
+        include_lower_roles=include_lower_roles,
+        limit=limit, offset=offset
+    ))
+    print("stakeholders: ", stakeholders)
+    
+    # Batch emails by language and timezone to optimize rendering
+    from itertools import groupby
+    sorted_stakeholders = sorted(stakeholders, key=lambda x: (x['language'], x['timezone']))
+    for (lang, tz), group in groupby(sorted_stakeholders, key=lambda x: (x['language'], x['timezone'])):
+        emails = []
+        for user_data in group:
+            email_body = asyncio.run(render_notification_template(
+                user_data,
+                message,
+                template_name='emails/object_deleted.html',
+                extra_context=extra_context
+            ))
+            emails.append((
+                subject,
+                email_body,
+                'no-reply@restaurantapp.com',
+                [user_data['email']],
+            ))
+        send_mass_mail(emails, fail_silently=False)
+
+    return True

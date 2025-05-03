@@ -422,7 +422,7 @@ class BranchViewSet(ModelViewSet):
         await sync_to_async(self.check_object_permissions)(request, branch)
         
         # Schedule finalization
-        finalize = timezone.now() + timezone.timedelta(minutes=1)
+        finalize = timezone.now() + timezone.timedelta(hours=0.2)
         finalize_task  = finalize_deletion.apply_async(
             args=[f'{app_label}.{model_name}', branch.id, request.user.id],
             eta=finalize
@@ -434,7 +434,8 @@ class BranchViewSet(ModelViewSet):
             object_type=f'{app_label}.{model_name}',
             object_id=branch.id,
             user_id=request.user.id,
-            cleanup_task_id=finalize_task.id
+            cleanup_task_id=finalize_task.id,
+            finalize=finalize
         )
         print(f"Queued deletion tasks for Branch {branch.id}")
 

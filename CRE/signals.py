@@ -2,9 +2,13 @@ from django.apps import apps
 from django.contrib.auth.models import Group, Permission
 from django.db.models.signals import post_migrate, post_save, post_delete
 from django.dispatch import receiver
+from django.contrib.auth import get_user_model
 from .models import StaffAvailability, StaffShift
+from .models import Order, OrderItem
 from notifications.models import Task
+from redis.asyncio import Redis
 
+CustomUser = get_user_model()
 # Define your model groupings
 GLOBAL_MODELS = ["customuser", "company"]  # Models managed at a global level
 SCOPED_MODELS = ["restaurant"]  # Models managed at a restaurant level
@@ -85,8 +89,12 @@ def cleanup_unused_permissions_and_groups():
         if permission.codename not in defined_permissions:
             permission.delete()
 
+@receiver(post_save, sender=CustomUser)
+def invalidate_user_cache(sender, instance, **kwargs):
+    redis_client = Redis.from_url('redis://localhost:6379')
+    redis_client.delete(f'user_data_{instance.id}_*')
+    redis_client.delete(f'stakeholders_*')
 
-from .models import Order, OrderItem
 
 @receiver(post_save, sender=Order)
 def handle_order_creation(sender, instance, created, **kwargs):

@@ -1,5 +1,6 @@
 import uuid
 import pytz
+import json
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.contrib.auth.models import Group
@@ -7,6 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 from django.conf import settings
 from django.db import models
+from redis.asyncio import Redis
 
 class CustomUserManager(BaseUserManager):
     async def create_user(self, email=None, username=None, phone_number=None, password=None, **extra_fields):
@@ -85,6 +87,10 @@ class CustomUser(AbstractUser):
         ('suspended', _('Suspended')),
         ('on_leave', _('On Leave')),
     )
+    preferred_language = models.CharField(max_length=10, choices=settings.LANGUAGES, default='en',
+                                help_text=_('User’s preferred language. Falls back to branch or company language.'))
+    timezone = models.CharField(max_length=50, choices=[(tz, tz) for tz in pytz.common_timezones], default='UTC',
+                                help_text=_('User’s preferred timezone. Falls back to branch timezone.'))
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', blank=True, null=True)
     role = models.CharField(max_length=30, choices=ROLE_CHOICES, blank=True, null=True)
     salary = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
@@ -93,7 +99,7 @@ class CustomUser(AbstractUser):
 
     objects = CustomUserManager()
 
-    async def get_role_value(self, role=None):
+    async def get_role_value(self, role: str = None):
         """
         Map the role string to a numeric value for comparison.
         """
@@ -111,7 +117,10 @@ class CustomUser(AbstractUser):
             'delivery_man': 11,
             'utility_worker': 12,
         }
-        return role_hierarchy.get(role or self.role, 0)  # If no role is specified, default to the instance's role
+        # return role_hierarchy.get(role or self.role, 0)  # If no role is specified, default to the instance's role
+        # Use provided role or instance's role
+        target_role = role if role is not None else getattr(self, 'role', None) 
+        return role_hierarchy.get(target_role, 0)
 
     async def manage_group(self, role, action='add'):
         """
@@ -140,11 +149,132 @@ class CustomUser(AbstractUser):
     async def remove_from_group(self, role):
         await self.manage_group(role, action='remove')
 
+    async def get_timezone_language(user_ids):
+        """
+        Bulk fetch timezones AND languages for 1+ users with caching.
+        Returns: {'user_id': {'timezone': str, 'language': str}, ...}
+        """
+        if not user_ids:
+            return {}
+
+        user_ids = [user_ids] if isinstance(user_ids, int) else list(user_ids)
+        redis = Redis.from_url('redis://localhost:6379')
+        
+        # 1. Try Redis cache for both settings
+        cache_keys = [f'user_settings_{uid}' for uid in user_ids]
+        cached = await redis.mget(cache_keys)
+        
+        # 2. Parse cached data
+        result = {}
+        missing_ids = []
+        
+        for uid, data in zip(user_ids, cached):
+            if data:
+                try:
+                    result[uid] = json.loads(data)
+                except (json.JSONDecodeError, AttributeError):
+                    missing_ids.append(uid)
+            else:
+                missing_ids.append(uid)
+        
+        # 3. Bulk fetch missing from DB
+        if missing_ids:
+            users = {u.id: u async for u in 
+                    CustomUser.objects.filter(id__in=missing_ids)
+                    .only('id', 'timezone', 'preferred_language')
+                    .prefetch_related(
+                        'restaurants',
+                        'branches',
+                        'companies',
+                        'countries'
+                    )}
+            
+            # 4. Process each missing user
+            for uid in missing_ids:
+                user = users.get(uid)
+                if not user:
+                    result[uid] = {'timezone': 'UTC', 'language': 'en'}
+                    continue
+                    
+                # Get timezone
+                tz = (user.timezone or 
+                    await _get_first_attr(user.restaurants, 'timezone') or
+                    await _get_first_attr(user.branches, 'timezone') or
+                    await _get_first_attr(user.countries, 'timezone') or
+                    'UTC')
+                
+                # Get language
+                lang = (user.preferred_language or
+                    await _get_first_attr(user.restaurants, 'default_language') or
+                    await _get_first_attr(user.branches, 'default_language') or
+                    await _get_first_attr(user.companies, 'default_language') or
+                    await _get_first_attr(user.countries, 'default_language') or
+                    'en')
+                
+                result[uid] = {'timezone': tz, 'language': lang}
+                
+                # Cache combined result
+                await redis.set(
+                    f'user_settings_{uid}',
+                    json.dumps(result[uid]),
+                    ex=3600
+                )
+        
+        return result
+
+    async def _get_first_attr(queryset, attr_name):
+        """Helper to get first item's attribute from async queryset"""
+        if item := await queryset.afirst():
+            return getattr(item, attr_name, None)
+        return None
+
+    async def get_associated_branch(self):
+        """Returns the most relevant branch based on role and relationships."""
+        cache_key = f'user_branch_{self.id}'
+        redis_client = Redis.from_url('redis://localhost:6379')
+        branch_id = await redis_client.get(cache_key)
+        if branch_id:
+            return await Branch.objects.aget(id=int(branch_id))
+
+        role_value = await self.get_role_value()
+        # Non-branch roles: company_admin, restaurant_owner, country_manager, restaurant_manager
+        if role_value <= 4 or not await self.branches.acount():
+            return None
+        
+        branch = await self.branches.afirst()
+        if branch:
+            await redis_client.set(cache_key, branch.id, ex=3600)
+        return branch
+
+    async def get_associated_restaurant(self):
+        """Returns the most relevant restaurant based on role and relationships."""
+        cache_key = f'user_restaurant_{self.id}'
+        redis_client = Redis.from_url('redis://localhost:6379')
+        restaurant_id = await redis_client.get(cache_key)
+        if restaurant_id:
+            return await Restaurant.objects.aget(id=int(restaurant_id))
+
+        role_value = await self.get_role_value()
+        if role_value in [1, 4]:  # restaurant_owner, restaurant_manager
+            # Check owner or managers fields first
+            if self.role == 'restaurant_owner':
+                restaurant = await Restaurant.objects.filter(owner=self).afirst()
+            else:  # restaurant_manager
+                restaurant = await Restaurant.objects.filter(managers=self).afirst()
+            if restaurant:
+                await redis_client.set(cache_key, restaurant.id, ex=3600)
+                return restaurant
+        # Fallback to user.restaurants
+        restaurant = await self.restaurants.afirst()
+        if restaurant:
+            await redis_client.set(cache_key, restaurant.id, ex=3600)
+        return restaurant
+
     
-    def save(self, *args, **kwargs):
+    def asave(self, *args, **kwargs):
         if not self.username:  # If username is not set
             self.username = uuid.uuid4().hex[:10]  # Generate a random username
-        super().save(*args, **kwargs)
+        super().asave(*args, **kwargs)
 
     def __str__(self):
         return self.username
@@ -152,6 +282,12 @@ class CustomUser(AbstractUser):
     class Meta:
         verbose_name = _('User')
         verbose_name_plural = _('Users')
+
+        indexes = [
+            models.Index(fields=['role']),
+            models.Index(fields=['timezone']),
+            models.Index(fields=['preferred_language']),
+        ]
 
 STATUS_CHOICES = (
     ('active', _('Active')),
@@ -167,7 +303,9 @@ class Company(models.Model):
     contact_email = models.EmailField(blank=True, null=True)
     contact_phone = models.CharField(max_length=15, blank=True, null=True)
     created_by = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="created_company")
-    # is_active = models.BooleanField(default=True)
+    default_language = models.CharField(max_length=10, choices=settings.LANGUAGES, default='en',
+                                help_text=_('Default language for the company.'))
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -237,9 +375,20 @@ class Restaurant(models.Model):
         help_text="User assigned as the manager of this restaurant",
     )
     is_active = models.BooleanField(default=True)
+    default_language = models.CharField(max_length=10, choices=settings.LANGUAGES, default=None, blank=True, null=True,
+                                help_text=_('Default language for the restaurant. Falls back to company language.'))
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="restaurant")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    async def get_effective_language(self):
+        """Returns restaurant’s language or falls back to company or country."""
+        if self.default_language:
+            return self.default_language
+        if self.company:
+            return self.company.default_language
+        country = await Country.objects.filter(restaurants=self).afirst()
+        return country.default_language if country else 'en'
 
     def __str__(self):
         return self.name
@@ -259,16 +408,25 @@ class Branch(models.Model):
     )
     is_active = models.BooleanField(default=True)
     timezone = models.CharField(max_length=50, choices=[(tz, tz) for tz in pytz.common_timezones], default='UTC')
+    default_language = models.CharField(max_length=10, choices=settings.LANGUAGES, default=None, blank=True, null=True,
+                                help_text=_('Default language for the branch. Falls back to restaurant or company language.'))
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="branch")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    def __str__(self):
-        return f"{self.name} - Restau#{self.restaurant_id}"
-
+    async def get_effective_language(self):
+        """Returns branch’s language or falls back to restaurant/company language."""
+        if self.default_language:
+            return self.default_language
+        restaurant = await Restaurant.objects.aget(id=self.restaurant_id)
+        return await restaurant.get_effective_language()
+    
     def local_now(self):
         """Get current time in branch's timezone."""
         return timezone.localtime(timezone.now(), pytz.timezone(self.timezone))
+    
+    def __str__(self):
+        return f"{self.name} - Restau#{self.restaurant_id}"
 
 
 class Menu(models.Model):
