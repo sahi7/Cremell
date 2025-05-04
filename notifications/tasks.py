@@ -236,16 +236,22 @@ def send_notification_task(
     template_name = 'emails/critical_alert.html' if user_data['role_value'] <= 5 else 'emails/general_notification.html'
     
     # Run async render_notification_template
-    email_body = asyncio.run(render_notification_template(user_data, message, template_name))
+    html_content = asyncio.run(render_notification_template(user_data, message, template_name))
     
-    # Send email (using sync send_mail for simplicity; see below for async alternative)
-    send_mail(
+    # Create plain text fallback
+    from django.utils.html import strip_tags
+    plain_content = strip_tags(html_content)
+    
+    # Send email with both versions
+    from django.core.mail import EmailMultiAlternatives
+    email = EmailMultiAlternatives(
         subject=subject,
-        message=email_body,
+        body=plain_content,  # Plain text version (required)
         from_email='vtuyyf@gmail.com',
-        recipient_list=[user_data['email']],
-        html_message=email_body,
+        to=[user_data['email']],
     )
+    email.attach_alternative(html_content, "text/html")  # HTML version
+    email.send(fail_silently=False)
 
 @shared_task
 def send_batch_notifications(

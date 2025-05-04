@@ -569,14 +569,14 @@ class StaffShift(models.Model):
             models.Index(fields=['user', 'start_datetime', 'end_datetime']),
         ]
 
-    def save(self, *args, **kwargs):
+    def asave(self, *args, **kwargs):
         """Compute UTC datetimes from branch local time."""
         branch_tz = pytz.timezone(self.shift.branch.timezone)
         naive_start = timezone.datetime.combine(self.date, self.shift.start_time)
         naive_end = timezone.datetime.combine(self.date, self.shift.end_time)
         self.start_datetime = branch_tz.localize(naive_start).astimezone(pytz.UTC)
         self.end_datetime = branch_tz.localize(naive_end).astimezone(pytz.UTC)
-        super().save(*args, **kwargs)
+        super().asave(*args, **kwargs)
 
     def is_active(self):
         """Check if shift is active in UTC time."""
@@ -592,12 +592,12 @@ class StaffShift(models.Model):
             self.is_overtime_approved
         )
 
-    def extend_overtime(self, extra_hours):
+    async def extend_overtime(self, extra_hours):
         """Extend shift with overtime, storing in UTC."""
         if not self.overtime_end_datetime:
             self.overtime_end_datetime = self.end_datetime + timezone.timedelta(hours=extra_hours)
             self.is_overtime_approved = True
-            self.save()
+            await self.asave()
 
     def __str__(self):
         return f"{self.user.username} - {self.shift.name} on {self.date}"
@@ -617,23 +617,23 @@ class StaffAvailability(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='offline')
     last_update = models.DateTimeField(auto_now=True)
 
-    def current_shift(self):
+    async def current_shift(self):
         """Get the user's current active shift."""
-        return StaffShift.objects.filter(
+        return await StaffShift.objects.filter(
             user=self.user,
             start_datetime__lte=timezone.now(),
             end_datetime__gte=timezone.now()
-        ).first()
+        ).afirst()
 
-    def update_status(self):
+    async def update_status(self):
         """Update status based on shift and task state."""
-        shift = self.current_shift()
+        shift = await self.current_shift()
         now = timezone.now()
         if not shift:
-            recent_shift = StaffShift.objects.filter(
+            recent_shift = await StaffShift.objects.filter(
                 user=self.user,
                 end_datetime__lt=now
-            ).order_by('-end_datetime').first()
+            ).order_by('-end_datetime').afirst()
             if (
                 recent_shift and
                 self.current_task and
@@ -651,7 +651,7 @@ class StaffAvailability(models.Model):
             self.status = 'available'
         else:
             self.status = 'offline'
-        self.save()
+        await self.asave()
 
     def __str__(self):
         return f"{self.user.username} - {self.status}"
@@ -666,12 +666,12 @@ class OvertimeRequest(models.Model):
     requested_at = models.DateTimeField(default=timezone.now)
     manager_response_at = models.DateTimeField(null=True, blank=True)
 
-    def approve(self):
+    async def approve(self):
         """Manager approves the request."""
         self.is_approved = True
         self.manager_response_at = timezone.now()
-        self.staff_shift.extend_overtime(self.requested_hours)
-        self.save()
+        await self.staff_shift.extend_overtime(self.requested_hours)
+        await self.asave()
 
     def __str__(self):
         return f"{self.staff_shift.user.username} - {self.requested_hours} hours"

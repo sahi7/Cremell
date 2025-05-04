@@ -26,14 +26,14 @@ class Task(models.Model):
     timeout_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
 
-    def save(self, *args, **kwargs):
+    async def asave(self, *args, **kwargs):
         # Auto-calculate timings
         if self.status == 'completed':
             if self.task_type == 'prepare':
                 self.preparation_time = timezone.now() - self.created_at
             elif self.task_type == 'serve':
                 self.delivery_time = timezone.now() - self.created_at
-        super().save(*args, **kwargs)
+        await super().asave(*args, **kwargs)
 
     class Meta:
         indexes = [

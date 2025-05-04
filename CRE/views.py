@@ -570,7 +570,7 @@ class StaffShiftViewSet(ModelViewSet):
     #     return self.queryset.filter(user=self.request.user)
 
     @action(detail=False, methods=['post'], url_path='extend-overtime')
-    def extend_overtime(self, request):
+    async def extend_overtime(self, request):
         """Manager extends overtime for one or multiple users."""
         user_ids = request.data.get('user_ids', [])  # List of user IDs
         hours = request.data.get('hours', 1.0)
@@ -578,12 +578,12 @@ class StaffShiftViewSet(ModelViewSet):
             return Response({'error': 'No users specified'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Filter shifts by user's manageable branches
-        shifts = StaffShift.objects.filter(
+        shifts = await StaffShift.objects.filter(
             user__id__in=user_ids,
             shift__branch__in=request.user.branches.all(),
             end_datetime__gte=timezone.now()
         )
-        if not shifts.exists():
+        if not await shifts.aexists():
             return Response({'error': 'No valid shifts found'}, status=status.HTTP_404_NOT_FOUND)
 
         channel_layer = get_channel_layer()
