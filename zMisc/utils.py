@@ -222,7 +222,10 @@ async def get_user_data(user_id: int, branch_id: int = None, company_id: int = N
 async def render_notification_template(user_data: dict, message: str, template_name: str, extra_context: dict = None) -> str:
     """Render notification template with user’s language and timezone."""
     user_tz = pytz.timezone(user_data['timezone'])
-    localized_timestamp = timezone.localtime(timezone.now(), user_tz).strftime('%Y-%m-%d %H:%M:%S %Z')
+    localized_timestamp = timezone.localtime(timezone.now(), user_tz)
+    # localized_timestamp = timezone.localtime(timezone.now(), user_tz).strftime('%Y-%m-%d %H:%M:%S %Z')
+    print("user_tz: ", user_tz)
+    print("localized_timestamp: ", localized_timestamp)
     
     # Base required context
     context = {

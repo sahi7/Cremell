@@ -58,10 +58,10 @@ def finalize_deletion(self, object_type, object_id, user_id):
         message = f"The {model_name} '{obj.name}' has been permanently deleted."
         subject = f"{model_name} Deletion Notification"
         extra_context = {
-                        'object_type': object_type,
+                        'object_type': model_name,
                         'object_name': obj.name,
                         'initiator_name': f"{user.first_name} {user.last_name}" ,
-                        'initiator_role': user.role
+                        'initiator_role': user.get_role_display()
                     }
 
         # Send notifications using reusable function
@@ -137,11 +137,11 @@ def handle_deletion_tasks(object_type, object_id, user_id, cleanup_task_id, fina
         message = f"The {model_name} '{obj.name}' has been marked for deletion."
         subject = f"{model_name} Deletion Notification"
         extra_context = {
-                        'object_type': object_type,
+                        'object_type': model_name,
                         'object_name': obj.name,
                         'finalize': finalize,
                         'initiator_name': f"{user.first_name} {user.last_name}" ,
-                        'initiator_role': user.role
+                        'initiator_role': user.get_role_display()
                     }
 
         # Send notifications using reusable function
@@ -221,10 +221,10 @@ def revert_deletion_task(self, object_type, object_id, user_id):
             message = f"The deletion for {model_name} '{obj.name}' has been reverted."
             subject = f"{model_name} Revertion Notification"
             extra_context = {
-                            'object_type': object_type,
+                            'object_type': model_name,
                             'object_name': obj.name,
                             'initiator_name': f"{user.first_name} {user.last_name}" ,
-                            'initiator_role': user.role,
+                            'initiator_role': user.get_role_display(),
                             'reverted': True 
                         }
 

@@ -214,7 +214,7 @@ def send_role_assignment_email(assignment_id, subject, message, recipient_email)
     send_mail(
         subject,
         message,
-        'from@localhost',
+        'vtuyyf@gmail.com',
         [recipient_email],
         fail_silently=False
     )
@@ -242,7 +242,7 @@ def send_notification_task(
     send_mail(
         subject=subject,
         message=email_body,
-        from_email='no-reply@restaurantapp.com',
+        from_email='vtuyyf@gmail.com',
         recipient_list=[user_data['email']],
         html_message=email_body,
     )
@@ -273,25 +273,63 @@ def send_batch_notifications(
         include_lower_roles=include_lower_roles,
         limit=limit, offset=offset
     ))
-    print("stakeholders: ", stakeholders)
+    for stakeholder in stakeholders:
+        print(f"ID: {stakeholder['id']}, Email: {stakeholder['email']}, Role: {stakeholder['role']}")
     
     # Batch emails by language and timezone to optimize rendering
     from itertools import groupby
+    from django.core import mail
+    connection = mail.get_connection()
     sorted_stakeholders = sorted(stakeholders, key=lambda x: (x['language'], x['timezone']))
-    for (lang, tz), group in groupby(sorted_stakeholders, key=lambda x: (x['language'], x['timezone'])):
-        emails = []
-        for user_data in group:
-            email_body = asyncio.run(render_notification_template(
-                user_data,
-                message,
-                template_name=template_name,
-                extra_context=extra_context
-            ))
-            emails.append((
-                subject,
-                email_body,
-                'no-reply@restaurantapp.com',
-                [user_data['email']],
-            ))
-        send_mass_mail(emails, fail_silently=False)
-    return True
+    try:
+        connection.open()
+        for (lang, tz), group in groupby(sorted_stakeholders, key=lambda x: (x['language'], x['timezone'])):
+            email_messages = []
+            
+            for user_data in group:
+                # Render HTML content (unchanged)
+                html_content = asyncio.run(render_notification_template(
+                    user_data,
+                    message,
+                    template_name=template_name,
+                    extra_context=extra_context
+                ))
+                
+                # Create plain text fallback
+                from django.utils.html import strip_tags
+                plain_content = strip_tags(html_content)
+                
+                # Create email with both versions
+                email = mail.EmailMultiAlternatives(
+                    subject=subject,
+                    body=plain_content,  # Plain text version
+                    from_email='vtuyyf@gmail.com',
+                    to=[user_data['email']],
+                    connection=connection
+                )
+                email.attach_alternative(html_content, "text/html")
+                email_messages.append(email)
+            
+            # Send batch
+            connection.send_messages(email_messages)
+            
+        return True
+    finally:
+        connection.close()
+    # for (lang, tz), group in groupby(sorted_stakeholders, key=lambda x: (x['language'], x['timezone'])):
+    #     emails = []
+    #     for user_data in group:
+    #         email_body = asyncio.run(render_notification_template(
+    #             user_data,
+    #             message,
+    #             template_name=template_name,
+    #             extra_context=extra_context
+    #         ))
+    #         emails.append((
+    #             subject,
+    #             email_body,
+    #             'vtuyyf@gmail.com',
+    #             [user_data['email']],
+    #         ))
+    #     send_mass_mail(emails, fail_silently=False)
+    # return True
