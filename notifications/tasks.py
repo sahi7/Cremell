@@ -259,7 +259,8 @@ def send_batch_notifications(
         include_lower_roles=False,
         limit=1000,
         offset=0,
-        extra_context = {}
+        extra_context = {},
+        template_name=None,
     ):
     """Send notifications to stakeholders in a specific scope."""
     # Run async get_stakeholders
@@ -283,7 +284,7 @@ def send_batch_notifications(
             email_body = asyncio.run(render_notification_template(
                 user_data,
                 message,
-                template_name='emails/object_deleted.html',
+                template_name=template_name,
                 extra_context=extra_context
             ))
             emails.append((
@@ -293,5 +294,4 @@ def send_batch_notifications(
                 [user_data['email']],
             ))
         send_mass_mail(emails, fail_silently=False)
-
     return True

@@ -1,6 +1,7 @@
 import pytz
 import json
 import logging
+from typing import Any
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
 from redis.asyncio import Redis
@@ -83,6 +84,67 @@ def validate_role(role_to_create):
     available_roles = {role for role, _ in CustomUser.ROLE_CHOICES}
     return role_to_create in available_roles
 
+def send_del_notification(
+        model_name: str,
+        obj: Any,
+        message: str,
+        subject: str,
+        extra_context: Dict[str, Any],
+        template_name: str = "emails/object_deleted.html",
+        max_role_value: int = 5,
+        include_lower_roles: bool = False
+    ) -> None:
+    """
+    Send deletion notifications to stakeholders for a given object.
+    
+    Args:
+        model_name: The name of the model (e.g., 'Branch', 'Restaurant', 'Company', 'Country').
+        obj: The model instance being deleted.
+        message: The notification message.
+        subject: The email subject.
+        extra_context: Additional context for the email template.
+        template_name: The template to use for rendering the email.
+        max_role_value: Maximum role value for stakeholder filtering.
+        include_lower_roles: Whether to include roles with higher numeric values.
+    """
+    from notifications.tasks import send_batch_notifications
+    # Determine scope for stakeholders
+    company_id = None
+    restaurant_id = None
+    branch_id = None
+    country_id = None
+    object_id = obj.id
+
+    if model_name == 'Branch':
+        branch_id = object_id
+        restaurant_id = getattr(obj, 'restaurant_id', None)
+        country_id = getattr(obj, 'country_id', None)
+        # Handle both company-owned and standalone restaurants
+        company_id = getattr(obj.restaurant, 'company_id', None) if hasattr(obj, 'restaurant') and obj.restaurant else None
+    elif model_name == 'Restaurant':
+        restaurant_id = object_id
+        country_id = getattr(obj, 'country_id', None)
+        company_id = getattr(obj, 'company_id', None)
+    elif model_name == 'Company':
+        company_id = object_id
+    elif model_name == 'Country':
+        country_id = object_id
+    else:
+        raise ValueError(f"Unsupported model_name: {model_name}")
+
+    # Trigger notification task
+    send_batch_notifications.delay(
+        company_id=company_id,
+        restaurant_id=restaurant_id,
+        branch_id=branch_id,
+        country_id=country_id,
+        message=message,
+        subject=subject,
+        extra_context=extra_context,
+        template_name=template_name,
+        # max_role_value=max_role_value,
+        # include_lower_roles=include_lower_roles
+    )
 
 async def compare_role_values(user, role_to_create):
     """

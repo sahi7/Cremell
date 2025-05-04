@@ -9,7 +9,7 @@ from celery import shared_task
 
 from .utils import get_object_graph
 from .models import DeletedObject, ObjectHistory
-from notifications.tasks import send_batch_notifications
+from zMisc.utils import send_del_notification
 import logging
 
 CustomUser = get_user_model()
@@ -47,6 +47,7 @@ def finalize_deletion(self, object_type, object_id, user_id):
                 user_id=user_id,
                 details='Deletion permanently removed'
             )
+        app_label, model_name = object_type.split('.')
             
         return True
             
@@ -115,40 +116,51 @@ def handle_deletion_tasks(object_type, object_id, user_id, cleanup_task_id, fina
                         'initiator_name': f"{user.first_name} {user.last_name}" ,
                         'initiator_role': user.role
                     }
-        # Determine scope for stakeholders
-        company_id = None
-        restaurant_id = None
-        branch_id = None
-        country_id = None
+        # # Determine scope for stakeholders
+        # company_id = None
+        # restaurant_id = None
+        # branch_id = None
+        # country_id = None
 
-        if model_name == 'Branch':
-            branch_id = object_id
-            restaurant_id = obj.restaurant_id
-            country_id = obj.country_id
-            # Handle both company-owned and standalone restaurants
-            company_id = getattr(obj.restaurant, 'company_id', None)
-        elif model_name == 'Restaurant':
-            restaurant_id = object_id
-            country_id = obj.country_id
-            # Handle standalone restaurants (company_id may be None)
-            company_id = getattr(obj, 'company_id', None)
-        elif model_name == 'Company':
-            company_id = object_id
-        elif model_name == 'Country':
-            country_id = object_id
-        # Send notifications to stakeholders
-        send_batch_notifications.delay(
-            company_id=company_id,
-            restaurant_id=restaurant_id,
-            branch_id=branch_id,
-            country_id=country_id,
+        # if model_name == 'Branch':
+        #     branch_id = object_id
+        #     restaurant_id = obj.restaurant_id
+        #     country_id = obj.country_id
+        #     # Handle both company-owned and standalone restaurants
+        #     company_id = getattr(obj.restaurant, 'company_id', None)
+        # elif model_name == 'Restaurant':
+        #     restaurant_id = object_id
+        #     country_id = obj.country_id
+        #     # Handle standalone restaurants (company_id may be None)
+        #     company_id = getattr(obj, 'company_id', None)
+        # elif model_name == 'Company':
+        #     company_id = object_id
+        # elif model_name == 'Country':
+        #     country_id = object_id
+        # # Send notifications to stakeholders
+        # send_batch_notifications.delay(
+        #     company_id=company_id,
+        #     restaurant_id=restaurant_id,
+        #     branch_id=branch_id,
+        #     country_id=country_id,
+        #     message=message,
+        #     subject=subject,
+        #     # max_role_value=12,  # All roles 
+        #     # include_lower_roles=True,
+        #     extra_context=extra_context,
+        #     template_name='emails/object_deleted.html',
+        # )
+        # Send notifications using reusable function
+        send_del_notification(
+            model_name=model_name,
+            obj=obj,
             message=message,
             subject=subject,
+            extra_context=extra_context,
+            template_name='emails/object_deleted.html',
             # max_role_value=12,  # All roles 
-            # include_lower_roles=True,
-            extra_context=extra_context
+            # include_lower_roles=True, 
         )
-        logger.info(f"Notified stakeholders for {object_type} {object_id}")
         return True
     except Exception as e:
         logger.error(f"Error in handle_deletion_tasks for {object_type} {object_id}: {str(e)}")

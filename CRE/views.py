@@ -304,7 +304,7 @@ class RestaurantViewSet(ModelViewSet):
         # Schedule finalization
         finalize = timezone.now() + timezone.timedelta(hours=24)
         finalize_task  = finalize_deletion.apply_async(
-            args=['Restaurant', restaurant.id],
+            args=['Restaurant', restaurant.id, request.user.id],
             eta=finalize
         )
         print(f"Scheduled finalization for Restaurant {restaurant.id} at {finalize}")
