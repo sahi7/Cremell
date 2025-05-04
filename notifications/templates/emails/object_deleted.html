@@ -2,30 +2,74 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>{% trans "{{ object_name }} Deletion Notification" %}</title>
+    <title>
+        {% if finalize %}
+            {% trans "Pending Deletion Notification" %}
+        {% elif reverted %}
+            {% trans "Deletion Reverted Notification" %}
+        {% else %}
+            {% trans "Deletion Completed Notification" %}
+        {% endif %}
+    </title>
     <style>
-        body { font-family: Arial, sans-serif; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #f8f8f8; padding: 10px; text-align: center; }
-        .alert { color: #d9534f; font-weight: bold; }
+        body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e1e1e1; border-radius: 8px; }
+        .header { padding: 15px 0; border-bottom: 1px solid #e1e1e1; margin-bottom: 20px; }
+        .alert { color: #d9534f; font-weight: 600; margin-bottom: 20px; }
+        .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #e1e1e8; font-size: 0.9em; color: #666; }
+        .action-card { background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 15px 0; }
+        .action-title { font-weight: 600; margin-bottom: 10px; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>{% trans "Hello" %} {{ user_name }},</h1>
+            <h2>{{ organization_name }}</h2>
         </div>
-        <p class="alert">
-            {% blocktrans with object_type=object_type object_name=object_name %}
-            The {{ object_type }} "{{ object_name }}" has been deleted.
-            {% endblocktrans %}
-        </p>
-        <p>
-            {% trans "Action initiated by" %}: {{ initiator_name }} ({{ initiator_role }})
-        </p>
-        <p>{% trans "Details" %}: {{ message }}.This action can be reverted within now and {{ finalize }}</p>
-        <p>{% trans "Sent at" %}: {{ localized_timestamp }}</p>
-        <p>{% trans "Thank you" %},<br>{{ organization_name }}</p>
+
+        <div class="action-card">
+            <div class="action-title">
+                {% if finalize %}
+                    {% trans "Pending Deletion Notice" %}
+                {% elif reverted %}
+                    {% trans "Deletion Reverted" %}
+                {% else %}
+                    {% trans "Deletion Completed" %}
+                {% endif %}
+            </div>
+            
+            <p>
+                {% if finalize %}
+                    {% blocktrans with object_type=object_type object_name=object_name %}
+                    The <strong>{{ object_type }}</strong> "<strong>{{ object_name }}</strong>" has been marked for deletion.
+                    {% endblocktrans %}
+                {% elif reverted %}
+                    {% blocktrans with object_type=object_type object_name=object_name %}
+                    The deletion for <strong>{{ object_type }}</strong> "<strong>{{ object_name }}</strong>" has been reverted.
+                    {% endblocktrans %}
+                {% else %}
+                    {% blocktrans with object_type=object_type object_name=object_name %}
+                    The <strong>{{ object_type }}</strong> "<strong>{{ object_name }}</strong>" has been permanently deleted.
+                    {% endblocktrans %}
+                {% endif %}
+            </p>
+        </div>
+
+        <div class="details">
+            <p><strong>{% trans "Action initiated by" %}:</strong> {{ initiator_name }} ({{ initiator_role }})</p>
+            
+            {% if finalize %}
+                <p><strong>{% trans "Pending until" %}:</strong> {{ finalize|date:"DATETIME_FORMAT" }}</p>
+                <p>{% trans "This action can be reverted before the specified date." %}</p>
+            {% endif %}
+            
+            <p><strong>{% trans "Timestamp" %}:</strong> {{ localized_timestamp|date:"DATETIME_FORMAT" }}</p>
+        </div>
+
+        <div class="footer">
+            <p>{% trans "This is an automated notification. Please do not reply to this email." %}</p>
+            <p>{% trans "Thank you," %}<br>{{ organization_name }}</p>
+        </div>
     </div>
 </body>
 </html>

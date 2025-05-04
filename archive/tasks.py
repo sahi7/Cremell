@@ -47,7 +47,34 @@ def finalize_deletion(self, object_type, object_id, user_id):
                 user_id=user_id,
                 details='Deletion permanently removed'
             )
+        
+        try:
+            user = CustomUser.objects.get(id=user_id)
+        except CustomUser.DoesNotExist:
+            ValueError(f"No user matching ID for: {user_id}")
         app_label, model_name = object_type.split('.')
+
+        # Prepare notification details
+        message = f"The {model_name} '{obj.name}' has been permanently deleted."
+        subject = f"{model_name} Deletion Notification"
+        extra_context = {
+                        'object_type': object_type,
+                        'object_name': obj.name,
+                        'initiator_name': f"{user.first_name} {user.last_name}" ,
+                        'initiator_role': user.role
+                    }
+
+        # Send notifications using reusable function
+        send_del_notification(
+            model_name=model_name,
+            obj=obj,
+            message=message,
+            subject=subject,
+            extra_context=extra_context,
+            template_name='emails/object_deleted.html',
+            # max_role_value=12,  # All roles 
+            # include_lower_roles=True, 
+        )
             
         return True
             
@@ -116,40 +143,7 @@ def handle_deletion_tasks(object_type, object_id, user_id, cleanup_task_id, fina
                         'initiator_name': f"{user.first_name} {user.last_name}" ,
                         'initiator_role': user.role
                     }
-        # # Determine scope for stakeholders
-        # company_id = None
-        # restaurant_id = None
-        # branch_id = None
-        # country_id = None
 
-        # if model_name == 'Branch':
-        #     branch_id = object_id
-        #     restaurant_id = obj.restaurant_id
-        #     country_id = obj.country_id
-        #     # Handle both company-owned and standalone restaurants
-        #     company_id = getattr(obj.restaurant, 'company_id', None)
-        # elif model_name == 'Restaurant':
-        #     restaurant_id = object_id
-        #     country_id = obj.country_id
-        #     # Handle standalone restaurants (company_id may be None)
-        #     company_id = getattr(obj, 'company_id', None)
-        # elif model_name == 'Company':
-        #     company_id = object_id
-        # elif model_name == 'Country':
-        #     country_id = object_id
-        # # Send notifications to stakeholders
-        # send_batch_notifications.delay(
-        #     company_id=company_id,
-        #     restaurant_id=restaurant_id,
-        #     branch_id=branch_id,
-        #     country_id=country_id,
-        #     message=message,
-        #     subject=subject,
-        #     # max_role_value=12,  # All roles 
-        #     # include_lower_roles=True,
-        #     extra_context=extra_context,
-        #     template_name='emails/object_deleted.html',
-        # )
         # Send notifications using reusable function
         send_del_notification(
             model_name=model_name,
@@ -216,6 +210,35 @@ def revert_deletion_task(self, object_type, object_id, user_id):
             deleted_obj.reverted_by_id = user_id
             deleted_obj.reverted_at = timezone.now()
             deleted_obj.save()
+
+            try:
+                user = CustomUser.objects.get(id=user_id)
+            except CustomUser.DoesNotExist:
+                ValueError(f"No user matching ID for: {user_id}")
+            app_label, model_name = object_type.split('.')
+
+            # Prepare notification details
+            message = f"The deletion for {model_name} '{obj.name}' has been reverted."
+            subject = f"{model_name} Revertion Notification"
+            extra_context = {
+                            'object_type': object_type,
+                            'object_name': obj.name,
+                            'initiator_name': f"{user.first_name} {user.last_name}" ,
+                            'initiator_role': user.role,
+                            'reverted': True 
+                        }
+
+            # Send notifications using reusable function
+            send_del_notification(
+                model_name=model_name,
+                obj=obj,
+                message=message,
+                subject=subject,
+                extra_context=extra_context,
+                template_name='emails/object_deleted.html',
+                # max_role_value=12,  # All roles 
+                # include_lower_roles=True, 
+            )
             
             return True
             

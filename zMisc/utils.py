@@ -84,7 +84,7 @@ def validate_role(role_to_create):
     available_roles = {role for role, _ in CustomUser.ROLE_CHOICES}
     return role_to_create in available_roles
 
-def send_del_notification(
+def  send_del_notification(
         model_name: str,
         obj: Any,
         message: str,

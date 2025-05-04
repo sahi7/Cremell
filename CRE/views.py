@@ -422,7 +422,7 @@ class BranchViewSet(ModelViewSet):
         await sync_to_async(self.check_object_permissions)(request, branch)
         
         # Schedule finalization
-        finalize = timezone.now() + timezone.timedelta(hours=0.2)
+        finalize = timezone.now() + timezone.timedelta(minutes=2)
         finalize_task  = finalize_deletion.apply_async(
             args=[f'{app_label}.{model_name}', branch.id, request.user.id],
             eta=finalize
