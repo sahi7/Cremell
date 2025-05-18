@@ -6,11 +6,10 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from CRE.models import CustomUser, StaffAvailability
 from .models import Task, BranchActivity, EmployeeTransfer
-from .tasks import process_transfer
 
 @receiver(post_save, sender=Task)
 def broadcast_task_update(sender, instance, **kwargs):
-    from .consumers import broadcast_to_channel
+    from .tasks import broadcast_to_channel
     broadcast_to_channel.delay(
         instance.order.branch_id,
         'task_update',
@@ -52,7 +51,7 @@ def update_staff_availability(sender, instance, **kwargs):
             }
         )
 
-@receiver(pre_save, sender=StaffAvailability)
+@receiver(pre_save, sender=StaffAvailability) # TOD0: CHeck if there is a way to know when user is in overtime than running this signal everytime the user 'availability' is updated
 def handle_shift_overtime(sender, instance, **kwargs):
     if instance.current_shift and not instance.current_shift.is_overtime:
         if timezone.now() > instance.current_shift.end_time:

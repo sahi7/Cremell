@@ -10,7 +10,8 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group
 from django.db import transaction
-from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState, Branch, Menu, MenuCategory, MenuItem, StaffShift, OvertimeRequest, StaffAvailability
+# from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState, Branch, Menu, MenuCategory, MenuItem, StaffShift, OvertimeRequest, StaffAvailability
+from .models import *
 from .tasks import log_activity
 # from zMisc.utils import log_activity
 
@@ -339,6 +340,94 @@ class BranchMenuSerializer(ModelSerializer):
     class Meta:
         model = Branch
         fields = ['id', 'name', 'menus']
+
+class ShiftSerializer(ModelSerializer):
+    """Serializer for Shift model with async validation."""
+    branch_id = serializers.PrimaryKeyRelatedField(
+        queryset=Branch.objects.all(), source='branch', write_only=True
+    )
+
+    class Meta:
+        model = Shift
+        fields = ['id', 'branch_id', 'name', 'start_time', 'end_time']
+        read_only_fields = ['id']
+
+    def validate(self, attrs):
+        """Validate shift times and prevent overlaps."""
+        start_time = attrs.get('start_time')
+        end_time = attrs.get('end_time')
+
+        if start_time >= end_time:
+            raise serializers.ValidationError({
+                'start_time': 'Start time must be before end time.'
+            })
+
+        return attrs
+    
+class ShiftPatternConfigSerializer(serializers.Serializer):
+    """Dynamic serializer for pattern config validation"""
+    def validate(self, data):
+        pattern_type = self.context.get('pattern_type')
+        
+        if pattern_type == ShiftPattern.PatternType.ROLE_BASED:
+            if not isinstance(data.get('default_shift'), int):
+                raise serializers.ValidationError("Role-based requires numeric default_shift")
+            if 'exceptions' in data:
+                if not isinstance(data['exceptions'].get('days'), list):
+                    raise serializers.ValidationError("Exceptions days must be a list")
+                if not isinstance(data['exceptions'].get('shift'), int):
+                    raise serializers.ValidationError("Exceptions shift must be numeric")
+        
+        elif pattern_type == ShiftPattern.PatternType.USER_SPECIFIC:
+            if not isinstance(data.get('fixed_schedule'), list):
+                raise serializers.ValidationError("User-specific requires fixed_schedule list")
+            for entry in data['fixed_schedule']:
+                if not isinstance(entry.get('day'), str):
+                    raise serializers.ValidationError("Schedule entries require day string")
+        
+        elif pattern_type == ShiftPattern.PatternType.ROTATING:
+            if not isinstance(data.get('cycle_length'), int) or data['cycle_length'] <= 0:
+                raise serializers.ValidationError("Rotating requires positive cycle_length")
+            if not isinstance(data.get('pattern'), list):
+                raise serializers.ValidationError("Rotating requires pattern list")
+            for week in data['pattern']:
+                if not isinstance(week.get('shifts'), list):
+                    raise serializers.ValidationError("Week entries require shifts list")
+        
+        elif pattern_type == ShiftPattern.PatternType.HYBRID:
+            if not isinstance(data.get('components'), list):
+                raise serializers.ValidationError("Hybrid requires components list")
+            for component in data['components']:
+                if not component.get('type') in ['ROLE_BASED', 'USER_SPECIFIC', 'ROTATING', 'AD_HOC']:
+                    raise serializers.ValidationError("Invalid component type")
+        
+        return data
+
+class ShiftPatternSerializer(serializers.ModelSerializer):
+    config = serializers.JSONField(binary=True)
+    
+    class Meta:
+        model = ShiftPattern
+        fields = '__all__'
+        extra_kwargs = {
+            'priority': {'min_value': 1, 'max_value': 1000},
+            'active_from': {'required': True},
+            'user': {'required': False}
+        }
+    
+    def validate(self, data):
+        # Validate at least one target exists
+        if not data.get('user') and not data.get('role'):
+            raise serializers.ValidationError("Must specify either user or role")
+        
+        # Validate config against pattern type
+        config_serializer = ShiftPatternConfigSerializer(
+            data=data.get('config', {}),
+            context={'pattern_type': data.get('pattern_type')}
+        )
+        config_serializer.is_valid(raise_exception=True)
+        
+        return data
 
 class StaffShiftSerializer(ModelSerializer):
     class Meta:

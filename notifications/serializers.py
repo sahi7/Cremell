@@ -1,7 +1,8 @@
 from adrf.serializers import ModelSerializer
 from rest_framework import serializers
 from django.utils.translation import gettext_lazy as _
-from .models import EmployeeTransfer, TransferHistory, RoleAssignment
+from .models import *
+# from .models import EmployeeTransfer, TransferHistory, RoleAssignment 
 
 class TransferSerializer(ModelSerializer):
     initiated_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
@@ -72,3 +73,8 @@ class RoleAssignmentSerializer(ModelSerializer):
         else:
             self.instance = await self.acreate(validated_data)
         return self.instance
+    
+class ShiftAssignmentLogSerializer(ModelSerializer):
+    class Meta:
+        model = ShiftAssignmentLog
+        fields = '__all__'

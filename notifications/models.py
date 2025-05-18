@@ -152,6 +152,16 @@ class BranchActivity(models.Model):
 
     def __str__(self):
         return f"{self.get_activity_type_display()} @ {self.timestamp}"
+    
+
+class ShiftAssignmentLog(models.Model):
+    """Audit trail for all auto-assignments"""
+    branch = models.ForeignKey('CRE.Branch', on_delete=models.CASCADE)
+    date = models.DateField()
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    shift = models.ForeignKey('CRE.Shift', on_delete=models.CASCADE)
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    pattern = models.ForeignKey('CRE.ShiftPattern', null=True, on_delete=models.SET_NULL)
 
 
 class EmployeeTransfer(models.Model):

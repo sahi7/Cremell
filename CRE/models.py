@@ -2,6 +2,8 @@ import uuid
 import pytz
 import json
 
+from typing import List, Union
+from django.core.cache import cache
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.contrib.auth.models import Group
 from django.utils.translation import gettext_lazy as _
@@ -271,10 +273,10 @@ class CustomUser(AbstractUser):
         return restaurant
 
     
-    def asave(self, *args, **kwargs):
+    async def asave(self, *args, **kwargs):
         if not self.username:  # If username is not set
             self.username = uuid.uuid4().hex[:10]  # Generate a random username
-        super().asave(*args, **kwargs)
+        await super().asave(*args, **kwargs)
 
     def __str__(self):
         return self.username
@@ -421,9 +423,68 @@ class Branch(models.Model):
         restaurant = await Restaurant.objects.aget(id=self.restaurant_id)
         return await restaurant.get_effective_language()
     
-    def local_now(self):
-        """Get current time in branch's timezone."""
-        return timezone.localtime(timezone.now(), pytz.timezone(self.timezone))
+    async def get_active_users(
+        self,
+        return_instances: bool = False,
+        roles: list[str] | None = None,
+        only_fields: list[str] | None = None,
+        order_by: list[str] | None = None,
+    ) -> List[Union[int, 'CustomUser']]:
+        """
+        Get active users with single-query efficiency.
+
+        Args:
+            return_instances: Return full instances or just IDs
+            roles: Filter by role names
+            only_fields: Fields to select (when return_instances=True)
+            order_by: Fields to order by
+
+        Returns:
+            List of IDs or User instances
+
+        Examples:
+            # Get IDs with role filter
+            user_ids = await branch.get_active_users(roles=['cashier'])
+            
+            # Get instances with field selection
+            users = await branch.get_active_users(
+                return_instances=True,
+                only_fields=['id', 'role'],
+                order_by=['id']
+            )
+        """
+        # Generate cache key
+        cache_key_parts = [
+            f"branch:{self.id}:active_users",
+            f"roles:{':'.join(sorted(roles or []))}",
+            f"fields:{':'.join(sorted(only_fields or []))}" if return_instances else "ids"
+        ]
+        cache_key = ":".join(cache_key_parts)
+
+        # Try cache
+        if cached := await cache.aget(cache_key):
+            return cached
+
+        # Build base queryset
+        queryset = self.employees.filter(is_active=True)
+        
+        # Apply filters
+        if roles:
+            queryset = queryset.filter(role__in=roles)
+        
+        # Configure return type
+        if return_instances:
+            if only_fields:
+                queryset = queryset.only(*only_fields)
+            if order_by:
+                queryset = queryset.order_by(*order_by)
+            result = [user async for user in queryset]
+        else:
+            result = [user.id async for user in queryset.only('id')]
+
+        # Cache for 5 minutes
+        await cache.aset(cache_key, result, timeout=300)
+        return result
     
     def __str__(self):
         return f"{self.name} - Restau#{self.restaurant_id}"
@@ -601,6 +662,40 @@ class StaffShift(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.shift.name} on {self.date}"
+    
+
+class ShiftPattern(models.Model):
+    class PatternType(models.TextChoices):
+        ROLE_BASED = 'RB', 'Role-Based'
+        USER_SPECIFIC = 'US', 'User-Specific'
+        ROTATING = 'RT', 'Rotating'
+        AD_HOC = 'AH', 'Ad-Hoc'
+        HYBRID = 'HY', 'Hybrid'
+    
+    # What this pattern applies to (role, user, or both)
+    role = models.CharField(max_length=30, choices=CustomUser.ROLE_CHOICES)
+    user = models.ForeignKey(CustomUser, null=True, blank=True, on_delete=models.CASCADE)
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE)
+    
+    pattern_type = models.CharField(max_length=2, choices=PatternType.choices)
+    config = models.JSONField()  # Type-specific configuration
+    priority = models.IntegerField(default=1)  # Higher overrides lower
+    
+    active_from = models.DateField()
+    active_until = models.DateField(null=True, blank=True)
+    is_temp = models.BooleanField(default=False)  # For short-term overrides
+    
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(role__isnull=False) | models.Q(user__isnull=False),
+                name='at_least_one_target'
+            )
+        ]
+        indexes = [
+            models.Index(fields=['branch', 'active_from', 'active_until']),
+            models.Index(fields=['role', 'user']),
+        ]
 
 
 class StaffAvailability(models.Model):

@@ -1,16 +1,17 @@
 import asyncio
 
-from .models import Task, EmployeeTransfer, TransferHistory
-from CRE.models import CustomUser
-from zMisc.utils import get_user_data, render_notification_template, get_stakeholders
 from asgiref.sync import async_to_sync
 from celery import shared_task
 from channels.layers import get_channel_layer
+from django.core.cache import cache
 from django.core.mail import send_mail
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ObjectDoesNotExist
-from django.core.mail import send_mass_mail
+
+from .models import Task, EmployeeTransfer, TransferHistory, ShiftAssignmentLog
+from CRE.models import CustomUser
+from zMisc.utils import get_user_data, render_notification_template, get_stakeholders
 
 @shared_task
 def monitor_task_timeouts():
@@ -339,3 +340,24 @@ def send_batch_notifications(
     #         ))
     #     send_mass_mail(emails, fail_silently=False)
     # return True
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_kwargs={'max_retries': 3},
+    acks_late=True
+)
+def log_shift_assignment(branch_id, user_id, shift_id, date, action):
+    """
+    Async task for recording shift assignments with retry logic
+    """
+    # Use cache lock to prevent duplicate logging
+    lock_key = f"shift_log_lock:{branch_id}:{user_id}:{date}"
+    with cache.lock(lock_key, timeout=60):
+        ShiftAssignmentLog.objects.create(
+            branch_id=branch_id,
+            user_id=user_id,
+            shift_id=shift_id,
+            date=date,
+            action=action
+        )

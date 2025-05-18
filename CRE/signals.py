@@ -114,7 +114,7 @@ def update_order_total(sender, instance, **kwargs):
     order.save(update_fields=['total_price', 'version'])
 
 @receiver(post_save, sender=Task)
-def update_availability_on_task_change(sender, instance, **kwargs):
+async def update_availability_on_task_change(sender, instance, **kwargs):
     """
     Update StaffAvailability when a Task is claimed or completed.
     - Links task to availability if claimed and not completed.
@@ -126,7 +126,7 @@ def update_availability_on_task_change(sender, instance, **kwargs):
             availability.current_task = instance
         elif instance.status in ('completed', 'escalated'):  # Task is done
             availability.current_task = None
-        availability.update_status()
+        await availability.update_status()
 
 @receiver(post_save, sender=StaffShift)
 def update_availability_on_shift_change(sender, instance, **kwargs):

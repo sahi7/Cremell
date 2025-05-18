@@ -164,12 +164,13 @@ async def compare_role_values(user, role_to_create):
 
 async def get_scopes_and_groups(user_id):
     # Prefetch companies, countries, and groups in one query
-    user = await CustomUser.objects.prefetch_related('companies', 'countries', 'restaurants', 'groups').aget(id=user_id)
+    user = await CustomUser.objects.prefetch_related('companies', 'countries', 'branches', 'restaurants', 'groups').aget(id=user_id)
     
     result = {
         'company': [c.id async for c in user.companies.all()], 
         'country': [c.id async for c in user.countries.all()],
         'restaurant': [c.id async for c in user.restaurants.all()],
+        'branch': [c.id async for c in user.branches.all()],
         'groups': {g.name async for g in user.groups.all()}
     }
     return result

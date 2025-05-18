@@ -1,4 +1,7 @@
+import asyncio
 import redis.asyncio as redis
+
+from typing import List, Dict
 from django.conf import settings
 from channels.layers import get_channel_layer
 from rest_framework.permissions import BasePermission
@@ -10,7 +13,7 @@ from django.apps import apps
 from django.db.models import ForeignKey
 from asgiref.sync import sync_to_async
 from CRE.tasks import log_activity
-from CRE.models import Branch, Restaurant, Country, Company
+from CRE.models import Branch, Restaurant, Country, Company, Shift
 from notifications.models import RoleAssignment
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.utils import AttributeChecker, compare_role_values, validate_role, get_scopes_and_groups
@@ -30,65 +33,222 @@ class UserCreationPermission(BasePermission):
     """
     
     # Role-specific scope definitions
+    # SCOPE_RULES = {
+    #     'company_admin': {
+    #         'requires': ['companies'],
+    #         'scopes': {
+    #             'companies': lambda user, ids: Company.objects.filter(Q(id__in=ids) & Q(id__in=user.companies.all()) & Q(status='active')).count(),
+    #             'countries': lambda user, ids: Country.objects.filter(Q(id__in=ids)).count(),
+    #             'restaurants': lambda user, ids: set(Restaurant.objects.filter( Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).values_list('id', flat=True)),
+    #             'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).count(),
+    #         },
+    #         'queryset_filters': lambda user, company_ids: CustomUser.objects.filter(
+    #             companies__id__in=company_ids
+    #         )
+    #     },
+    #     'country_manager': {
+    #         'requires': ['companies', 'countries'],
+    #         'scopes': {
+    #             'countries': lambda user, ids: Country.objects.filter(Q(id__in=set(ids) & set(user.countries.values_list('id', flat=True)))).count(),
+    #             'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=ids) & Q(country_id__in=user.countries.all()) & Q(status='active')).count(),
+    #             'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(country_id__in=user.countries.all()) & Q(status='active')).count(),
+    #         },
+    #         'queryset_filters': lambda user, company_ids, country_ids: CustomUser.objects.filter(
+    #             Q(companies__id__in=company_ids) & 
+    #             Q(countries__id__in=country_ids)
+    #         )
+    #     },
+    #     'restaurant_owner': {
+    #         'requires': ['restaurants'],
+    #         'scopes': {
+    #             'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=set(ids) & set(user.restaurants.values_list('id', flat=True))) & Q(status='active')).count(),
+    #             'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(restaurant_id__in=user.restaurants.all()) & Q(status='active')).count(),
+    #         },
+    #         'queryset_filters': lambda user, restaurant_ids: CustomUser.objects.filter(
+    #             restaurants__id__in=restaurant_ids
+    #         )
+    #     },
+    #     'restaurant_manager': {
+    #         'requires': ['restaurants'],
+    #         'scopes': {
+    #             'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=set(ids) & set(user.restaurants.values_list('id', flat=True))) & Q(status='active')).count(),
+    #             'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(restaurant_id__in=user.restaurants.all()) & Q(status='active')).count(),
+    #         },
+    #         'queryset_filters': lambda user, restaurant_ids: CustomUser.objects.filter(
+    #             Q(restaurants__id__in=restaurant_ids) |
+    #             (Q(branches__restaurant_id__in=restaurant_ids) & Q(companies__in=user.companies.all()))
+    #         )
+    #     },
+    #     'branch_manager': {
+    #         'requires': ['branches'],
+    #         'scopes': {
+    #             'branches': lambda user, ids: user.branches.filter(id__in=ids, status='active').count()
+    #         },
+    #         'queryset_filters': lambda user, branch_ids: CustomUser.objects.filter(
+    #             branches__id__in=branch_ids
+    #         )
+    #     },
+    # }
+
+    # # Singular field names for error messages
+    # FIELD_SINGULAR = { 
+    #     'companies': 'company',
+    #     'countries': 'country',
+    #     'restaurants': 'restaurant',
+    #     'branches': 'branch',
+    # }
+
+    # async def has_permission(self, request, view):
+    #     if view.action != "create":
+    #         return True
+        
+    #     user, role_to_create = request.user, request.data.get('role')
+    #     requested = {field: request.data.get(field, []) for field in ['companies', 'countries', 'restaurants', 'branches']}
+
+    #     user_role = user.role
+    #     user_role_value = await user.get_role_value()
+    #     role_value_to_create = await user.get_role_value(role_to_create)
+    #     if not user_role or user_role not in self.SCOPE_RULES or user_role_value > 5 or user_role_value >= role_value_to_create:
+    #         raise PermissionDenied(_("You do not have permission to create users."))
+
+    #     rules = self.SCOPE_RULES[user_role]
+    #     scope_checks = rules.get('scopes', {})
+
+    #     # Enforce required fields
+    #     required = rules.get('requires', [])
+    #     for field in required:
+    #         if not requested[field]:
+    #             singular_field = self.FIELD_SINGULAR.get(field, field)
+    #             raise PermissionDenied(_(f"New users must be associated with at least one {singular_field}"))
+
+    #     # Validate scopes
+    #     for field in scope_checks.keys():  # Only check defined scopes
+    #         requested_ids = requested.get(field, [])
+    #         if requested_ids:
+    #             check_func = scope_checks[field]
+    #             valid_count = await sync_to_async(check_func)(user, requested_ids)
+    #             if valid_count != len(requested_ids):
+    #                 singular_field = self.FIELD_SINGULAR.get(field, field)
+    #                 message = _(f"You can only assign {singular_field} within your scope.") if field == 'countries' else _(f"You can only assign active {singular_field} within your scope.")
+    #                 raise PermissionDenied(message)
+
+    #     # Set pending status for non-SCOPE_RULES roles without branches
+    #     request.data['status'] = 'active' if role_to_create in self.SCOPE_RULES else ('active' if requested['branches'] else 'pending')
+
+    #     return True
+
+    async def check_companies(user, ids, scopes, user_role):
+        query = Q(id__in=ids)
+        if user_role == 'company_admin':
+            query &= Q(id__in=scopes['company']) & Q(status='active')
+        else:
+            return 0
+        return await Company.objects.filter(query).acount()
+
+    async def check_countries(user, ids, scopes, user_role):
+        query = Q(id__in=ids)
+        if user_role == 'country_manager':
+            query &= Q(id__in=scopes['country'])
+        else:
+            return 0
+        return await Country.objects.filter(query).acount()
+
+    async def check_restaurants(user, ids, scopes, user_role):
+        query = Q(id__in=ids)
+        if user_role == 'company_admin':
+            query &= Q(company_id__in=scopes['company']) & Q(status='active')
+            return set(await Restaurant.objects.filter(query).avalues_list('id', flat=True))
+        elif user_role == 'country_manager':
+            query &= Q(country_id__in=scopes['country']) & Q(status='active')
+        elif user_role in ('restaurant_owner', 'restaurant_manager'):
+            query &= Q(id__in=scopes['restaurant']) & Q(status='active')
+        else:
+            return 0
+        return await Restaurant.objects.filter(query).acount()
+
+    async def check_branches(user, ids, scopes, user_role):
+        query = Q(id__in=ids)
+        if user_role == 'company_admin':
+            query &= Q(company_id__in=scopes['company']) & Q(status='active')
+        elif user_role == 'country_manager':
+            query &= Q(country_id__in=scopes['country']) & Q(status='active')
+        elif user_role in ('restaurant_owner', 'restaurant_manager'):
+            query &= Q(restaurant_id__in=scopes['restaurant']) & Q(status='active')
+        elif user_role == 'branch_manager':
+            query &= Q(id__in=scopes['branch']) & Q(status='active')
+        else:
+            return 0
+        return await Branch.objects.filter(query).acount()
+
+    # Async queryset_filters (for potential future use)
+    async def filter_company_admin_users(user, company_ids):
+        return await CustomUser.objects.filter(companies__id__in=company_ids).acount()
+
+    async def filter_country_manager_users(user, company_ids, country_ids):
+        return await CustomUser.objects.filter(
+            Q(companies__id__in=company_ids) & Q(countries__id__in=country_ids)
+        ).acount()
+
+    async def filter_restaurant_owner_users(user, restaurant_ids):
+        return await CustomUser.objects.filter(restaurants__id__in=restaurant_ids).acount()
+
+    async def filter_restaurant_manager_users(user, restaurant_ids):
+        return await CustomUser.objects.filter(
+            Q(restaurants__id__in=restaurant_ids) |
+            (Q(branches__restaurant_id__in=restaurant_ids) & Q(companies__in=user.companies.all()))
+        ).acount()
+
+    async def filter_branch_manager_users(user, branch_ids):
+        return await Branch.objects.filter(id__in=branch_ids).employees.acount()
+    # Async scope rules configuration
     SCOPE_RULES = {
         'company_admin': {
             'requires': ['companies'],
             'scopes': {
-                'companies': lambda user, ids: Company.objects.filter(Q(id__in=ids) & Q(id__in=user.companies.all()) & Q(status='active')).count(),
-                'countries': lambda user, ids: Country.objects.filter(Q(id__in=ids)).count(),
-                'restaurants': lambda user, ids: set(Restaurant.objects.filter( Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).values_list('id', flat=True)),
-                'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(company_id__in=user.companies.all()) & Q(status='active')).count(),
+                'companies': check_companies,
+                'countries': check_countries,
+                'restaurants': check_restaurants,
+                'branches': check_branches,
             },
-            'queryset_filters': lambda user, company_ids: CustomUser.objects.filter(
-                companies__id__in=company_ids
-            )
+            'queryset_filters': filter_company_admin_users
         },
         'country_manager': {
             'requires': ['companies', 'countries'],
             'scopes': {
-                'countries': lambda user, ids: Country.objects.filter(Q(id__in=set(ids) & set(user.countries.values_list('id', flat=True)))).count(),
-                'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=ids) & Q(country_id__in=user.countries.all()) & Q(status='active')).count(),
-                'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(country_id__in=user.countries.all()) & Q(status='active')).count(),
+                'countries': check_countries,
+                'restaurants': check_restaurants,
+                'branches': check_branches,
             },
-            'queryset_filters': lambda user, company_ids, country_ids: CustomUser.objects.filter(
-                Q(companies__id__in=company_ids) & 
-                Q(countries__id__in=country_ids)
-            )
+            'queryset_filters': filter_country_manager_users
         },
         'restaurant_owner': {
             'requires': ['restaurants'],
             'scopes': {
-                'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=set(ids) & set(user.restaurants.values_list('id', flat=True))) & Q(status='active')).count(),
-                'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(restaurant_id__in=user.restaurants.all()) & Q(status='active')).count(),
+                'restaurants': check_restaurants,
+                'branches': check_branches,
             },
-            'queryset_filters': lambda user, restaurant_ids: CustomUser.objects.filter(
-                restaurants__id__in=restaurant_ids
-            )
+            'queryset_filters': filter_restaurant_owner_users
         },
         'restaurant_manager': {
             'requires': ['restaurants'],
             'scopes': {
-                'restaurants': lambda user, ids: Restaurant.objects.filter(Q(id__in=set(ids) & set(user.restaurants.values_list('id', flat=True))) & Q(status='active')).count(),
-                'branches': lambda user, ids: Branch.objects.filter(Q(id__in=ids) & Q(restaurant_id__in=user.restaurants.all()) & Q(status='active')).count(),
+                'restaurants': check_restaurants,
+                'branches': check_branches,
             },
-            'queryset_filters': lambda user, restaurant_ids: CustomUser.objects.filter(
-                Q(restaurants__id__in=restaurant_ids) |
-                (Q(branches__restaurant_id__in=restaurant_ids) & Q(companies__in=user.companies.all()))
-            )
+            'queryset_filters': filter_restaurant_manager_users
         },
         'branch_manager': {
             'requires': ['branches'],
             'scopes': {
-                'branches': lambda user, ids: user.branches.filter(id__in=ids, status='active').count()
+                'branches': check_branches
             },
-            'queryset_filters': lambda user, branch_ids: CustomUser.objects.filter(
-                branches__id__in=branch_ids
-            )
+            'queryset_filters': filter_branch_manager_users
         },
     }
 
+
     # Singular field names for error messages
-    FIELD_SINGULAR = { 
+    FIELD_SINGULAR = {
         'companies': 'company',
         'countries': 'country',
         'restaurants': 'restaurant',
@@ -105,6 +265,9 @@ class UserCreationPermission(BasePermission):
         user_role = user.role
         user_role_value = await user.get_role_value()
         role_value_to_create = await user.get_role_value(role_to_create)
+        scopes = await get_scopes_and_groups(user.id)
+
+        # Basic role validation
         if not user_role or user_role not in self.SCOPE_RULES or user_role_value > 5 or user_role_value >= role_value_to_create:
             raise PermissionDenied(_("You do not have permission to create users."))
 
@@ -118,18 +281,27 @@ class UserCreationPermission(BasePermission):
                 singular_field = self.FIELD_SINGULAR.get(field, field)
                 raise PermissionDenied(_(f"New users must be associated with at least one {singular_field}"))
 
-        # Validate scopes
-        for field in scope_checks.keys():  # Only check defined scopes
+        # Validate scopes using async checks
+        for field, check_func in scope_checks.items():
             requested_ids = requested.get(field, [])
             if requested_ids:
-                check_func = scope_checks[field]
-                valid_count = await sync_to_async(check_func)(user, requested_ids)
-                if valid_count != len(requested_ids):
+                # Call the appropriate async check function
+                valid_count = await check_func(user, requested_ids, scopes, user_role)
+                
+                # Special handling for restaurants which returns a set
+                if field == 'restaurants' and isinstance(valid_count, set):
+                    missing_ids = set(requested_ids) - valid_count
+                    print("missing8: ",missing_ids, set(requested_ids) , valid_count)
+                    if missing_ids:
+                        singular_field = self.FIELD_SINGULAR.get(field, field)
+                        raise PermissionDenied(_(f"You can only assign active {singular_field} within your scope. Invalid IDs: {missing_ids}"))
+                elif valid_count != len(requested_ids):
+                    print("ccoun: ", valid_count, requested_ids, len(requested_ids))
                     singular_field = self.FIELD_SINGULAR.get(field, field)
                     message = _(f"You can only assign {singular_field} within your scope.") if field == 'countries' else _(f"You can only assign active {singular_field} within your scope.")
                     raise PermissionDenied(message)
 
-        # Set pending status for non-SCOPE_RULES roles without branches
+        # Set status based on role and branch assignments
         request.data['status'] = 'active' if role_to_create in self.SCOPE_RULES else ('active' if requested['branches'] else 'pending')
 
         return True
@@ -691,4 +863,60 @@ class DeletionPermission(BasePermission):
             print(f"Deletion permission granted for {model.__name__} {obj.id}")    
             return True
         return True
+    
+
+class ShiftPermission(BasePermission):
+    """Permission class for Shift model, checking branch scope."""
+    entity_permission = EntityUpdatePermission()
+
+    ROLE_ACTIONS: Dict[str, List[str]] = {
+        'RestaurantOwner': ['list', 'retrieve', 'create', 'update', 'partial_update', 'destroy'],
+        'RestaurantManager': ['list', 'retrieve', 'create', 'update', 'partial_update'],
+        'BranchManager': ['list', 'retrieve', 'update', 'partial_update'],
+        'CountryManager': ['list', 'retrieve', 'create', 'update'],
+        'CompanyAdmin': ['list', 'retrieve', 'create', 'update', 'partial_update', 'destroy'],
+    }
+
+    async def has_permission(self, request, view) -> bool:
+        if request.method in ['GET',]:
+            return True
+        user = request.user
+        branch = request.data.get('branches')
+        
+        end_time = request.data.get('end_time')
+        start_time = request.data.get('start_time')
+        scopes_and_groups = await get_scopes_and_groups(user.id)
+        user_groups = scopes_and_groups['groups']
+        action = view.action
+        has_permission = False
+
+        if not branch or not isinstance(branch, list) or len(branch) != 1:
+            raise PermissionDenied({
+                'branches': _('Branch[] must be specified.')
+            })     
+           
+        branch_id = int(branch[0])
+        overlapping_shifts = await Shift.objects.filter(
+            branch_id=branch_id,
+            start_time__lt=end_time,
+            end_time__gt=start_time
+        ).aexists()
+
+        if overlapping_shifts:
+            raise PermissionDenied({
+                'error': _('Shift times overlap with an existing shift.')
+            })
+
+        # Check each role the user has against the current action
+        for role, allowed_actions in self.ROLE_ACTIONS.items():
+            if role in user_groups and action in allowed_actions:
+                has_permission = True
+                break
+
+
+        return has_permission
+
+    async def has_object_permission(self, request, view, obj):
+        """Check if user can perform retrieve, update, or delete on a shift."""
+        return await self.entity_permission._is_object_in_scope(request, obj, Shift)
             

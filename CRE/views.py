@@ -1,3 +1,4 @@
+from datetime import date
 from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.utils.translation import gettext_lazy as _
@@ -25,13 +26,17 @@ from asgiref.sync import sync_to_async
 from adrf.views import APIView
 from adrf.viewsets import ModelViewSet
 
-from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer, MenuSerializer, MenuCategorySerializer
-from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
-from .models import Company, Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
+# from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer, MenuSerializer, MenuCategorySerializer
+# from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
+from .serializers import *
+from .models import *
+# from .models import Company, Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
 from archive.tasks import finalize_deletion, handle_deletion_tasks
 from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy, ScopeAccessPolicy
-from zMisc.permissions import UserCreationPermission, RestaurantPermission, BranchPermission, ObjectStatusPermission, DeletionPermission
-from zMisc.utils import validate_scope, validate_role, compare_role_values
+# from zMisc.permissions import UserCreationPermission, RestaurantPermission, BranchPermission, ObjectStatusPermission, DeletionPermission
+from zMisc.permissions import *
+from zMisc.utils import validate_scope, validate_role
+from zMisc.shiftresolver import ShiftUpdateHandler
 import logging
 
 logger = logging.getLogger(__name__)
@@ -556,48 +561,132 @@ class OrderModifyView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+class ShiftViewSet(ModelViewSet):
+    """
+    Async ViewSet for managing shift templates.
+    Endpoint: POST /api/shifts/
+    """
+    serializer_class = ShiftSerializer
+    permission_classes = (ScopeAccessPolicy, ShiftPermission, )
+    queryset = Shift.objects.all()
 
+    def get_queryset(self):
+        user = self.request.user
+        scope_filter = async_to_sync(ScopeAccessPolicy().get_queryset_scope)(user, view=self)
+        return self.queryset.filter(scope_filter)
+
+    async def create(self, request, *args, **kwargs):
+        """Create a shift with Redis caching."""
+        data = request.data.copy()
+        data['branch_id'] = int(request.data['branches'][0])
+        serializer = self.get_serializer(data=data)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        shift = Shift(**serializer.validated_data)
+        await shift.asave()
+        # Invalidate branch shifts cache
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
 class StaffShiftViewSet(ModelViewSet):
-    """API for managing staff shifts."""
+    """
+    Endpoint: POST /api/staff-shifts/
+    {
+        "user": 101,
+        "shift": 1,
+        "date": "2025-05-06"
+    }
+    """
     queryset = StaffShift.objects.all()
     serializer_class = StaffShiftSerializer
-    # permission_classes = [permissions.IsAuthenticated]
+    permission_classes = (ScopeAccessPolicy, )
 
-    # def get_queryset(self):
-    #     """Filter by user or manager role."""
-    #     if self.request.user.is_staff:  # Assuming managers have is_staff=True
-    #         return self.queryset
-    #     return self.queryset.filter(user=self.request.user)
+    async def get_queryset(self):
+        user = self.request.user
+        if user.is_staff:
+            return self.queryset
+        return self.queryset.filter(user=user)
 
-    @action(detail=False, methods=['post'], url_path='extend-overtime')
-    async def extend_overtime(self, request):
-        """Manager extends overtime for one or multiple users."""
-        user_ids = request.data.get('user_ids', [])  # List of user IDs
-        hours = request.data.get('hours', 1.0)
-        if not user_ids:
-            return Response({'error': 'No users specified'}, status=status.HTTP_400_BAD_REQUEST)
+    @action(detail=False, methods=["post"], url_path="reassign")
+    async def reassign(self, request):
+        """
+        Endpoint: POST /api/staff-shifts/reassign/
+        {
+            "staff_shift_id": 1,
+            "shift_id": 2,
+            "date": "2025-05-06"
+        }
+        """
+        staff_shift_id = request.data.get("staff_shift_id")
+        new_shift_id = request.data.get("shift_id")
+        date = request.data.get("date", timezone.now().date())
 
-        # Filter shifts by user's manageable branches
-        shifts = await StaffShift.objects.filter(
-            user__id__in=user_ids,
-            shift__branch__in=request.user.branches.all(),
-            end_datetime__gte=timezone.now()
-        )
-        if not await shifts.aexists():
-            return Response({'error': 'No valid shifts found'}, status=status.HTTP_404_NOT_FOUND)
+        staff_shift = await StaffShift.objects.aget(id=staff_shift_id)
+        new_shift = await Shift.objects.aget(id=new_shift_id)
+
+        if staff_shift.shift.branch_id != new_shift.branch_id:
+            return Response({"error": "Shifts must belong to the same branch"}, status=status.HTTP_400_BAD_REQUEST)
+        if not await request.user.branches.filter(id=new_shift.branch_id).aexists():
+            return Response({"error": "No permission for this branch"}, status=status.HTTP_403_FORBIDDEN)
+
+        from notifications.tasks import log_shift_assignment
+        with transaction.atomic():
+            staff_shift.shift_id = new_shift_id
+            staff_shift.date = date
+            await staff_shift.asave()
+
+            log_shift_assignment.delay(
+                branch_id=new_shift.branch_id,
+                user_id=staff_shift.user_id,
+                shift_id=new_shift_id,
+                date=date,
+                action="reassign"
+            )
 
         channel_layer = get_channel_layer()
-        for shift in shifts:
-            # Permission already checked by BranchRolePermission
-            shift.extend_overtime(hours)
-            async_to_sync(channel_layer.group_send)(
-                f"user_{shift.user.id}",
-                {
-                    'type': 'overtime_notification',
-                    'message': f"Your shift has been extended by {hours} hours."
-                }
-            )
-        return Response({'status': 'Overtime extended'}, status=status.HTTP_200_OK)
+        await channel_layer.group_send(
+            f"user_{staff_shift.user_id}",
+            {
+                "type": "shift_notification",
+                "message": f"Your shift on {date} has been reassigned to {new_shift.name}.",
+            }
+        )
+
+        return Response({"status": "Shift reassigned"}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["get"], url_path="upcoming")
+    async def upcoming(self, request):
+        user = request.user
+        queryset = self.queryset.filter(
+            user=user,
+            date__gte=timezone.now().date(),
+            date__lte=timezone.now().date() + timezone.timedelta(days=7)
+        )
+        serializer = self.get_serializer(await queryset.alist(), many=True)
+        return Response(serializer.data)
+    
+class ShiftPatternViewSet(ModelViewSet):
+    """
+    Endpoint: POST /api/shift-patterns/
+    """
+    queryset = ShiftPattern.objects.all()
+    serializer_class = ShiftPatternSerializer
+    permission_classes = (ScopeAccessPolicy, )
+
+    async def get_queryset(self):
+        user = self.request.user
+        if user.is_staff:
+            return self.queryset
+        return self.queryset.filter(branch__in=user.branches.all())
+
+    @action(detail=True, methods=["post"], url_path="regenerate")
+    async def regenerate(self, request, pk=None):
+        """
+        Endpoint: POST /api/shift-patterns/1/regenerate/
+        Request: {} (empty body)
+        """
+        pattern = await sync_to_async(self.get_object)()
+        await ShiftUpdateHandler.handle_pattern_change(pattern.id)
+        return Response({"status": _("Shift regeneration queued")}, status=status.HTTP_202_ACCEPTED)
 
 class OvertimeRequestViewSet(ModelViewSet):
     """API for overtime requests."""
@@ -629,3 +718,33 @@ class OvertimeRequestViewSet(ModelViewSet):
             }
         )
         return Response({'status': 'Approved'}, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=['post'], url_path='extend-overtime')
+    async def extend_overtime(self, request):
+        """Manager extends overtime for one or multiple users."""
+        user_ids = request.data.get('user_ids', [])  # List of user IDs
+        hours = request.data.get('hours', 1.0)
+        if not user_ids:
+            return Response({'error': 'No users specified'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Filter shifts by user's manageable branches
+        shifts = await StaffShift.objects.filter(
+            user__id__in=user_ids,
+            shift__branch__in=request.user.branches.all(),
+            end_datetime__gte=timezone.now()
+        )
+        if not await shifts.aexists():
+            return Response({'error': 'No valid shifts found'}, status=status.HTTP_404_NOT_FOUND)
+
+        channel_layer = get_channel_layer()
+        for shift in shifts:
+            # Permission already checked by BranchRolePermission
+            shift.extend_overtime(hours)
+            channel_layer.group_send(
+                f"user_{shift.user.id}",
+                {
+                    'type': 'overtime_notification',
+                    'message': f"Your shift has been extended by {hours} hours."
+                }
+            )
+        return Response({'status': 'Overtime extended'}, status=status.HTTP_200_OK)

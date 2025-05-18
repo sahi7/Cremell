@@ -39,6 +39,10 @@ router.register(r'menus', MenuViewSet)
 router.register(r'menu-categories', MenuCategoryViewSet)
 router.register(r'menu-items', MenuItemViewSet)
 
+router.register(r'shifts', ShiftViewSet)
+router.register(r"staff-shifts", StaffShiftViewSet, basename="staff-shift")
+router.register(r"shift-patterns", ShiftPatternViewSet, basename="shift-pattern")
+
 def api_path(route, view, name=None):
     return path(f'api/{route}', view, name=name)
 

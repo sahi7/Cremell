@@ -4,7 +4,7 @@ from django.db.models import Q
 from asgiref.sync import sync_to_async
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
-from CRE.models import Branch, Restaurant
+from CRE.models import Branch, Restaurant, Shift
 from notifications.models import EmployeeTransfer
 
 CustomUser = get_user_model()
@@ -53,6 +53,7 @@ class ScopeAccessPolicy(AccessPolicy):
     ]
 
     SCOPE_CONFIG = {
+        # TOD0: Filter status=active or is_active=true for companies, restaurants and branches checks 
         "CompanyAdmin": {
             "scopes": lambda user: {
                 'companies': set(user.companies.values_list('id', flat=True)),
@@ -62,11 +63,12 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    Shift: Q(branch__restaurant__company__in=user.companies.all()),
                     Branch: Q(company__in=user.companies.all()),
                     Restaurant: Q(company__in=user.companies.all()),
                     EmployeeTransfer: Q(from_branch__restaurant__company__in=user.companies.all()) | 
                                         Q(from_restaurant__company__in=user.companies.all()),
-                    CustomUser: Q(companies__in=user.companies.all())
+                    CustomUser: Q(companies__in=user.companies.all()),
                 }.get(model, Q(pk__in=[])) # Default: no filter if model unrecognized
             ),
         },
@@ -79,6 +81,7 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    Shift: Q(branch__restaurant__company__in=user.companies.all()) & Q(branch__restaurant__country__in=user.companies.all()) ,
                     Branch: Q(country__in=user.countries.all()),
                     Restaurant: Q(country__in=user.countries.all()),
                     EmployeeTransfer: Q(from_branch__restaurant__country__in=user.countries.all()) | 
@@ -98,6 +101,7 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    Shift: Q(branch__restaurant__in=user.restaurants.all()),
                     Branch: Q(restaurant__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(created_by=user))),
                     Restaurant: Q(id__in=user.restaurants.all()) | Q(created_by=user),
                     EmployeeTransfer: Q(from_branch__restaurant__in=user.restaurants.all()) | Q(initiated_by=user),
@@ -114,6 +118,7 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             'queryset_filter': lambda user, model: (
                 {
+                    Shift: Q(branch__restaurant__in=user.restaurants.all()),
                     Branch: Q(restaurant__in=user.restaurants.all()),
                     Restaurant: Q(id__in=user.restaurants.all()),
                     EmployeeTransfer: Q(from_branch__restaurant__in=user.restaurants.all()) | 
@@ -127,6 +132,7 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    Shift: Q(branch_id__in=user.branches.all()),
                     Branch: Q(id__in=user.branches.all()),
                     Restaurant: Q(branches__in=user.branches.all()),
                     EmployeeTransfer: Q(from_branch__in=user.branches.all()) | Q(manager=user)
