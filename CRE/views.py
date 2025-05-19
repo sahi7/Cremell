@@ -102,26 +102,17 @@ class UserViewSet(ModelViewSet):
     permission_classes = [UserCreationPermission]
 
     async def get_queryset(self):
-        # Delegate to the permission class’s async get_queryset
-        queryset = await (UserCreationPermission().get_queryset)(self.request)
-        user = self.request.user
+        # Create permission instance and set request
+        permission = UserCreationPermission()
+        permission.request = self.request
+        return await permission.get_queryset()
 
-        requester_role_value = await user.get_role_value()
-        # Async: Filter users with role >= requester's role
-        allowed_ids = []
-        async for u in queryset:
-            if await u.get_role_value() >= requester_role_value:
-                allowed_ids.append(u.id)
-
-        # Return filtered queryset (sync operation, but no coroutine conflicts)
-        return queryset.filter(id__in=allowed_ids)
-    
     async def list(self, request, *args, **kwargs):
         queryset = await self.get_queryset()
-        serializer = await sync_to_async(self.get_serializer)(queryset, many=True)
-        response_data = await sync_to_async(lambda: serializer.data)()
-        return Response(response_data)
-    
+        serializer = self.get_serializer(queryset, many=True)
+        serialized_data = await sync_to_async(lambda: serializer.data)()
+        return Response(serialized_data)
+
     async def retrieve(self, request, *args, **kwargs):
         instance = await self.get_object()
         serializer = self.get_serializer(instance)

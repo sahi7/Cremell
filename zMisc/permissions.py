@@ -181,25 +181,37 @@ class UserCreationPermission(BasePermission):
         return await Branch.objects.filter(query).acount()
 
     # Async queryset_filters (for potential future use)
-    async def filter_company_admin_users(user, company_ids):
-        return await CustomUser.objects.filter(companies__id__in=company_ids).acount()
+    async def filter_company_admin_users(self, user, allowed_roles, company_ids):
+        return CustomUser.objects.filter(
+            companies__id__in=company_ids,
+            role__in=allowed_roles
+        )
 
-    async def filter_country_manager_users(user, company_ids, country_ids):
-        return await CustomUser.objects.filter(
-            Q(companies__id__in=company_ids) & Q(countries__id__in=country_ids)
-        ).acount()
+    async def filter_country_manager_users(self, user, allowed_roles, company_ids, country_ids):
+        return CustomUser.objects.filter(
+            Q(companies__id__in=company_ids) & Q(countries__id__in=country_ids),
+            role__in=allowed_roles
+        )
 
-    async def filter_restaurant_owner_users(user, restaurant_ids):
-        return await CustomUser.objects.filter(restaurants__id__in=restaurant_ids).acount()
+    async def filter_restaurant_owner_users(self, user, allowed_roles, restaurant_ids):
+        return CustomUser.objects.filter(
+            restaurants__id__in=restaurant_ids,
+            role__in=allowed_roles
+        )
 
-    async def filter_restaurant_manager_users(user, restaurant_ids):
-        return await CustomUser.objects.filter(
+    async def filter_restaurant_manager_users(self, user, allowed_roles, restaurant_ids):
+        return CustomUser.objects.filter(
             Q(restaurants__id__in=restaurant_ids) |
-            (Q(branches__restaurant_id__in=restaurant_ids) & Q(companies__in=user.companies.all()))
-        ).acount()
+            (Q(branches__restaurant_id__in=restaurant_ids) & Q(companies__in=user.companies.all())),
+            role__in=allowed_roles
+        )
 
-    async def filter_branch_manager_users(user, branch_ids):
-        return await Branch.objects.filter(id__in=branch_ids).employees.acount()
+    async def filter_branch_manager_users(self, user, allowed_roles, branch_ids):
+        return CustomUser.objects.filter(
+            branches__id__in=branch_ids,
+            role__in=allowed_roles
+        )
+    
     # Async scope rules configuration
     SCOPE_RULES = {
         'company_admin': {
@@ -210,7 +222,7 @@ class UserCreationPermission(BasePermission):
                 'restaurants': check_restaurants,
                 'branches': check_branches,
             },
-            'queryset_filters': filter_company_admin_users
+            'queryset_filters': 'filter_company_admin_users'
         },
         'country_manager': {
             'requires': ['companies', 'countries'],
@@ -219,7 +231,7 @@ class UserCreationPermission(BasePermission):
                 'restaurants': check_restaurants,
                 'branches': check_branches,
             },
-            'queryset_filters': filter_country_manager_users
+            'queryset_filters': 'filter_country_manager_users'
         },
         'restaurant_owner': {
             'requires': ['restaurants'],
@@ -227,7 +239,7 @@ class UserCreationPermission(BasePermission):
                 'restaurants': check_restaurants,
                 'branches': check_branches,
             },
-            'queryset_filters': filter_restaurant_owner_users
+            'queryset_filters': 'filter_restaurant_owner_users'
         },
         'restaurant_manager': {
             'requires': ['restaurants'],
@@ -235,14 +247,14 @@ class UserCreationPermission(BasePermission):
                 'restaurants': check_restaurants,
                 'branches': check_branches,
             },
-            'queryset_filters': filter_restaurant_manager_users
+            'queryset_filters': 'filter_restaurant_manager_users'
         },
         'branch_manager': {
             'requires': ['branches'],
             'scopes': {
                 'branches': check_branches
             },
-            'queryset_filters': filter_branch_manager_users
+            'queryset_filters': 'filter_branch_manager_users'
         },
     }
 
@@ -309,26 +321,58 @@ class UserCreationPermission(BasePermission):
     async def _get_ids(self, relation):
         """Helper to fetch IDs asynchronously from a user relation."""
         return [item.id async for item in relation.all()]
+    
+    async def _get_allowed_roles(self, user_role_value):
+        """Get roles with role_value > user_role_value."""
+        # Instantiate CustomUser to access get_role_value
+        # user_instance = CustomUser()
+        # # Call get_role_value with a dummy role to access role_hierarchy
+        # role_hierarchy = (await user_instance.get_role_value('company_admin', return_hierarchy=True))
+        # return [role for role, _ in CustomUser.ROLE_CHOICES if role_hierarchy.get(role, 0) > user_role_value]
+        return ["cashier", "cook"]
 
-    async def get_queryset(self, request):
+    async def get_queryset(self):
         """
-        Async method to return a queryset of CustomUser objects within the requester’s scope.
+        Async method to return a queryset of CustomUser objects within the requester’s scope,
+        excluding users with role_value <= requester's role_value.
         """
-        user = request.user
-        role = user.role  # Assumes CustomUser has a 'role' field
+        user = self.request.user
+        role = user.role
+
         if role not in self.SCOPE_RULES:
-            return await sync_to_async(CustomUser.objects.none)()
+            return CustomUser.objects.none()
 
-        # Get the queryset filter for the user’s role
+        # Get the requester's role_value
+        user_role_value = await user.get_role_value()
+        print("user_role_value: ", user_role_value)
 
-        queryset_filter = self.SCOPE_RULES[role]['queryset_filters']
+        # Get the queryset filter function and required relations
+        filter_func_name = self.SCOPE_RULES[role]['queryset_filters']
         required_relations = self.SCOPE_RULES[role]['requires']
 
-        # Dynamically fetch required IDs
-        id_args = [await self._get_ids(getattr(user, rel)) for rel in required_relations]
+        # Map filter function names to actual functions
+        filter_functions = {
+            'filter_company_admin_users': self.filter_company_admin_users,
+            'filter_country_manager_users': self.filter_country_manager_users,
+            'filter_restaurant_owner_users': self.filter_restaurant_owner_users,
+            'filter_restaurant_manager_users': self.filter_restaurant_manager_users,
+            'filter_branch_manager_users': self.filter_branch_manager_users,
+        }
 
-        # Apply the filter with user and fetched IDs
-        return await sync_to_async(queryset_filter)(user, *id_args)
+        queryset_filter = filter_functions.get(filter_func_name)
+        if not queryset_filter:
+            return CustomUser.objects.none()
+
+        # Fetch required IDs concurrently
+        id_args = await asyncio.gather(*[self._get_ids(getattr(user, rel)) for rel in required_relations])
+        print("id_args: ", id_args)
+
+        # Get allowed roles
+        allowed_roles = await self._get_allowed_roles(user_role_value)
+        print("allowed_roles: ", allowed_roles)
+
+        # Apply the async filter function with role_value filtering
+        return await queryset_filter(user, allowed_roles, *id_args)
 
 class TransferPermission(BasePermission):
     # Redis client for caching

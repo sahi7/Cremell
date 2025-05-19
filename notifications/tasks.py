@@ -5,9 +5,11 @@ from celery import shared_task
 from channels.layers import get_channel_layer
 from django.core.cache import cache
 from django.core.mail import send_mail
+from django.conf import settings
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ObjectDoesNotExist
+from allauth.account.models import EmailConfirmationHMAC, EmailAddress
 
 from .models import Task, EmployeeTransfer, TransferHistory, ShiftAssignmentLog
 from CRE.models import CustomUser
@@ -227,17 +229,35 @@ def send_notification_task(
         subject,
         branch_id=None,
         company_id=None,
-        restaurant_id=None
+        restaurant_id=None,
+        country_id=None,
+        extra_context = {},
+        template_name=None,
+        reg_mail=None
     ):
     """Send a notification to a single user."""
     # Run async get_user_data
-    user_data = asyncio.run(get_user_data(user_id, branch_id, company_id, restaurant_id))
-    
-    # Select template based on role
-    template_name = 'emails/critical_alert.html' if user_data['role_value'] <= 5 else 'emails/general_notification.html'
+    user_data = asyncio.run(get_user_data(user_id, branch_id, company_id, restaurant_id, country_id))
+    if reg_mail:
+        user = CustomUser.objects.get(id=user_id)
+        email_address, created = EmailAddress.objects.get_or_create(
+            user=user,
+            email=user.email,
+            defaults={'verified': False, 'primary': True}
+        )
+        # Generate email confirmation key using EmailConfirmationHMAC
+        email_confirmation = EmailConfirmationHMAC(email_address=email_address)
+        key = email_confirmation.key  # Signed key via signing.dumps
+
+        # Generate activate_url
+        activate_url = f"{settings.EMAIL_CONFIRM_REDIRECT_BASE_URL}{key}"
+
+        # Update extra_context with activate_url
+        extra_context = {**(extra_context or {}), 'activate_url': activate_url}
+        extra_context['expiration_days'] = settings.ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS
     
     # Run async render_notification_template
-    html_content = asyncio.run(render_notification_template(user_data, message, template_name))
+    html_content = asyncio.run(render_notification_template(user_data, message, template_name, extra_context))
     
     # Create plain text fallback
     from django.utils.html import strip_tags
@@ -253,6 +273,8 @@ def send_notification_task(
     )
     email.attach_alternative(html_content, "text/html")  # HTML version
     email.send(fail_silently=False)
+
+    return True
 
 @shared_task
 def send_batch_notifications(

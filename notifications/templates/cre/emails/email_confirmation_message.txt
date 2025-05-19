@@ -1,0 +1,28 @@
+<!-- templates/account/email/email_confirmation_message.html -->
+
+{% load i18n %}
+
+{% block content %}
+{% user_display user as user_display %}
+{% blocktrans with site_name=current_site.name site_domain=current_site.domain %}
+<p>Hello,</p>
+
+<p>You're receiving this email because {{ user_display }} has registered an account on {{ site_name }}.</p>
+
+<p>Please confirm your email address by clicking below:</p>
+
+<a href="{{ activate_url }}" style="background: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
+    Confirm Email Address
+</a>
+
+<p>Or copy this link to your browser:<br>
+{{ activate_url }}</p>
+
+<p>This link expires in {{ expiration_days }} days.</p>
+
+<p>If you didn't request this, please ignore this email.</p>
+
+<p>Thanks,<br>
+The {{ site_name }} Team</p>
+{% endblocktrans %}
+{% endblock %}

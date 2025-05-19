@@ -139,11 +139,34 @@ class UserSerializer(ModelSerializer):
             user.status = 'active'
             await user.asave(update_fields=['status'])
 
+        def get_first_id(field_name):
+            items = m2m_fields.get(field_name, [])
+            if items and items[0] is not None:
+                return items[0].id if hasattr(items[0], 'id') else items[0]
+            return None
+
         # Email handling
         self.context["email_sent"] = False
         try:
-            from .tasks import send_register_email
-            await sync_to_async(send_register_email.delay)(user.id)
+            from notifications.tasks import send_notification_task
+            subject="Please confirm your email"
+            message="Message"
+            template_name='cre/emails/email_confirmation_message.html'
+            company_id = get_first_id('companies')
+            country_id = get_first_id('countries')
+            restaurant_id = get_first_id('restaurants')
+            branch_id = get_first_id('branches')
+            send_notification_task.delay(
+                user_id=user.id,
+                branch_id = branch_id,
+                company_id = company_id, 
+                restaurant_id = restaurant_id,
+                country_id = country_id,
+                subject=subject,
+                message=message,
+                template_name=template_name,
+                reg_mail = True
+            )
             self.context["email_sent"] = True
         except Exception as e:
             logger.error(f"Email failed for user {user.id}: {str(e)}")

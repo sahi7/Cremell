@@ -162,9 +162,11 @@ async def compare_role_values(user, role_to_create):
     return role_to_create_value <= user_role_value
 
 
-async def get_scopes_and_groups(user_id):
+async def get_scopes_and_groups(user_id, get_instance=False):
     # Prefetch companies, countries, and groups in one query
     user = await CustomUser.objects.prefetch_related('companies', 'countries', 'branches', 'restaurants', 'groups').aget(id=user_id)
+    if get_instance:
+        return user
     
     result = {
         'company': [c.id async for c in user.companies.all()], 
@@ -175,7 +177,14 @@ async def get_scopes_and_groups(user_id):
     }
     return result
 
-async def get_user_data(user_id: int, branch_id: int = None, company_id: int = None, restaurant_id: int = None) -> dict:
+async def get_user_data(
+    user_id: int,
+    branch_id: int = None,
+    company_id: int = None,
+    restaurant_id: int = None,
+    country_id: int = None,
+    include_related_data: bool = False,
+) -> dict:
     """Fetch comprehensive user data with prefetching and caching, supporting all roles."""
     redis_client = Redis.from_url('redis://localhost:6379')
     cache_key = f'user_data_{user_id}_{branch_id or "none"}_{company_id or "none"}_{restaurant_id or "none"}'
@@ -184,14 +193,19 @@ async def get_user_data(user_id: int, branch_id: int = None, company_id: int = N
         return data.decode() if isinstance(data, bytes) else data
 
     # Prefetch all related objects to minimize database hits
-    user = await CustomUser.objects.prefetch_related(
-        'companies', 'countries', 'restaurants', 'branches', 'groups'
-    ).aget(id=user_id)
+    user = await get_scopes_and_groups(user_id, get_instance=True)
+    specific_branch = None
+    specific_company = None
+    specific_restaurant = None
 
     # Specific branch, company, or restaurant for context (optional)
-    specific_branch = await Branch.objects.aget(id=branch_id) if branch_id else await user.get_associated_branch()
-    specific_company = await user.companies.aget(id=company_id) if company_id else await user.companies.afirst()
-    specific_restaurant = await user.restaurants.aget(id=restaurant_id) if restaurant_id else await user.restaurants.afirst()
+    if branch_id:
+        specific_branch = await Branch.objects.aget(id=branch_id) if branch_id else await user.get_associated_branch()
+    if company_id:
+        specific_company = await user.companies.aget(id=company_id) if company_id else []
+    if restaurant_id:
+        specific_restaurant = await user.restaurants.aget(id=restaurant_id) if restaurant_id else []
+    timezones = await CustomUser.get_timezone_language(user_id) 
 
     # Collect IDs and names for all associated objects
     data = {
@@ -200,24 +214,29 @@ async def get_user_data(user_id: int, branch_id: int = None, company_id: int = N
         'email': user.email,
         'role': user.role,
         'role_value': await user.get_role_value(),
-        'timezone': await user.get_effective_timezone(),
-        'language': await user.get_effective_language(),
-        'companies': [{'id': c.id, 'name': c.name} async for c in user.companies.all()],
-        'countries': [{'id': c.id, 'name': c.name, 'code': c.code} async for c in user.countries.all()],
-        'restaurants': [{'id': r.id, 'name': r.name} async for r in user.restaurants.all()],
-        'branches': [{'id': b.id, 'name': b.name} async for b in user.branches.all()],
-        'groups': {g.name async for g in user.groups.all()},
+        'timezone': timezones[user.id]['timezone'],
+        'language': timezones[user.id]['language'],
         # Contextual data for specific scope
         'organization_name': (
-            specific_branch.restaurant.company.name if specific_branch else
-            specific_restaurant.company.name if specific_restaurant else
-            specific_company.name if specific_company else 'Unknown'
+            specific_company.name if specific_company else 
+            specific_restaurant.name if specific_restaurant else
+            specific_branch.name if specific_branch else 'Unknown'
         ),
         'branch_name': specific_branch.name if specific_branch else None,
         'restaurant_name': specific_restaurant.name if specific_restaurant else None,
     }
 
-    await redis_client.set(cache_key, data, ex=3600)  # Cache for 1 hour
+    # Include related data only if requested
+    if include_related_data:
+        data.update({
+            'companies': [{'id': c.id, 'name': c.name} async for c in user.companies.all()] if company_id else [],
+            'countries': [{'id': c.id, 'name': c.name, 'code': c.code} async for c in user.countries.all()] if country_id else [],
+            'restaurants': [{'id': r.id, 'name': r.name} async for r in user.restaurants.all()] if restaurant_id else [],
+            'branches': [{'id': b.id, 'name': b.name} async for b in user.branches.all()] if branch_id else [],
+            'groups': {g.name async for g in user.groups.all()},
+        })
+
+    await redis_client.set(cache_key, json.dumps(data), ex=3600)  # Cache for 1 hour
     return data
 
 async def render_notification_template(user_data: dict, message: str, template_name: str, extra_context: dict = None) -> str:
@@ -225,8 +244,8 @@ async def render_notification_template(user_data: dict, message: str, template_n
     user_tz = pytz.timezone(user_data['timezone'])
     localized_timestamp = timezone.localtime(timezone.now(), user_tz)
     # localized_timestamp = timezone.localtime(timezone.now(), user_tz).strftime('%Y-%m-%d %H:%M:%S %Z')
-    print("user_tz: ", user_tz)
-    print("localized_timestamp: ", localized_timestamp)
+    # print("user_tz: ", user_tz)
+    # print("localized_timestamp: ", localized_timestamp)
     
     # Base required context
     context = {
@@ -263,7 +282,7 @@ async def get_stakeholders(
         limit: int = 1000,
         offset: int = 0,
         include_related_data: bool = False
-    ) -> List[Dict]:
+) -> List[Dict]:
     print(f'stakeholders_{company_id or "none"}_{restaurant_id or "none"}_{branch_id or "none"}_{country_id or "none"}_{max_role_value}_{include_lower_roles}')
     """
     Fetch stakeholders for specified objects with role filtering, minimizing database hits.

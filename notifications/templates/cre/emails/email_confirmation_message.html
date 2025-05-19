@@ -1,0 +1,52 @@
+{% load i18n %}
+
+{% block content %}
+<p>{% trans "Hello," %}</p>
+
+{% comment %}
+Set org_name based on available context variables
+{% endcomment %}
+{% if branch_name %}
+    {% with org_name=branch_name %}
+        <p>{% blocktrans with user_name=user_name org_name=org_name %}
+You're receiving this email because {{ user_name }} has registered an account on {{ org_name }}.
+        {% endblocktrans %}</p>
+    {% endwith %}
+{% elif restaurant_name %}
+    {% with org_name=restaurant_name %}
+        <p>{% blocktrans with user_name=user_name org_name=org_name %}
+You're receiving this email because {{ user_name }} has registered an account on {{ org_name }}.
+        {% endblocktrans %}</p>
+    {% endwith %}
+{% elif company_name %}
+    {% with org_name=company_name %}
+        <p>{% blocktrans with user_name=user_name org_name=org_name %}
+You're receiving this email because {{ user_name }} has registered an account on {{ org_name }}.
+        {% endblocktrans %}</p>
+    {% endwith %}
+{% else %}
+    <p>{% blocktrans with user_name=user_name %}
+You're receiving this email because {{ user_name }} has registered an account.
+    {% endblocktrans %}</p>
+{% endif %}
+
+<p>{% trans "Please confirm your email address by clicking below:" %}</p>
+
+<a href="{{ activate_url }}" style="background: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
+    {% trans "Confirm Email Address" %}
+</a>
+
+<p>{% trans "Or copy this link to your browser:" %}<br>
+{{ activate_url }}</p>
+
+<p>{% blocktrans with expiration_days=expiration_days %}
+This link expires in {{ expiration_days }} days.
+{% endblocktrans %}</p>
+
+<p>{% trans "If you didn't request this, please ignore this email." %}</p>
+
+<p>{% trans "Thanks," %}<br>
+{% blocktrans with organization_name=organization_name %}
+The {{ organization_name }} Team
+{% endblocktrans %}</p>
+{% endblock %}

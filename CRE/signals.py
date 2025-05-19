@@ -89,11 +89,11 @@ def cleanup_unused_permissions_and_groups():
         if permission.codename not in defined_permissions:
             permission.delete()
 
-@receiver(post_save, sender=CustomUser)
-def invalidate_user_cache(sender, instance, **kwargs):
-    redis_client = Redis.from_url('redis://localhost:6379')
-    redis_client.delete(f'user_data_{instance.id}_*')
-    redis_client.delete(f'stakeholders_*')
+# @receiver(post_save, sender=CustomUser)
+# def invalidate_user_cache(sender, instance, **kwargs):
+#     redis_client = Redis.from_url('redis://localhost:6379')
+#     redis_client.delete(f'user_data_{instance.id}_*')
+#     redis_client.delete(f'stakeholders_*')
 
 
 @receiver(post_save, sender=Order)
