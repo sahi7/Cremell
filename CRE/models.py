@@ -290,6 +290,9 @@ class CustomUser(AbstractUser):
 
         indexes = [
             models.Index(fields=['role']),
+            models.Index(fields=['r_val', 'companies']),
+            models.Index(fields=['r_val', 'restaurants']),
+            models.Index(fields=['r_val', 'branches']),
             models.Index(fields=['timezone']),
             models.Index(fields=['preferred_language']),
         ]

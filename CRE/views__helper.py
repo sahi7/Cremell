@@ -110,6 +110,14 @@ class AssignmentView(APIView):
             "field_name": "manager", 
             "action": "remove"
         }
+    Assign Multiple users to an object -branch, restaurant
+        {
+            "object_type": "branch",
+            "object_id": 1,
+            "field_name": "employees",
+            "user_ids": [2, 3, 4],
+            "action": "assign_users"
+        }
 
     """
     serializer_class = AssignmentSerializer
@@ -125,20 +133,21 @@ class AssignmentView(APIView):
         field_name = data['field_name']
         user_id = data.get('user_id')
         field_value = data.get('field_value')
+        user_ids = data.get('user_ids')
+        action = data.get('action')
 
         # Use MODEL_MAP from permission class
         model = EntityUpdatePermission.MODEL_MAP.get(object_type)
         obj = await model.objects.aget(id=object_id)
 
         # Validate field (minimal check since permission already ensures existence)
-        if not field_value:
+        if not field_value and action not in ['remove', 'assign_users']:
             try:
                 field = model._meta.get_field(field_name)
                 if not isinstance(field, models.ForeignKey):
                     raise PermissionDenied(_("{model_name} field '{field_name}' is not a ForeignKey").format(model_name=model.__name__, field_name=field_name))
             except Exception as e:
-                # Catch any other unexpected exceptions and deny permission
-                raise PermissionDenied(_("An unexpected error occurred "))
+                raise PermissionDenied(_("An unexpected error occurred"))
                 # raise PermissionDenied(_("An unexpected error occurred while checking permissions for {model_name}: {error}").format(
                 #     model_name=model.__name__, error=str(e)
                 # ))
@@ -146,13 +155,15 @@ class AssignmentView(APIView):
         old_manager = await sync_to_async(getattr)(obj, field_name, None)
 
         # Handle update (permissions already checked)
-        if data.get('action') == "remove":
+        if action == "remove":
             await self._handle_removal(obj, field_name, model, data, old_manager)
+        elif action == "assign_users" and user_ids:
+            await self._handle_bulk_user_assignment(obj, user_ids, object_type, model)
         elif user_id is not None:
-            user = await sync_to_async(CustomUser.objects.get)(id=user_id)  # consider using user from permission to avoid extra db hit
+            user = await CustomUser.objects.aget(id=user_id)  # consider using user from permission to avoid extra db hit
             await self._handle_user_assignment(obj, user, field_name, model, data, old_manager)
         elif field_value is not None:
-            await self._handle_field_update(obj, field_name, field_value, model, request)
+            await self._handle_field_update(obj, field_name, field_value, model, request, object_type)
 
         return Response({"message": _("Updated {object_type} successfully").format(object_type=object_type)}, 
                         status=status.HTTP_200_OK)
@@ -218,7 +229,7 @@ class AssignmentView(APIView):
         if old_manager and old_manager != user:
             await self._send_notifications(old_manager, object_type, obj.id, f"removed as {field_name}")
 
-    async def _handle_field_update(self, obj, field_name, field_value, model, request=None):
+    async def _handle_field_update(self, obj, field_name, field_value, model, request=None, object_type=None):
         if field_name == 'status':
             if obj.status == field_value:
                 raise PermissionDenied(_("Already set"))
@@ -247,7 +258,7 @@ class AssignmentView(APIView):
         }
 
         from .tasks import log_activity
-        log_activity.delay(self.request.user.id, 'field_update', details, obj.id)
+        log_activity.delay(self.request.user.id, 'field_update', details, obj.id, object_type)
 
         user_to_notify = await sync_to_async(getattr)(obj, 'manager', None) or (obj if model == CustomUser else self.request.user)
         if user_to_notify:
@@ -275,9 +286,58 @@ class AssignmentView(APIView):
         object_type = model.__name__.lower()
         await self._send_notifications(old_manager, object_type, obj.id, f"removed as {field_name}")
 
+    async def _handle_bulk_user_assignment(self, obj, user_ids, object_type, model):
+        """Handle bulk assignment of users to an object's M2M field."""
+        USER_FIELD_MAP = {
+            'restaurant': 'restaurants',
+            'branch': 'branches',
+            'user': 'employees',
+        }
+        user_field = USER_FIELD_MAP.get(object_type)
+        import asyncio
+
+        if not user_field:
+            raise PermissionDenied(_("No ManyToManyField defined for {object_type}").format(object_type=object_type))
+
+        # Validate M2M field
+        try:
+            if not isinstance(CustomUser._meta.get_field(user_field), models.ManyToManyField):
+                raise PermissionDenied(_("{field_name} on UserModel is not a ManyToManyField").format(field_name=user_field))
+        except models.FieldDoesNotExist:
+            raise PermissionDenied(_("{field_name} on UserModel does not not exist").format(field_name=user_field))
+
+        # Fetch users in bulk
+        user_ids = self.request.bulk_users
+
+        # Bulk assign users to M2M field
+        m2m_manager = getattr(CustomUser, user_field).through
+        # Create bulk M2M entries
+        m2m_objects = [
+            m2m_manager(customuser_id=user_id, **{f"{object_type}_id": obj.id})
+            for user_id in user_ids
+        ]
+        await m2m_manager.objects.abulk_create(m2m_objects, ignore_conflicts=True)
+
+        # Log activity
+        details = {
+            'user_ids': user_ids,
+            'object_type': object_type,
+            'object_id': obj.id,
+        }
+        from .tasks import log_activity
+        log_activity.delay(self.request.user.id, 'bulk_user_assign', details, obj.id, object_type)
+
+        # Send notifications in bulk
+        notification_tasks = [
+            self._send_notifications(user_id, object_type, obj.id, f"assigned to {object_type}")
+            for user_id in user_ids
+        ]
+        await asyncio.gather(*notification_tasks)
+
     async def _send_notifications(self, user, object_type, object_id, field_update):
         from .tasks import send_assignment_email
-        send_assignment_email.delay(user.id, object_type, object_id, field_update)
+        user_id = user if isinstance(user, int) else user.id
+        send_assignment_email.delay(user_id, object_type, object_id, field_update)
         # channel_layer = get_channel_layer()
         # await channel_layer.group_send(
         #     f"user_{user.id}",

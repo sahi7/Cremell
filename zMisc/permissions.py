@@ -181,35 +181,35 @@ class UserCreationPermission(BasePermission):
         return await Branch.objects.filter(query).acount()
 
     # Async queryset_filters (for potential future use)
-    async def filter_company_admin_users(self, user, allowed_roles, company_ids):
+    async def filter_company_users(self, user, max_r_val, company_ids):
         return CustomUser.objects.filter(
             companies__id__in=company_ids,
-            role__in=allowed_roles
+            r_val__gte=max_r_val
         )
 
-    async def filter_country_manager_users(self, user, allowed_roles, company_ids, country_ids):
+    async def filter_country_users(self, user, max_r_val, company_ids, country_ids):
         return CustomUser.objects.filter(
             Q(companies__id__in=company_ids) & Q(countries__id__in=country_ids),
-            role__in=allowed_roles
+            r_val__gte=max_r_val
         )
 
-    async def filter_restaurant_owner_users(self, user, allowed_roles, restaurant_ids):
+    async def filter_restaurant_owner_users(self, user, max_r_val, restaurant_ids):
         return CustomUser.objects.filter(
             restaurants__id__in=restaurant_ids,
-            role__in=allowed_roles
+            r_val__gte=max_r_val
         )
 
-    async def filter_restaurant_manager_users(self, user, allowed_roles, restaurant_ids):
+    async def filter_restaurant_manager_users(self, user, max_r_val, restaurant_ids):
         return CustomUser.objects.filter(
             Q(restaurants__id__in=restaurant_ids) |
             (Q(branches__restaurant_id__in=restaurant_ids) & Q(companies__in=user.companies.all())),
-            role__in=allowed_roles
+            r_val__gte=max_r_val
         )
 
-    async def filter_branch_manager_users(self, user, allowed_roles, branch_ids):
+    async def filter_branch_users(self, user, max_r_val, branch_ids):
         return CustomUser.objects.filter(
             branches__id__in=branch_ids,
-            role__in=allowed_roles
+            r_val__gte=max_r_val
         )
     
     # Async scope rules configuration
@@ -222,7 +222,7 @@ class UserCreationPermission(BasePermission):
                 'restaurants': check_restaurants,
                 'branches': check_branches,
             },
-            'queryset_filters': 'filter_company_admin_users'
+            'queryset_filters': 'filter_company_users'
         },
         'country_manager': {
             'requires': ['companies', 'countries'],
@@ -231,7 +231,7 @@ class UserCreationPermission(BasePermission):
                 'restaurants': check_restaurants,
                 'branches': check_branches,
             },
-            'queryset_filters': 'filter_country_manager_users'
+            'queryset_filters': 'filter_country_users'
         },
         'restaurant_owner': {
             'requires': ['restaurants'],
@@ -254,7 +254,7 @@ class UserCreationPermission(BasePermission):
             'scopes': {
                 'branches': check_branches
             },
-            'queryset_filters': 'filter_branch_manager_users'
+            'queryset_filters': 'filter_branch_users'
         },
     }
 
@@ -321,15 +321,6 @@ class UserCreationPermission(BasePermission):
     async def _get_ids(self, relation):
         """Helper to fetch IDs asynchronously from a user relation."""
         return [item.id async for item in relation.all()]
-    
-    async def _get_allowed_roles(self, user_role_value):
-        """Get roles with role_value > user_role_value."""
-        # Instantiate CustomUser to access get_role_value
-        # user_instance = CustomUser()
-        # # Call get_role_value with a dummy role to access role_hierarchy
-        # role_hierarchy = (await user_instance.get_role_value('company_admin', return_hierarchy=True))
-        # return [role for role, _ in CustomUser.ROLE_CHOICES if role_hierarchy.get(role, 0) > user_role_value]
-        return ["cashier", "cook"]
 
     async def get_queryset(self):
         """
@@ -352,11 +343,11 @@ class UserCreationPermission(BasePermission):
 
         # Map filter function names to actual functions
         filter_functions = {
-            'filter_company_admin_users': self.filter_company_admin_users,
-            'filter_country_manager_users': self.filter_country_manager_users,
+            'filter_company_users': self.filter_company_users,
+            'filter_country_users': self.filter_country_users,
             'filter_restaurant_owner_users': self.filter_restaurant_owner_users,
             'filter_restaurant_manager_users': self.filter_restaurant_manager_users,
-            'filter_branch_manager_users': self.filter_branch_manager_users,
+            'filter_branch_users': self.filter_branch_users,
         }
 
         queryset_filter = filter_functions.get(filter_func_name)
@@ -367,12 +358,8 @@ class UserCreationPermission(BasePermission):
         id_args = await asyncio.gather(*[self._get_ids(getattr(user, rel)) for rel in required_relations])
         print("id_args: ", id_args)
 
-        # Get allowed roles
-        allowed_roles = await self._get_allowed_roles(user_role_value)
-        print("allowed_roles: ", allowed_roles)
-
         # Apply the async filter function with role_value filtering
-        return await queryset_filter(user, allowed_roles, *id_args)
+        return await queryset_filter(user, user_role_value, *id_args)
 
 class TransferPermission(BasePermission):
     # Redis client for caching
@@ -676,6 +663,8 @@ class EntityUpdatePermission(BasePermission):
         object_id = data.get('object_id')
         field_name = data.get('field_name')
         user_id = data.get('user_id')
+        user_ids = data.get('user_ids')
+        action = data.get('action')
 
         model = self.MODEL_MAP.get(object_type)
         if not model or not object_id:
@@ -683,7 +672,7 @@ class EntityUpdatePermission(BasePermission):
 
         # Fetch object and validate existence
         try:
-            obj = await sync_to_async(model.objects.get)(id=object_id)
+            obj = await model.objects.aget(id=object_id)
         except model.DoesNotExist:
             raise PermissionDenied(_("{object_type} ID {object_id} does not exist").format(object_type=object_type, object_id=object_id))
 
@@ -694,7 +683,7 @@ class EntityUpdatePermission(BasePermission):
         # Handle user assignment
         if user_id:
             try:
-                user = await sync_to_async(CustomUser.objects.get)(id=user_id)
+                user = await CustomUser.objects.aget(id=user_id)
                 if user == request.user:
                     return False
             except CustomUser.DoesNotExist:
@@ -702,13 +691,34 @@ class EntityUpdatePermission(BasePermission):
 
             # Check user role for specific fields
             expected_role = self.ROLE_FIELD_MAP.get(object_type, {}).get(field_name)
-            if expected_role and not await sync_to_async(user.groups.filter(name=expected_role).exists)():
+            if expected_role and not await user.groups.filter(name=expected_role).aexists():
                 raise PermissionDenied(_(f"User must be in {expected_role} group for {field_name} assignment"))
 
             # Validate user scope
             if not await self._is_object_in_scope(request, user, CustomUser):
                 raise PermissionDenied(_("Assigned user not in your scope"))
 
+        # Handle bulk user assignment
+        if action == "assign_users" and user_ids:
+            # Fetch users in bulk and validate existence
+            users = [user.id async for user in CustomUser.objects.filter(id__in=user_ids).only('id')]
+            user_ids_found = set(users)
+            if len(user_ids_found) != len(user_ids):
+                missing_ids = set(user_ids) - user_ids_found
+                raise PermissionDenied(_("Users with IDs {missing_ids} do not exist").format(missing_ids=missing_ids))
+
+
+            # Validate all users are in scope using UserCreationPermission.get_queryset
+            permission = UserCreationPermission()
+            permission.request = request
+            scope_queryset = await permission.get_queryset()
+            scoped_user_ids = {u.id async for u in scope_queryset.filter(id__in=user_ids)}
+            print("scoped_user_ids in p: ", scoped_user_ids)
+            if not all(uid in scoped_user_ids for uid in user_ids):
+                raise PermissionDenied(_("Some users are not in your scope"))
+
+            request.bulk_users = users
+           
         return True
 
     async def _is_object_in_scope(self, request, obj, model):

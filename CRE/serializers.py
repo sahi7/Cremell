@@ -476,6 +476,11 @@ class AssignmentSerializer(Serializer):
     object_id = serializers.IntegerField()
     field_name = serializers.CharField()
     user_id = serializers.IntegerField(required=False)
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=False  # Prevents empty lists
+    )
     field_value = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     force_update = serializers.CharField(required=False)
     action = serializers.CharField(required=False)
@@ -483,6 +488,6 @@ class AssignmentSerializer(Serializer):
     def validate(self, data):
         if 'user_id' in data and 'field_value' in data:
             raise serializers.ValidationError(_("Specify either user_id for assignment or field_value for update, not both"))
-        if 'user_id' not in data and 'field_value' not in data:
-            raise serializers.ValidationError(_("Specify either user_id or field_value"))
+        if 'user_id' not in data and 'field_value' not in data and 'user_ids' not in data:
+            raise serializers.ValidationError(_("Specify either user_id(s) or field_value"))
         return data
