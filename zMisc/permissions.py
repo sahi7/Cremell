@@ -195,7 +195,8 @@ class UserCreationPermission(BasePermission):
 
     async def filter_restaurant_owner_users(self, user, max_r_val, restaurant_ids):
         return CustomUser.objects.filter(
-            restaurants__id__in=restaurant_ids,
+            Q(restaurants__id__in=restaurant_ids) | 
+            Q(branches__restaurant__id__in=restaurant_ids),
             r_val__gte=max_r_val
         )
 
@@ -335,7 +336,6 @@ class UserCreationPermission(BasePermission):
 
         # Get the requester's role_value
         user_role_value = await user.get_role_value()
-        print("user_role_value: ", user_role_value)
 
         # Get the queryset filter function and required relations
         filter_func_name = self.SCOPE_RULES[role]['queryset_filters']
@@ -356,7 +356,6 @@ class UserCreationPermission(BasePermission):
 
         # Fetch required IDs concurrently
         id_args = await asyncio.gather(*[self._get_ids(getattr(user, rel)) for rel in required_relations])
-        print("id_args: ", id_args)
 
         # Apply the async filter function with role_value filtering
         return await queryset_filter(user, user_role_value, *id_args)
@@ -713,7 +712,6 @@ class EntityUpdatePermission(BasePermission):
             permission.request = request
             scope_queryset = await permission.get_queryset()
             scoped_user_ids = {u.id async for u in scope_queryset.filter(id__in=user_ids)}
-            print("scoped_user_ids in p: ", scoped_user_ids)
             if not all(uid in scoped_user_ids for uid in user_ids):
                 raise PermissionDenied(_("Some users are not in your scope"))
 
