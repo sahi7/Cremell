@@ -98,6 +98,7 @@ class CustomUser(AbstractUser):
     salary = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     hire_date = models.DateField(blank=True, null=True)
     bio = models.TextField(blank=True, null=True)
+    r_val = models.PositiveIntegerField(default=12)
 
     objects = CustomUserManager()
 
@@ -146,7 +147,7 @@ class CustomUser(AbstractUser):
                 await self.groups.aremove(group)
     
     async def add_to_group(self, role):
-        await self.manage_group(role, action='add')
+        await self.manage_group(role)
 
     async def remove_from_group(self, role):
         await self.manage_group(role, action='remove')
@@ -276,6 +277,8 @@ class CustomUser(AbstractUser):
     async def asave(self, *args, **kwargs):
         if not self.username:  # If username is not set
             self.username = uuid.uuid4().hex[:10]  # Generate a random username
+        if hasattr(self, 'role'):
+            self.r_val = await self.get_role_value()
         await super().asave(*args, **kwargs)
 
     def __str__(self):

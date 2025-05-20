@@ -272,8 +272,9 @@ class RegistrationSerializer(Serializer):
             await user.companies.aadd(company)
 
             # Add the user to the CompanyAdmin group
-            company_admin_group, created = await Group.objects.aget_or_create(name='CompanyAdmin')
-            await user.groups.aadd(company_admin_group)
+            # company_admin_group, created = await Group.objects.aget_or_create(name='CompanyAdmin')
+            # await user.groups.aadd(company_admin_group)
+            await user.add_to_group(user.role)
 
             # Create the restaurant if provided
             if 'restaurant_data' in validated_data:
@@ -293,8 +294,9 @@ class RegistrationSerializer(Serializer):
             await user.restaurants.aadd(restaurant)
 
             # Assign the user to the RestaurantOwner group
-            restaurant_owner_group, created = await Group.objects.aget_or_create(name='RestaurantOwner')
-            await user.groups.aadd(restaurant_owner_group)
+            # restaurant_owner_group, created = await Group.objects.aget_or_create(name='RestaurantOwner')
+            # await user.groups.aadd(restaurant_owner_group)
+            await user.add_to_group(user.role)
 
 
         else:
