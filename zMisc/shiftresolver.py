@@ -197,7 +197,7 @@ class ShiftAssignmentEngine:
         await resolver.preload_patterns()
         
         # Get active employees in batches
-        async for batch in self._get_employee_batches(branch_id):
+        async for batch in self._get_employee_batches(branch_id):     
             assignments = defaultdict(dict)
             
             for date in date_range(start_date, end_date):
@@ -272,12 +272,13 @@ class ShiftAssignmentEngine:
         ]
         await ShiftAssignmentLog.objects.abulk_create(log_objs)
 
+import asyncio
 @shared_task(bind=True, max_retries=3)
-async def regenerate_shifts(self, branch_id: int, start_date, end_date, priority: int):
+def regenerate_shifts(self, branch_id: int, start_date, end_date, priority: int):
     """Regenerate shifts for a branch over a date range."""
     try:
         engine = ShiftAssignmentEngine()
-        await engine.generate_shifts(branch_id, start_date, end_date)
+        asyncio.run(engine.generate_shifts(branch_id, start_date, end_date))
     except Exception as exc:
         # Log and retry with exponential backoff
         self.retry(countdown=2 ** self.request.retries, exc=exc)
@@ -293,7 +294,7 @@ class ShiftUpdateHandler:
         
         # Queue regeneration for affected date range
         end_date = pattern.active_until or (timezone.now().date() + timezone.timedelta(days=14))
-        await regenerate_shifts.adelay(
+        regenerate_shifts.delay(
             branch_id=pattern.branch_id,
             start_date=pattern.active_from,
             end_date=end_date,

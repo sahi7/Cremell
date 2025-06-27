@@ -393,6 +393,7 @@ class ShiftPatternConfigSerializer(serializers.Serializer):
     """Dynamic serializer for pattern config validation"""
     def validate(self, data):
         pattern_type = self.context.get('pattern_type')
+        data = self.context.get('data')
         
         if pattern_type == ShiftPattern.PatternType.ROLE_BASED:
             if not isinstance(data.get('default_shift'), int):
@@ -429,7 +430,7 @@ class ShiftPatternConfigSerializer(serializers.Serializer):
         return data
 
 class ShiftPatternSerializer(serializers.ModelSerializer):
-    config = serializers.JSONField(binary=True)
+    config = serializers.JSONField(binary=False)
     
     class Meta:
         model = ShiftPattern
@@ -441,14 +442,18 @@ class ShiftPatternSerializer(serializers.ModelSerializer):
         }
     
     def validate(self, data):
+        raw_config = data.get('config')
+        # print("Raw config:", raw_config, type(raw_config)) 
         # Validate at least one target exists
         if not data.get('user') and not data.get('role'):
             raise serializers.ValidationError("Must specify either user or role")
+        if data["active_from"] > (data.get("active_until")):
+            raise serializers.ValidationError("Active from date must be before active until date.")
         
         # Validate config against pattern type
         config_serializer = ShiftPatternConfigSerializer(
             data=data.get('config', {}),
-            context={'pattern_type': data.get('pattern_type')}
+            context={'pattern_type': data.get('pattern_type'), 'data': data.get('config', {})}
         )
         config_serializer.is_valid(raise_exception=True)
         

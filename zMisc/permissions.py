@@ -971,4 +971,25 @@ class ShiftPermission(BasePermission):
     async def has_object_permission(self, request, view, obj):
         """Check if user can perform retrieve, update, or delete on a shift."""
         return await self.entity_permission._is_object_in_scope(request, obj, Shift)
+    
+class ShiftPatternPermission(BasePermission):
+    async def has_permission(self, request, view):
+        data = request.data
+        role = data.get('role')
+        branch = data.get('branch')
+
+        if not validate_role(role):
+            return False
             
+        if await compare_role_values(request.user, role):
+            return False
+        
+        entity_permission = EntityUpdatePermission()
+        try: 
+            branch = await Branch.objects.aget(id=branch)
+        except Branch.DoesNotExist:
+            raise PermissionDenied(_("Branch not found"))
+        if not await entity_permission._is_object_in_scope(request, branch, Branch):
+            raise PermissionDenied(_("You can only set shift patterns within your branch."))
+        
+        return True

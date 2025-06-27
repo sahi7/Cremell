@@ -42,6 +42,7 @@ router.register(r'menu-items', MenuItemViewSet)
 router.register(r'shifts', ShiftViewSet)
 router.register(r"staff-shifts", StaffShiftViewSet, basename="staff-shift")
 router.register(r"shift-patterns", ShiftPatternViewSet, basename="shift-pattern")
+#  - POST /api/shift-patterns/{id}/regenerate/: Generate staff shift(s) for the shift-pattern id.
 
 def api_path(route, view, name=None):
     return path(f'api/{route}', view, name=name)

@@ -48,6 +48,8 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
  Create shift model
   Prevent overlapping shift templates for the same branch (e.g., no two “Morning Shift” templates with conflicting times).
   Cache shift templates in Redis to reduce database queries for frequent access.
+ Generate shift patterns
+  1. Fix get_queryset method
 - Overtime management
 - Complete order process
 - Print receipts

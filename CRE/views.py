@@ -661,13 +661,12 @@ class ShiftPatternViewSet(ModelViewSet):
     """
     queryset = ShiftPattern.objects.all()
     serializer_class = ShiftPatternSerializer
-    permission_classes = (ScopeAccessPolicy, )
+    permission_classes = (ScopeAccessPolicy, ShiftPatternPermission, )
 
-    async def get_queryset(self):
+    def get_queryset(self):
         user = self.request.user
-        if user.is_staff:
-            return self.queryset
-        return self.queryset.filter(branch__in=user.branches.all())
+        scope_filter = async_to_sync(ScopeAccessPolicy().get_queryset_scope)(user, view=self)
+        return self.queryset.filter(scope_filter)
 
     @action(detail=True, methods=["post"], url_path="regenerate")
     async def regenerate(self, request, pk=None):
@@ -676,6 +675,7 @@ class ShiftPatternViewSet(ModelViewSet):
         Request: {} (empty body)
         """
         pattern = await sync_to_async(self.get_object)()
+        print("pat:: ", pattern)
         await ShiftUpdateHandler.handle_pattern_change(pattern.id)
         return Response({"status": _("Shift regeneration queued")}, status=status.HTTP_202_ACCEPTED)
 
