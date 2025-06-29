@@ -1,3 +1,4 @@
+import json
 from celery import shared_task
 from django.db import models
 from django.core.cache import caches
@@ -11,6 +12,7 @@ from collections import defaultdict
 from typing import Optional, Union
 from notifications.models import ShiftAssignmentLog
 from CRE.models import Branch, StaffShift, ShiftPattern, CustomUser
+from CRE.serializers import ShiftPatternSerializer
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,21 +24,25 @@ def date_range(start_date, end_date):
 class ShiftResolver:
     def __init__(self, branch_id: int):
         self.branch_id = branch_id
-        self.cache = caches['shift_resolver']
         self.cache_key = f'shift_patterns:{branch_id}'
+        self.cache = Redis.from_url('redis://localhost:6379', decode_responses=True)
     
     async def preload_patterns(self):
         """Cache all active patterns for branch"""
-        patterns = await ShiftPattern.objects.filter(
-            branch_id=self.branch_id,
-            active_from__lte=timezone.now().date() + timedelta(days=14),
-            active_until__gte=timezone.now().date() | models.Q(active_until__isnull=True)
-        ).select_related('user').order_by('-priority').alist()
-        
-        await self.cache.aset(
+        patterns = [
+            pattern async for pattern in 
+            ShiftPattern.objects.filter(
+                branch_id=self.branch_id,
+                active_from__lte=timezone.now().date() + timedelta(days=14),
+                active_until__gte=timezone.now().date()
+            ).select_related('user').order_by('-priority')
+        ]   
+        serialized_patterns = ShiftPatternSerializer(patterns, many=True).data 
+        # print("Ser pat: ", serialized_patterns)
+        await self.cache.set(
             self.cache_key,
-            patterns,
-            timeout=3600  # 1 hour cache
+            json.dumps(serialized_patterns),
+            ex=3600  # 1 hour cache
         )
         return patterns
     
@@ -46,14 +52,15 @@ class ShiftResolver:
         if not await user.branches.filter(id=self.branch_id).aexists():
             return None
         # Check cache first
-        if not (patterns := await self.cache.aget(self.cache_key)):
+        if not (patterns := await self.cache.get(self.cache_key)):
             patterns = await self.preload_patterns()
         
         # Filter applicable patterns (user-specific > role-based)
+        patterns = json.loads(patterns)
         user_patterns = [
             p for p in patterns 
-            if (p.user_id == user.id) or 
-               (p.role == user.role and not p.user_id)
+            if (p['user'] == user.id) or 
+               (p['role'] == user.role and not p.get('user'))
         ]
         
         for pattern in user_patterns:
@@ -61,34 +68,38 @@ class ShiftResolver:
                 return shift_id
         return None
     
-    def _apply_pattern(self, pattern: ShiftPattern, date: date, user_role: str) -> Optional[int]:
+    def _apply_pattern(self, pattern: dict, date: date, user_role: str) -> Optional[int]:
         """Comprehensive pattern resolver with all configuration types"""
+        # Convert date strings to date objects
+        active_from = date.fromisoformat(pattern['active_from'])
+        active_until = date.fromisoformat(pattern['active_until']) if pattern['active_until'] else None
+        
         # Date validity check (optimized)
-        if date < pattern.active_from or (pattern.active_until and date > pattern.active_until):
+        if date < active_from or (active_until and date > active_until):
             return None
 
-        config = pattern.config
-        pattern_type = pattern.pattern_type
+        config = pattern['config']
+        pattern_type = pattern['pattern_type']
         weekday = date.strftime("%a").upper()  # MON, TUE, etc.
         
         try:
-            if pattern_type == ShiftPattern.PatternType.ROLE_BASED:
+            if pattern_type == 'RB': # ShiftPattern.PatternType.ROLE_BASED:
                 return self._resolve_role_based(config, weekday)
                 
-            elif pattern_type == ShiftPattern.PatternType.USER_SPECIFIC:
+            elif pattern_type == 'US': # ShiftPattern.PatternType.USER_SPECIFIC:
                 return self._resolve_user_specific(config, weekday)
                 
-            elif pattern_type == ShiftPattern.PatternType.ROTATING:
-                return self._resolve_rotating(config, date, pattern.active_from)
+            elif pattern_type == 'RT': # ShiftPattern.PatternType.ROTATING:
+                return self._resolve_rotating(config, date, active_from)
                 
-            elif pattern_type == ShiftPattern.PatternType.AD_HOC:
+            elif pattern_type == 'AH': # ShiftPattern.PatternType.AD_HOC:
                 return self._resolve_ad_hoc(config, date, user_role)
                 
-            elif pattern_type == ShiftPattern.PatternType.HYBRID:
-                return self._resolve_hybrid(config, date, user_role, pattern.active_from)
+            elif pattern_type == 'HY': # ShiftPattern.PatternType.HYBRID:
+                return self._resolve_hybrid(config, date, user_role, active_from)
                 
         except (KeyError, TypeError, IndexError) as e:
-            logger.error(f"Pattern resolution error: {e} for pattern {pattern.id}")
+            logger.error(f"Pattern resolution error: {e} for pattern {pattern['id']}")
             return None
             
         return None
@@ -204,6 +215,7 @@ class ShiftAssignmentEngine:
                 date_key = date.isoformat()
                 
                 for employee in batch:
+                    print(f"Processing employee: {employee.id} - {employee.role}")
                     if shift_id := await resolver.resolve_shift(employee, date):
                         assignments[date_key][employee.id] = shift_id
             
@@ -224,20 +236,21 @@ class ShiftAssignmentEngine:
     
     async def _get_employee_batches(self, branch_id: int):
         """True single-query streaming"""
-        branch = await Branch.objects.aget(id=branch_id)
-        batch = []
-        
-        async for user in branch.get_active_users_gen(
-            only_fields=['id', 'role'],
-            order_by=['id']
-        ):
-            batch.append(user)
-            if len(batch) >= self.BATCH_SIZE:
+        try:
+            branch = await Branch.objects.aget(id=branch_id)
+            
+            user_gen = branch.get_active_users(
+                return_instances=True,
+                only_fields=['id', 'role'],
+                order_by=['id'],
+                batch_size=self.BATCH_SIZE
+            )
+            
+            # Directly iterate the async generator
+            async for batch in user_gen:
                 yield batch
-                batch = []
-        
-        if batch:
-            yield batch
+        except Branch.DoesNotExist:
+            return
     
     async def _bulk_create_assignments(self, branch_id: int, assignments: dict):
         """Batch insert with conflict handling"""
@@ -251,12 +264,16 @@ class ShiftAssignmentEngine:
             for date, users in assignments.items()
             for user_id, shift_id in users.items()
         ]
+        print(f"Creating {len(objs)} shifts...")
+        print("objs:", [f"User:{obj.user_id} Shift:{obj.shift_id} Date:{obj.date}" for obj in objs])
+        # for i, obj in enumerate(objs[:3]):  # Print first 3 as sample
+            # print(f"  Sample {i+1}: User:{obj.user_id} Date:{obj.date} Shift:{obj.shift_id}")
         
         await StaffShift.objects.abulk_create(
             objs,
             update_conflicts=True,
             update_fields=['shift_id'],
-            unique_fields=['user_id', 'date']
+            unique_fields=['user_id', 'date', 'shift_id'] 
         )
         
         # Create audit logs
@@ -290,7 +307,8 @@ class ShiftUpdateHandler:
         pattern = await ShiftPattern.objects.select_related("branch").aget(id=pattern_id)
         
         # Invalidate cached patterns
-        await cache.adelete(f'shift_patterns:{pattern.branch_id}')
+        redis_client = Redis.from_url('redis://localhost:6379', decode_responses=True)
+        await redis_client.delete(f'shift_patterns:{pattern.branch_id}')
         
         # Queue regeneration for affected date range
         end_date = pattern.active_until or (timezone.now().date() + timezone.timedelta(days=14))

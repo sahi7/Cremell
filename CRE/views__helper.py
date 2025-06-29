@@ -121,7 +121,7 @@ class AssignmentView(APIView):
 
     """
     serializer_class = AssignmentSerializer
-    permission_classes = (ScopeAccessPolicy, EntityUpdatePermission, )
+    permission_classes = (ScopeAccessPolicy, EntityUpdatePermission,ObjectStatusPermission, )
 
     async def patch(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data)
@@ -139,6 +139,11 @@ class AssignmentView(APIView):
         # Use MODEL_MAP from permission class
         model = EntityUpdatePermission.MODEL_MAP.get(object_type)
         obj = await model.objects.aget(id=object_id)
+        if obj.is_active == False:
+            return Response(
+                {"detail": "Object Not Found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         # Validate field (minimal check since permission already ensures existence)
         if not field_value and action not in ['remove', 'assign_users']:
@@ -304,7 +309,7 @@ class AssignmentView(APIView):
             if not isinstance(CustomUser._meta.get_field(user_field), models.ManyToManyField):
                 raise PermissionDenied(_("{field_name} on UserModel is not a ManyToManyField").format(field_name=user_field))
         except models.FieldDoesNotExist:
-            raise PermissionDenied(_("{field_name} on UserModel does not not exist").format(field_name=user_field))
+            raise PermissionDenied(_("{field_name} on UserModel does not exist").format(field_name=user_field))
 
         # Fetch users in bulk
         user_ids = self.request.bulk_users

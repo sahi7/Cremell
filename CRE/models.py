@@ -2,7 +2,7 @@ import uuid
 import pytz
 import json
 
-from typing import List, Union
+from typing import List, Union, AsyncGenerator
 from django.core.cache import cache
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.contrib.auth.models import Group
@@ -290,9 +290,6 @@ class CustomUser(AbstractUser):
 
         indexes = [
             models.Index(fields=['role']),
-            models.Index(fields=['r_val', 'companies']),
-            models.Index(fields=['r_val', 'restaurants']),
-            models.Index(fields=['r_val', 'branches']),
             models.Index(fields=['timezone']),
             models.Index(fields=['preferred_language']),
         ]
@@ -434,8 +431,9 @@ class Branch(models.Model):
         return_instances: bool = False,
         roles: list[str] | None = None,
         only_fields: list[str] | None = None,
-        order_by: list[str] | None = None,
-    ) -> List[Union[int, 'CustomUser']]:
+        order_by: list[str] | None = ['id'],  # Default ordering for reliable batching
+        batch_size: int | None = None,
+    ) -> Union[List[Union[int, 'CustomUser']], AsyncGenerator[Union[int, 'CustomUser'], None]]:
         """
         Get active users with single-query efficiency.
 
@@ -459,17 +457,6 @@ class Branch(models.Model):
                 order_by=['id']
             )
         """
-        # Generate cache key
-        cache_key_parts = [
-            f"branch:{self.id}:active_users",
-            f"roles:{':'.join(sorted(roles or []))}",
-            f"fields:{':'.join(sorted(only_fields or []))}" if return_instances else "ids"
-        ]
-        cache_key = ":".join(cache_key_parts)
-
-        # Try cache
-        if cached := await cache.aget(cache_key):
-            return cached
 
         # Build base queryset
         queryset = self.employees.filter(is_active=True)
@@ -479,22 +466,27 @@ class Branch(models.Model):
             queryset = queryset.filter(role__in=roles)
         
         # Configure return type
-        if return_instances:
-            if only_fields:
-                queryset = queryset.only(*only_fields)
-            if order_by:
-                queryset = queryset.order_by(*order_by)
-            result = [user async for user in queryset]
-        else:
-            result = [user.id async for user in queryset.only('id')]
+        if return_instances and only_fields:
+            queryset = queryset.only(*only_fields)
+        elif not return_instances:
+            queryset = queryset.only('id')
 
-        # Cache for 5 minutes
-        await cache.aset(cache_key, result, timeout=300)
-        return result
-    
-    def __str__(self):
-        return f"{self.name} - Restau#{self.restaurant_id}"
-    
+        if order_by:
+            queryset = queryset.order_by(*order_by)
+
+        batch = []
+        async for user in queryset:
+            batch.append(user if return_instances else user.id)
+            if len(batch) >= batch_size:
+                yield batch
+                batch = []
+        
+        if batch:
+            yield batch
+        
+        def __str__(self):
+            return f"{self.name} - Restau#{self.restaurant_id}"
+        
     # models.Index(fields=['manager']), 
 
 
@@ -625,10 +617,11 @@ class StaffShift(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='staff_shifts')
     shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
     date = models.DateField()  # Specific date of the shift
-    start_datetime = models.DateTimeField()  # Computed: date + shift.start_time
-    end_datetime = models.DateTimeField()    # Computed: date + shift.end_time
+    start_datetime = models.DateTimeField(null=True, blank=True)   # Computed: date + shift.start_time
+    end_datetime = models.DateTimeField(null=True, blank=True)   # Computed: date + shift.end_time
     overtime_end_datetime = models.DateTimeField(null=True, blank=True)  # Extended end time if approved
     is_overtime_approved = models.BooleanField(default=False)
+    branch = models.ForeignKey(Branch, null=True, blank=True, on_delete=models.CASCADE, related_name='staff_shifts')
 
     class Meta:
         unique_together = ('user', 'shift', 'date')

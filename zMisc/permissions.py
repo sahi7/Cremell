@@ -977,6 +977,7 @@ class ShiftPatternPermission(BasePermission):
         data = request.data
         role = data.get('role')
         branch = data.get('branch')
+        user = data.get('user')
 
         if not validate_role(role):
             return False
@@ -991,5 +992,14 @@ class ShiftPatternPermission(BasePermission):
             raise PermissionDenied(_("Branch not found"))
         if not await entity_permission._is_object_in_scope(request, branch, Branch):
             raise PermissionDenied(_("You can only set shift patterns within your branch."))
+        
+        # Validate user (if provided)
+        if user is not None:
+            try:
+                user_obj = await CustomUser.objects.aget(id=user)
+            except CustomUser.DoesNotExist:
+                raise PermissionDenied(_("User not found"))
+            if not await entity_permission._is_object_in_scope(request, user_obj, CustomUser):
+                raise PermissionDenied(_("You can only set shift patterns for users within your scope."))
         
         return True

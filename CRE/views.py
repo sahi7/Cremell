@@ -675,7 +675,6 @@ class ShiftPatternViewSet(ModelViewSet):
         Request: {} (empty body)
         """
         pattern = await sync_to_async(self.get_object)()
-        print("pat:: ", pattern)
         await ShiftUpdateHandler.handle_pattern_change(pattern.id)
         return Response({"status": _("Shift regeneration queued")}, status=status.HTTP_202_ACCEPTED)
 
