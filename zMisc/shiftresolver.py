@@ -46,6 +46,20 @@ class ShiftResolver:
         )
         return patterns
     
+    async def get_relevant_filters(self) -> tuple[list[str], list[int]]:
+        """Extract all unique roles and user_ids from patterns"""
+        patterns = json.loads(await self.cache.get(self.cache_key) or await self.preload_patterns())
+        roles = set()
+        user_ids = set()
+        
+        for p in patterns:
+            if p.get('role'):
+                roles.add(p['role'])
+            if p.get('user'):
+                user_ids.add(p['user'])
+                
+        return list(roles), list(user_ids)
+    
     async def resolve_shift(self, user: CustomUser, date: date) -> Optional[int]:
         """Resolve shift assignment with fallthrough logic"""
         # Verify user belongs to this branch
@@ -206,9 +220,13 @@ class ShiftAssignmentEngine:
         """Mass assignment optimized for 5M+ RPS"""
         resolver = ShiftResolver(branch_id)
         await resolver.preload_patterns()
+
+        # Get only relevant filters
+        roles, user_ids = await resolver.get_relevant_filters()
+        print("rel fil: ", roles, user_ids)
         
         # Get active employees in batches
-        async for batch in self._get_employee_batches(branch_id):     
+        async for batch in self._get_employee_batches(branch_id, roles=roles, user_ids=user_ids):     
             assignments = defaultdict(dict)
             
             for date in date_range(start_date, end_date):
@@ -234,18 +252,25 @@ class ShiftAssignmentEngine:
     async def __aexit__(self, exc_type, exc, tb):
         await self.redis.aclose()
     
-    async def _get_employee_batches(self, branch_id: int):
+    async def _get_employee_batches(
+        self, 
+        branch_id: int, 
+        roles: list[str] | None = None, 
+        user_ids: list[int] | None = None
+    ):
         """True single-query streaming"""
         try:
             branch = await Branch.objects.aget(id=branch_id)
             
             user_gen = branch.get_active_users(
                 return_instances=True,
+                roles=roles,
                 only_fields=['id', 'role'],
+                user_ids=user_ids,
                 order_by=['id'],
                 batch_size=self.BATCH_SIZE
             )
-            
+            print("user_gen: ", user_gen)
             # Directly iterate the async generator
             async for batch in user_gen:
                 yield batch

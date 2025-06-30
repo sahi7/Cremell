@@ -431,6 +431,7 @@ class Branch(models.Model):
         return_instances: bool = False,
         roles: list[str] | None = None,
         only_fields: list[str] | None = None,
+        user_ids: list[int] | None = None,
         order_by: list[str] | None = ['id'],  # Default ordering for reliable batching
         batch_size: int | None = None,
     ) -> Union[List[Union[int, 'CustomUser']], AsyncGenerator[Union[int, 'CustomUser'], None]]:
@@ -460,10 +461,19 @@ class Branch(models.Model):
 
         # Build base queryset
         queryset = self.employees.filter(is_active=True)
+
+        # Apply combined filters
+        if roles and user_ids:
+            queryset = queryset.filter(
+                models.Q(role__in=roles) &
+                models.Q(id__in=user_ids)
+            )
         
         # Apply filters
-        if roles:
+        elif roles:
             queryset = queryset.filter(role__in=roles)
+        elif user_ids:
+            queryset = queryset.filter(id__in=user_ids)
         
         # Configure return type
         if return_instances and only_fields:
