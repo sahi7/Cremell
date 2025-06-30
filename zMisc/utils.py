@@ -249,8 +249,8 @@ async def render_notification_template(user_data: dict, message: str, template_n
     
     # Base required context
     context = {
-        'user_name': user_data['username'],
-        'role': user_data['role'],
+        'user_name': user_data.get('username', ''),
+        'role': user_data.get('role', ''),
         'message': message,
         'localized_timestamp': localized_timestamp,
     }

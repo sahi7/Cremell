@@ -1,17 +1,16 @@
 import json
 from celery import shared_task
-from django.db import models
-from django.core.cache import caches
+from redis.asyncio import Redis
 from django.utils import timezone
 from datetime import date, timedelta
 from django.core.cache import cache
-from redis.asyncio import Redis
 from dateutil.rrule import rrule, DAILY
+from django.utils.translation import gettext as _
 
 from collections import defaultdict
 from typing import Optional, Union
 from notifications.models import ShiftAssignmentLog
-from CRE.models import Branch, StaffShift, ShiftPattern, CustomUser
+from CRE.models import Branch, Shift, StaffShift, ShiftPattern, CustomUser
 from CRE.serializers import ShiftPatternSerializer
 import logging
 
@@ -58,19 +57,19 @@ class ShiftResolver:
             if p.get('user'):
                 user_ids.add(p['user'])
                 
-        return list(roles), list(user_ids)
+        return list(roles), list(user_ids), patterns
     
-    async def resolve_shift(self, user: CustomUser, date: date) -> Optional[int]:
+    async def resolve_shift(self, user: CustomUser, date: date, patterns: list[dict]) -> Optional[int]:
         """Resolve shift assignment with fallthrough logic"""
         # Verify user belongs to this branch
         if not await user.branches.filter(id=self.branch_id).aexists():
             return None
-        # Check cache first
-        if not (patterns := await self.cache.get(self.cache_key)):
-            patterns = await self.preload_patterns()
+        # # Check cache first
+        # if not (patterns := await self.cache.get(self.cache_key)):
+        #     patterns = await self.preload_patterns()
         
-        # Filter applicable patterns (user-specific > role-based)
-        patterns = json.loads(patterns)
+        # # Filter applicable patterns (user-specific > role-based)
+        # patterns = json.loads(patterns)
         user_patterns = [
             p for p in patterns 
             if (p['user'] == user.id) or 
@@ -222,29 +221,35 @@ class ShiftAssignmentEngine:
         await resolver.preload_patterns()
 
         # Get only relevant filters
-        roles, user_ids = await resolver.get_relevant_filters()
-        print("rel fil: ", roles, user_ids)
+        roles, user_ids, cached_patterns = await resolver.get_relevant_filters()
         
         # Get active employees in batches
-        async for batch in self._get_employee_batches(branch_id, roles=roles, user_ids=user_ids):     
+        async for batch in self._get_employee_batches(branch_id, roles, user_ids):     
             assignments = defaultdict(dict)
+            employee_shift_data = {}
             
             for date in date_range(start_date, end_date):
                 date_key = date.isoformat()
                 
                 for employee in batch:
                     print(f"Processing employee: {employee.id} - {employee.role}")
-                    if shift_id := await resolver.resolve_shift(employee, date):
+                    if shift_id := await resolver.resolve_shift(employee, date, cached_patterns):
                         assignments[date_key][employee.id] = shift_id
+                        employee_shift_data[employee.id] = {
+                            'date_key': date_key,
+                            'branch_id': branch_id,
+                            'shift_id': shift_id,
+                            'username': employee.username
+                        }
             
             # Bulk insert with Redis pipeline
             async with self.redis.pipeline() as pipe:
                 for date, users in assignments.items():
                     pipe.hset(f"shift_assign:{branch_id}:{date}", mapping=users)
                 await pipe.execute()
-            
+            print("Assignments: ", assignments)
             # Async commit to DB
-            await self._bulk_create_assignments(branch_id, assignments)
+            await self._bulk_create_assignments(branch_id, assignments, employee_shift_data)
 
     async def __aenter__(self):
         return self
@@ -265,20 +270,21 @@ class ShiftAssignmentEngine:
             user_gen = branch.get_active_users(
                 return_instances=True,
                 roles=roles,
-                only_fields=['id', 'role'],
+                only_fields=['id', 'role', 'username'],
                 user_ids=user_ids,
                 order_by=['id'],
                 batch_size=self.BATCH_SIZE
             )
-            print("user_gen: ", user_gen)
+            
             # Directly iterate the async generator
             async for batch in user_gen:
                 yield batch
         except Branch.DoesNotExist:
             return
     
-    async def _bulk_create_assignments(self, branch_id: int, assignments: dict):
+    async def _bulk_create_assignments(self, branch_id: int, assignments: dict, employee_shift_data: dict):
         """Batch insert with conflict handling"""
+        from CRE.tasks import send_shift_notifications
         objs = [
             StaffShift(
                 user_id=user_id,
@@ -289,8 +295,8 @@ class ShiftAssignmentEngine:
             for date, users in assignments.items()
             for user_id, shift_id in users.items()
         ]
-        print(f"Creating {len(objs)} shifts...")
-        print("objs:", [f"User:{obj.user_id} Shift:{obj.shift_id} Date:{obj.date}" for obj in objs])
+        # print(f"Creating {len(objs)} shifts...")
+        # print("objs:", [f"User:{obj.user_id} Shift:{obj.shift_id} Date:{obj.date}" for obj in objs])
         # for i, obj in enumerate(objs[:3]):  # Print first 3 as sample
             # print(f"  Sample {i+1}: User:{obj.user_id} Date:{obj.date} Shift:{obj.shift_id}")
         
@@ -313,6 +319,37 @@ class ShiftAssignmentEngine:
             for user_id, shift_id in users.items()
         ]
         await ShiftAssignmentLog.objects.abulk_create(log_objs)
+
+        # Queue notification task
+        subject=_('Your Shift Schedule'),
+        message=_('Your shift schedule has been updated.'),
+        template_name='emails/shift_schedule_notification.html',
+
+        shift_ids = {shift_id for date_key, user_shifts in assignments.items() for user_id, shift_id in user_shifts.items()}
+        shift_names = {shift.id: shift.name async for shift in Shift.objects.filter(id__in=shift_ids)}
+
+        extra_context = {
+            'employee_shift_data': {
+                user_id: {
+                    'date_key': date_key,
+                    'shift_id': shift_id,
+                    'shift_name': shift_names.get(shift_id, _('Unknown'))
+                }
+                for date_key, user_shifts in assignments.items()
+                for user_id, shift_id in user_shifts.items()
+            }
+        }
+
+        user_ids = {user_id for date_key, user_shifts in assignments.items() for user_id in user_shifts.keys()}
+
+        send_shift_notifications.delay(
+            user_ids=list(user_ids),
+            branch_id=branch_id,
+            subject=subject,
+            message=message,
+            template_name=template_name,
+            extra_context=extra_context,
+        )
 
 import asyncio
 @shared_task(bind=True, max_retries=3)

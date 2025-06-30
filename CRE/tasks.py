@@ -1,8 +1,11 @@
+import asyncio
 from celery import shared_task
 from channels.layers import get_channel_layer
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from allauth.account.utils import send_email_confirmation
 
+from itertools import groupby
+from django.core import mail
 from django.utils import timezone
 from django.http import HttpRequest
 from django.contrib.sites.models import Site
@@ -13,7 +16,7 @@ from django.core.mail import send_mail
 
 from notifications.models import RestaurantActivity, BranchActivity
 from .models import StaffShift, Restaurant, Branch
-from zMisc.utils import determine_activity_model
+from zMisc.utils import determine_activity_model, render_notification_template
 import logging
 
 logger = logging.getLogger(__name__)
@@ -75,6 +78,91 @@ def send_assignment_email(user_id, object_type, object_id, field_name):
     message = f"Hi {user.username},\n\nYou’ve been {field_name} to {object_type} ID {object_id}.\n\nRegards,\nTeam"
     send_mail(subject, message, 'vtuyyf@gmail.com', [user.email], fail_silently=False)
     return True
+
+@shared_task
+def send_shift_notifications(
+    user_ids: list, 
+    branch_id: int, 
+    subject: str,
+    message: str,
+    template_name: str,
+    extra_context: dict | None = None,
+):
+    """Send shift schedule notifications to users in batches"""
+    # Fetch user data (email, language, timezone)
+    timezones = asyncio.run(CustomUser.get_timezone_language(user_ids))
+
+    branch = Branch.objects.get(id=branch_id)
+    restaurant_name = branch.restaurant.name
+    company_name = branch.restaurant.company.name if hasattr(branch.restaurant, 'company') and branch.restaurant.company else 'N/A'
+    additional_context = {
+        'branch_name': branch.name,
+        'restaurant_name': restaurant_name,
+        'company_name': company_name
+    }
+
+    if extra_context is None:
+        extra_context = additional_context
+    else:
+        extra_context = {**extra_context, **additional_context}
+
+    # Organize shift data by user
+    stakeholders = []
+    for user_id in user_ids:
+        if str(user_id) in extra_context['employee_shift_data']:
+            stakeholders.append({
+                'id': user_id,
+                'email': (CustomUser.objects.get(id=user_id)).email,
+                'language': timezones[user_id]['language'],
+                'timezone': timezones[user_id]['timezone'],
+                'shifts': [{
+                    'date': extra_context['employee_shift_data'][str(user_id)]['date_key'],
+                    'shift_id': extra_context['employee_shift_data'][str(user_id)]['shift_id'],
+                    'shift_name': extra_context['employee_shift_data'][str(user_id)]['shift_name']
+                }]
+            })
+    
+    # Batch emails by language and timezone
+    sorted_stakeholders = sorted(stakeholders, key=lambda x: (x['language'], x['timezone']))
+    connection = mail.get_connection()
+    try:
+        connection.open()
+        for (lang, tz), group in groupby(sorted_stakeholders, key=lambda x: (x['language'], x['timezone'])):
+            email_messages = []
+            
+            for user_data in group:
+                # Add shifts to extra_context for template
+                extra_context['shifts'] = user_data['shifts']
+                
+                # Render HTML content
+                html_content = asyncio.run(render_notification_template(
+                    user_data,
+                    message=message,
+                    template_name=template_name,
+                    extra_context=extra_context
+                ))
+                
+                # Create plain text fallback
+                from django.utils.html import strip_tags
+                plain_content = strip_tags(html_content)
+                
+                # Create email
+                email = mail.EmailMultiAlternatives(
+                    subject=subject,
+                    body=plain_content,
+                    from_email='vtuyyf@gmail.com',
+                    to=[user_data['email']],
+                    connection=connection
+                )
+                email.attach_alternative(html_content, "text/html")
+                email_messages.append(email)
+            
+            # Send batch
+            connection.send_messages(email_messages)
+        
+        return True
+    finally:
+        connection.close()
 
 
 @shared_task
