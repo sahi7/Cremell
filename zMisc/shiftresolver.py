@@ -35,7 +35,7 @@ class ShiftResolver:
                 Q(branch_id=self.branch_id),
                 Q(active_from__lte=timezone.now().date() + timedelta(days=14)),
                 Q(active_until__gte=timezone.now().date()) | Q(active_until__isnull=True)
-            ).select_related('user').order_by('-priority')
+            ).order_by('-priority')
         ]   
         serialized_patterns = ShiftPatternSerializer(patterns, many=True).data 
         # print("Ser pat: ", serialized_patterns)
@@ -53,10 +53,10 @@ class ShiftResolver:
         user_ids = set()
         
         for p in patterns:
-            if p.get('role'):
-                roles.add(p['role'])
-            if p.get('user'):
-                user_ids.add(p['user'])
+            if p.get('roles'):
+                roles.update(p['roles'])
+            if p.get('users'):
+                user_ids.update(p['users'])
                 
         return list(roles), list(user_ids), patterns
     
@@ -73,11 +73,11 @@ class ShiftResolver:
         # patterns = json.loads(patterns)
         user_patterns = [
             p for p in patterns 
-            if (p['user'] == user.id) or 
-               (p['role'] == user.role and not p.get('user'))
+            if (p.get('users') and user.id in p['users']) or 
+               (p.get('roles') and user.role in p['roles'] and not p.get('users'))
         ]
         
-        print("pattern length: ", user_patterns)
+        print("pattern length: ", len(user_patterns))
         print("user_patterns: ", user_patterns)
         for pattern in user_patterns:
             if shift_id := self._apply_pattern(pattern, date, user.role):

@@ -1000,35 +1000,40 @@ class ShiftPatternPermission(BasePermission):
         # Validate roles
         valid_roles = {choice[0] for choice in CustomUser.ROLE_CHOICES}  # e.g., {'cashier', 'restaurant_manager'}
         for role in roles:
-            if not validate_role(role):
+            if not validate_role(role) or await compare_role_values(request.user, role):
                 out_of_scope['invalid_roles'].append(role)
-                raise PermissionDenied(_("Error validating roles: ", out_of_scope['invalid_roles']))
-            elif await compare_role_values(request.user, role):
-                out_of_scope['invalid_roles'].append(role)
-                raise PermissionDenied(_("Error validating roles: ", out_of_scope['invalid_roles']))
+
+        if out_of_scope['invalid_roles']:
+            raise PermissionDenied(
+                _("Invalid roles: %(roles)s") % {'roles': out_of_scope['invalid_roles']}
+            )
         
         # Validate users (if provided)
         if user_ids:
             try:
                 # Batch query for users
-                # users = await CustomUser.objects.filter(id__in=user_ids).all()
-                users = await CustomUser.objects.filter(
+                users = await sync_to_async(CustomUser.objects.filter)(
                     id__in=user_ids
                 ).prefetch_related('companies', 'countries', 'branches', 'restaurants')
                 found_user_ids = {user.id async for user in users}
+                
                 # Check for non-existent users
                 missing_users = set(user_ids) - set(found_user_ids)
                 if missing_users:
                     out_of_scope['out_of_scope_users'].extend(list(missing_users))
-                    raise PermissionDenied(_("Error validating users: ", out_of_scope['out_of_scope_users']))
                 
                 # Check scope for existing users
                 async for user in users:
                     if not await entity_permission._is_object_in_scope(request, user, CustomUser):
                         out_of_scope['out_of_scope_users'].append(user.id)
-                        raise PermissionDenied(_("Error validating users: ", out_of_scope['out_of_scope_users']))
+            
             except Exception as e:
                 raise PermissionDenied(_("Error validating users: %s") % str(e))
+
+        if out_of_scope['out_of_scope_users']:
+            raise PermissionDenied(
+                _("Out-of-scope users: %(users)s") % {'users': out_of_scope['out_of_scope_users']}
+            )
         
         return True
     

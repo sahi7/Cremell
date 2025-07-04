@@ -459,10 +459,9 @@ class Branch(models.Model):
                 order_by=['id']
             )
         """
-        print("roles, only_fields, user_ids: "), roles, only_fields, user_ids
+        print("roles, only_fields, user_ids: ", roles, only_fields, user_ids)
         # Build base queryset
         queryset = self.employees.filter(is_active=True)
-        print("queryset: ", queryset)
 
         # Apply combined filters
         if roles and user_ids:
@@ -688,12 +687,15 @@ class ShiftPattern(models.Model):
         models.CharField(max_length=30, choices=CustomUser.ROLE_CHOICES),
         size = 10,  # Limit to 10 roles for performance
         default = list,
+        null=True,
+        blank=True,
         help_text = _("List of roles this pattern applies to")
     )
     users = ArrayField(
         models.IntegerField(),
         default = list,
         blank = True,
+        null=True,
         help_text = _("List of user IDs this pattern applies to")
     )
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE)
@@ -709,13 +711,14 @@ class ShiftPattern(models.Model):
     class Meta:
         constraints = [
             models.CheckConstraint(
-                check=models.Q(role__isnull=False) | models.Q(user__isnull=False),
+                check=models.Q(roles__len__gt=0) | models.Q(users__len__gt=0),
                 name='at_least_one_target'
             )
         ]
         indexes = [
             models.Index(fields=['branch', 'active_from', 'active_until']),
-            models.Index(fields=['role', 'user']),
+            models.Index(fields=['roles'], name='roles_idx'),
+            models.Index(fields=['users'], name='users_idx')
         ]
 
 

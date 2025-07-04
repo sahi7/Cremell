@@ -438,14 +438,14 @@ class ShiftPatternSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'priority': {'min_value': 1, 'max_value': 1000},
             'active_from': {'required': True},
-            'user': {'required': False}
+            'users': {'required': False}
         }
     
     def validate(self, data):
-        raw_config = data.get('config')
+        # raw_config = data.get('config')
         # print("Raw config:", raw_config, type(raw_config)) 
         # Validate at least one target exists
-        if not data.get('user') and not data.get('role'):
+        if not data.get('users') and not data.get('roles'):
             raise serializers.ValidationError(_("Must specify either user or role"))
         if data["active_from"] < timezone.now().date():
             raise serializers.ValidationError({ "active_from": _("Cannot set date in the past") })
