@@ -5,6 +5,7 @@ import json
 from typing import List, Union, AsyncGenerator
 from django.core.cache import cache
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.contrib.postgres.fields import ArrayField
 from django.contrib.auth.models import Group
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
@@ -458,9 +459,10 @@ class Branch(models.Model):
                 order_by=['id']
             )
         """
-
+        print("roles, only_fields, user_ids: "), roles, only_fields, user_ids
         # Build base queryset
         queryset = self.employees.filter(is_active=True)
+        print("queryset: ", queryset)
 
         # Apply combined filters
         if roles and user_ids:
@@ -675,15 +677,25 @@ class StaffShift(models.Model):
 
 class ShiftPattern(models.Model):
     class PatternType(models.TextChoices):
-        ROLE_BASED = 'RB', 'Role-Based'
-        USER_SPECIFIC = 'US', 'User-Specific'
-        ROTATING = 'RT', 'Rotating'
+        ROLE_BASED = 'RB', _('Role-Based')
+        USER_SPECIFIC = 'US', _('User-Specific')
+        ROTATING = 'RT', _('Rotating')
         AD_HOC = 'AH', 'Ad-Hoc'
         HYBRID = 'HY', 'Hybrid'
     
     # What this pattern applies to (role, user, or both)
-    role = models.CharField(max_length=30, choices=CustomUser.ROLE_CHOICES)
-    user = models.ForeignKey(CustomUser, null=True, blank=True, on_delete=models.CASCADE)
+    roles = ArrayField(
+        models.CharField(max_length=30, choices=CustomUser.ROLE_CHOICES),
+        size = 10,  # Limit to 10 roles for performance
+        default = list,
+        help_text = _("List of roles this pattern applies to")
+    )
+    users = ArrayField(
+        models.IntegerField(),
+        default = list,
+        blank = True,
+        help_text = _("List of user IDs this pattern applies to")
+    )
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE)
     
     pattern_type = models.CharField(max_length=2, choices=PatternType.choices)

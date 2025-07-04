@@ -668,14 +668,19 @@ class ShiftPatternViewSet(ModelViewSet):
         scope_filter = async_to_sync(ScopeAccessPolicy().get_queryset_scope)(user, view=self)
         return self.queryset.filter(scope_filter)
 
-    @action(detail=True, methods=["post"], url_path="regenerate")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="regenerate",
+        # permission_classes=(ScopeAccessPolicy,)  # Only ScopeAccessPolicy
+    )
     async def regenerate(self, request, pk=None):
         """
         Endpoint: POST /api/shift-patterns/1/regenerate/
-        Request: {} (empty body)
+        Request: {} (empty body)k
         """
-        pattern = await sync_to_async(self.get_object)()
-        await ShiftUpdateHandler.handle_pattern_change(pattern.id)
+        pattern_id = int(request.pattern_id)
+        await ShiftUpdateHandler.handle_pattern_change(pattern_id)
         return Response({"status": _("Shift regeneration queued")}, status=status.HTTP_202_ACCEPTED)
 
 class OvertimeRequestViewSet(ModelViewSet):

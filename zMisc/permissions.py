@@ -2,18 +2,19 @@ import asyncio
 import redis.asyncio as redis
 
 from typing import List, Dict
-from django.conf import settings
+from asgiref.sync import sync_to_async
 from channels.layers import get_channel_layer
 from rest_framework.permissions import BasePermission
 from rest_framework.exceptions import PermissionDenied
+from django.conf import settings
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.apps import apps
 from django.db.models import ForeignKey
-from asgiref.sync import sync_to_async
 from CRE.tasks import log_activity
-from CRE.models import Branch, Restaurant, Country, Company, Shift
+from CRE.models import Branch, Restaurant, Country, Company, Shift, ShiftPattern
 from notifications.models import RoleAssignment
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.utils import AttributeChecker, compare_role_values, validate_role, get_scopes_and_groups
@@ -974,18 +975,21 @@ class ShiftPermission(BasePermission):
     
 class ShiftPatternPermission(BasePermission):
     async def has_permission(self, request, view):
+        if view.action == 'regenerate':
+            return await self._regenerate_checks(request, view)
+        else:
+            return await self._standard_checks(request, view)
+    
+    async def _standard_checks(self, request, view):
         data = request.data
-        role = data.get('role')
+        roles = data.get('roles', [])
         branch = data.get('branch')
-        user = data.get('user')
+        user_ids = data.get('users', [])
 
-        if not validate_role(role):
-            return False
-            
-        if await compare_role_values(request.user, role):
-            return False
-        
+        out_of_scope = {'invalid_roles': [], 'out_of_scope_users': []}
         entity_permission = EntityUpdatePermission()
+
+        # Validate branch
         try: 
             branch = await Branch.objects.aget(id=branch)
         except Branch.DoesNotExist:
@@ -993,13 +997,56 @@ class ShiftPatternPermission(BasePermission):
         if not await entity_permission._is_object_in_scope(request, branch, Branch):
             raise PermissionDenied(_("You can only set shift patterns within your branch."))
         
-        # Validate user (if provided)
-        if user is not None:
+        # Validate roles
+        valid_roles = {choice[0] for choice in CustomUser.ROLE_CHOICES}  # e.g., {'cashier', 'restaurant_manager'}
+        for role in roles:
+            if not validate_role(role):
+                out_of_scope['invalid_roles'].append(role)
+                raise PermissionDenied(_("Error validating roles: ", out_of_scope['invalid_roles']))
+            elif await compare_role_values(request.user, role):
+                out_of_scope['invalid_roles'].append(role)
+                raise PermissionDenied(_("Error validating roles: ", out_of_scope['invalid_roles']))
+        
+        # Validate users (if provided)
+        if user_ids:
             try:
-                user_obj = await CustomUser.objects.aget(id=user)
-            except CustomUser.DoesNotExist:
-                raise PermissionDenied(_("User not found"))
-            if not await entity_permission._is_object_in_scope(request, user_obj, CustomUser):
-                raise PermissionDenied(_("You can only set shift patterns for users within your scope."))
+                # Batch query for users
+                # users = await CustomUser.objects.filter(id__in=user_ids).all()
+                users = await CustomUser.objects.filter(
+                    id__in=user_ids
+                ).prefetch_related('companies', 'countries', 'branches', 'restaurants')
+                found_user_ids = {user.id async for user in users}
+                # Check for non-existent users
+                missing_users = set(user_ids) - set(found_user_ids)
+                if missing_users:
+                    out_of_scope['out_of_scope_users'].extend(list(missing_users))
+                    raise PermissionDenied(_("Error validating users: ", out_of_scope['out_of_scope_users']))
+                
+                # Check scope for existing users
+                async for user in users:
+                    if not await entity_permission._is_object_in_scope(request, user, CustomUser):
+                        out_of_scope['out_of_scope_users'].append(user.id)
+                        raise PermissionDenied(_("Error validating users: ", out_of_scope['out_of_scope_users']))
+            except Exception as e:
+                raise PermissionDenied(_("Error validating users: %s") % str(e))
         
         return True
+    
+    async def _regenerate_checks(self, request, view):
+        """Regenerate-specific checks"""
+        # pk = view.kwargs.get('pk')
+        # obj = await ShiftPattern.objects.aget(pk=pk)
+        request.pattern_id = view.kwargs.get('pk')
+        return True
+        
+    
+    async def has_object_permission(self, request, view, obj):
+        """Check if user can perform retrieve, update, or delete on a shift."""
+        print("obj: ", obj)
+        if obj.active_until:
+            if obj.active_until <= timezone.now().date():
+                raise PermissionDenied(_("Shift pattern is no longer active."))
+            
+        return True
+        
+        # return await self.entity_permission._is_object_in_scope(request, obj, Shift)

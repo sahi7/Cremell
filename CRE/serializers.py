@@ -446,10 +446,15 @@ class ShiftPatternSerializer(serializers.ModelSerializer):
         # print("Raw config:", raw_config, type(raw_config)) 
         # Validate at least one target exists
         if not data.get('user') and not data.get('role'):
-            raise serializers.ValidationError("Must specify either user or role")
-        if data["active_from"] > (data.get("active_until")):
-            raise serializers.ValidationError("Active from date must be before active until date.")
-        
+            raise serializers.ValidationError(_("Must specify either user or role"))
+        if data["active_from"] < timezone.now().date():
+            raise serializers.ValidationError({ "active_from": _("Cannot set date in the past") })
+        if data.get("active_until") is not None:
+            if data["active_from"] > (data.get("active_until")):
+                raise serializers.ValidationError(_("Active from date must be before active until date."))
+        if data.get("pattern_type") != "RT" and data.get("active_until") is None:
+            raise serializers.ValidationError(_("Active until date is required for non-RT pattern types."))
+            
         # Validate config against pattern type
         config_serializer = ShiftPatternConfigSerializer(
             data=data.get('config', {}),

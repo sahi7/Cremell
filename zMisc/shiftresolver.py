@@ -5,6 +5,7 @@ from django.utils import timezone
 from datetime import date, timedelta
 from django.core.cache import cache
 from dateutil.rrule import rrule, DAILY
+from django.db.models import Q
 from django.utils.translation import gettext as _
 
 from collections import defaultdict
@@ -31,9 +32,9 @@ class ShiftResolver:
         patterns = [
             pattern async for pattern in 
             ShiftPattern.objects.filter(
-                branch_id=self.branch_id,
-                active_from__lte=timezone.now().date() + timedelta(days=14),
-                active_until__gte=timezone.now().date()
+                Q(branch_id=self.branch_id),
+                Q(active_from__lte=timezone.now().date() + timedelta(days=14)),
+                Q(active_until__gte=timezone.now().date()) | Q(active_until__isnull=True)
             ).select_related('user').order_by('-priority')
         ]   
         serialized_patterns = ShiftPatternSerializer(patterns, many=True).data 
@@ -76,6 +77,8 @@ class ShiftResolver:
                (p['role'] == user.role and not p.get('user'))
         ]
         
+        print("pattern length: ", user_patterns)
+        print("user_patterns: ", user_patterns)
         for pattern in user_patterns:
             if shift_id := self._apply_pattern(pattern, date, user.role):
                 return shift_id
@@ -86,6 +89,7 @@ class ShiftResolver:
         # Convert date strings to date objects
         active_from = date.fromisoformat(pattern['active_from'])
         active_until = date.fromisoformat(pattern['active_until']) if pattern['active_until'] else None
+        print("active_until: ", active_until)
         
         # Date validity check (optimized)
         if date < active_from or (active_until and date > active_until):
@@ -222,12 +226,15 @@ class ShiftAssignmentEngine:
 
         # Get only relevant filters
         roles, user_ids, cached_patterns = await resolver.get_relevant_filters()
+        print("relevant filters: ", roles, user_ids)
         
         # Get active employees in batches
-        async for batch in self._get_employee_batches(branch_id, roles, user_ids):     
+        async for batch in self._get_employee_batches(branch_id, roles, user_ids):    
+            print("batch: ", batch) 
             assignments = defaultdict(dict)
             employee_shift_data = {}
             
+            # Resolves all dates for a particular employee 
             for date in date_range(start_date, end_date):
                 date_key = date.isoformat()
                 
@@ -266,6 +273,7 @@ class ShiftAssignmentEngine:
         """True single-query streaming"""
         try:
             branch = await Branch.objects.aget(id=branch_id)
+            print("branch obj: ", branch)
             
             user_gen = branch.get_active_users(
                 return_instances=True,
@@ -341,15 +349,15 @@ class ShiftAssignmentEngine:
         }
 
         user_ids = {user_id for date_key, user_shifts in assignments.items() for user_id in user_shifts.keys()}
-
-        send_shift_notifications.delay(
-            user_ids=list(user_ids),
-            branch_id=branch_id,
-            subject=subject,
-            message=message,
-            template_name=template_name,
-            extra_context=extra_context,
-        )
+        if user_ids:
+            send_shift_notifications.delay(
+                user_ids=list(user_ids),
+                branch_id=branch_id,
+                subject=subject,
+                message=message,
+                template_name=template_name,
+                extra_context=extra_context,
+            )
 
 import asyncio
 @shared_task(bind=True, max_retries=3)
@@ -363,6 +371,14 @@ def regenerate_shifts(self, branch_id: int, start_date, end_date, priority: int)
         self.retry(countdown=2 ** self.request.retries, exc=exc)
 
 class ShiftUpdateHandler:
+    @staticmethod
+    def get_end_date(pattern) -> date:
+        """Calculate end date for a ShiftPattern based on its type and config."""
+        if pattern.pattern_type == 'RT':
+            cycle_length = pattern.config.get('cycle_length', 1)
+            return pattern.active_from + timedelta(days=cycle_length * 7 - 1)
+        return pattern.active_until or (pattern.active_from + timedelta(days=13))
+
     @classmethod
     async def handle_pattern_change(cls, pattern_id: int):
         """Process pattern updates in real-time"""
@@ -373,7 +389,9 @@ class ShiftUpdateHandler:
         await redis_client.delete(f'shift_patterns:{pattern.branch_id}')
         
         # Queue regeneration for affected date range
-        end_date = pattern.active_until or (timezone.now().date() + timezone.timedelta(days=14))
+        # end_date = pattern.active_until or (timezone.now().date() + timezone.timedelta(days=14))
+        end_date = cls.get_end_date(pattern)
+        print("end_date: ", end_date)
         regenerate_shifts.delay(
             branch_id=pattern.branch_id,
             start_date=pattern.active_from,

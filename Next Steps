@@ -50,6 +50,8 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   Cache shift templates in Redis to reduce database queries for frequent access.
  Generate shift patterns - Encourage users to create all shift patterns (in 2 week intervals) before generation
   1. Fix get_queryset method
+  2. Modify shift patterns to take user ids list rather than a single id
+  3. Create action and modify handle_emergency overide
 - Overtime management
 - Complete order process
 - Print receipts
