@@ -640,14 +640,17 @@ class StaffShift(models.Model):
             models.Index(fields=['user', 'start_datetime', 'end_datetime']),
         ]
 
-    def asave(self, *args, **kwargs):
+    async def asave(self, *args, **kwargs):
         """Compute UTC datetimes from branch local time."""
-        branch_tz = pytz.timezone(self.shift.branch.timezone)
-        naive_start = timezone.datetime.combine(self.date, self.shift.start_time)
-        naive_end = timezone.datetime.combine(self.date, self.shift.end_time)
+        staff_shift = await StaffShift.objects.select_related('shift__branch').aget(id=self.id)
+        shift = staff_shift.shift
+        branch = shift.branch
+        branch_tz = pytz.timezone(branch.timezone)
+        naive_start = timezone.datetime.combine(self.date, shift.start_time)
+        naive_end = timezone.datetime.combine(self.date, shift.end_time)
         self.start_datetime = branch_tz.localize(naive_start).astimezone(pytz.UTC)
         self.end_datetime = branch_tz.localize(naive_end).astimezone(pytz.UTC)
-        super().asave(*args, **kwargs)
+        await super().asave(*args, **kwargs)
 
     def is_active(self):
         """Check if shift is active in UTC time."""

@@ -16,6 +16,7 @@ class AsyncAtomicContextManager(Atomic):
     """Asynchronous atomic context manager with a pooled executor for high-load robustness."""
 
     async def __aenter__(self):
+        print("TRANSACTION STARTED")
         # Get an executor from the pool
         self.executor = await executor_pool.get()
         # Start transaction in the assigned thread
@@ -23,6 +24,7 @@ class AsyncAtomicContextManager(Atomic):
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback):
+        print(f"TRANSACTION ENDING: {exc_type}")
         try:
             # End transaction in the assigned thread
             await sync_to_async(super().__exit__, thread_sensitive=False, executor=self.executor)(exc_type, exc_value, traceback)

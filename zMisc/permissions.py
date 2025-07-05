@@ -1,3 +1,4 @@
+import json
 import asyncio
 import redis.asyncio as redis
 
@@ -14,7 +15,7 @@ from django.db.models import Q
 from django.apps import apps
 from django.db.models import ForeignKey
 from CRE.tasks import log_activity
-from CRE.models import Branch, Restaurant, Country, Company, Shift, ShiftPattern
+from CRE.models import Branch, Restaurant, Country, Company, Shift, StaffShift
 from notifications.models import RoleAssignment
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.utils import AttributeChecker, compare_role_values, validate_role, get_scopes_and_groups
@@ -1050,7 +1051,6 @@ class ShiftPatternPermission(BasePermission):
     
     async def has_object_permission(self, request, view, obj):
         """Check if user can perform retrieve, update, or delete on a shift."""
-        print("obj: ", obj)
         if obj.active_until:
             if obj.active_until <= timezone.now().date():
                 raise PermissionDenied(_("Shift pattern is no longer active."))
@@ -1058,3 +1058,67 @@ class ShiftPatternPermission(BasePermission):
         return True
         
         # return await self.entity_permission._is_object_in_scope(request, obj, Shift)
+
+class StaffShiftPermission(BasePermission):
+    async def has_permission(self, request, view):
+        from datetime import datetime
+        staff_shift_id = view.kwargs.get('pk')
+        request.staff_shift_id = staff_shift_id
+        entity_permission = EntityUpdatePermission()
+        
+        data = request.data
+
+        if 'shift_id' not in data or 'date' not in data:
+            # return False
+            raise PermissionDenied(_("Must specify shift's ID and date"))
+        
+        shift_id = data["shift_id"]
+        date = data["date"]
+        user_id = data.get("user_id")
+
+        # Fetch existing StaffShift
+        try:
+            staff_shift = await StaffShift.objects.aget(id=staff_shift_id)
+            request.staff_shift = staff_shift
+        except StaffShift.DoesNotExist:
+            raise PermissionDenied(_("StaffShift not found"))
+
+        # Check if shift_id belongs to the same branch as staff_shift
+        cache_key = f"shift_ids:branch_{staff_shift.branch_id}"
+        cache = redis.from_url(settings.REDIS_URL)
+        valid_shift_ids = await cache.get(cache_key)
+        if valid_shift_ids is None:
+            queryset = Shift.objects.filter(branch_id=staff_shift.branch_id).values_list('id', flat=True)
+            valid_shift_ids = set()
+            async for sid in queryset.aiterator():
+                valid_shift_ids.add(sid)
+            await cache.set(cache_key, json.dumps(list(valid_shift_ids)), ex=3600)
+        else:
+            # Parse the JSON string back into a Python object
+            valid_shift_ids = set(json.loads(valid_shift_ids))
+        
+        # print("valid_shift_ids: ", valid_shift_ids)
+        if shift_id not in valid_shift_ids:
+            raise PermissionDenied(_("Shift ID does not belong to the same branch as StaffShift"))
+        try:
+            date = datetime.strptime(data["date"], "%Y-%m-%d").date()
+            # print("UI Date: ",date, date.strftime("%a"))
+        except ValueError:
+            raise PermissionDenied(_("Invalid date format, expected YYYY-MM-DD"))
+        if date <= timezone.now().date():
+            raise PermissionDenied(_("Shifts can only be set on a future date"))
+        
+        request.shift_id = shift_id
+        request.date = date
+        
+        if user_id:
+            try:
+                target_user = await CustomUser.objects.aget(id=user_id)
+                if not await entity_permission._is_object_in_scope(request, target_user, CustomUser):
+                    return False
+            except CustomUser.DoesNotExist:
+                return False
+            
+            request.user_id = user_id
+
+        return True

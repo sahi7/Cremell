@@ -51,7 +51,7 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
  Generate shift patterns - Encourage users to create all shift patterns (in 2 week intervals) before generation
   1. Fix get_queryset method
   2. Modify shift patterns to take user ids list rather than a single id
-  3. When creating pattern check that the shift is of the branch
+  3. When creating pattern check that the shift is of the branch & users[] is of branch
   4. Create action and modify handle_emergency overide
 - Overtime management
 - Complete order process

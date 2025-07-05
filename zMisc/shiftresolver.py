@@ -77,8 +77,6 @@ class ShiftResolver:
                (p.get('roles') and user.role in p['roles'] and not p.get('users'))
         ]
         
-        print("pattern length: ", len(user_patterns))
-        print("user_patterns: ", user_patterns)
         for pattern in user_patterns:
             if shift_id := self._apply_pattern(pattern, date, user.role):
                 return shift_id
@@ -89,7 +87,6 @@ class ShiftResolver:
         # Convert date strings to date objects
         active_from = date.fromisoformat(pattern['active_from'])
         active_until = date.fromisoformat(pattern['active_until']) if pattern['active_until'] else None
-        print("active_until: ", active_until)
         
         # Date validity check (optimized)
         if date < active_from or (active_until and date > active_until):
@@ -226,11 +223,9 @@ class ShiftAssignmentEngine:
 
         # Get only relevant filters
         roles, user_ids, cached_patterns = await resolver.get_relevant_filters()
-        print("relevant filters: ", roles, user_ids)
         
         # Get active employees in batches
         async for batch in self._get_employee_batches(branch_id, roles, user_ids):    
-            print("batch: ", batch) 
             assignments = defaultdict(dict)
             employee_shift_data = {}
             
@@ -273,7 +268,6 @@ class ShiftAssignmentEngine:
         """True single-query streaming"""
         try:
             branch = await Branch.objects.aget(id=branch_id)
-            print("branch obj: ", branch)
             
             user_gen = branch.get_active_users(
                 return_instances=True,

@@ -32,11 +32,13 @@ from .serializers import *
 from .models import *
 # from .models import Company, Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
 from archive.tasks import finalize_deletion, handle_deletion_tasks
+from notifications.tasks import log_shift_assignment
 from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy, ScopeAccessPolicy
 # from zMisc.permissions import UserCreationPermission, RestaurantPermission, BranchPermission, ObjectStatusPermission, DeletionPermission
 from zMisc.permissions import *
 from zMisc.utils import validate_scope, validate_role
 from zMisc.shiftresolver import ShiftUpdateHandler
+from zMisc.atransactions import aatomic
 import logging
 
 logger = logging.getLogger(__name__)
@@ -589,56 +591,53 @@ class StaffShiftViewSet(ModelViewSet):
     """
     queryset = StaffShift.objects.all()
     serializer_class = StaffShiftSerializer
-    permission_classes = (ScopeAccessPolicy, )
+    permission_classes = (ScopeAccessPolicy, StaffShiftPermission, )
 
-    async def get_queryset(self):
+    def get_queryset(self):
         user = self.request.user
-        if user.is_staff:
-            return self.queryset
-        return self.queryset.filter(user=user)
+        scope_filter = async_to_sync(ScopeAccessPolicy().get_queryset_scope)(user, view=self)
+        return self.queryset.filter(scope_filter)
 
-    @action(detail=False, methods=["post"], url_path="reassign")
-    async def reassign(self, request):
+    @action(detail=True, methods=["post"], url_path="reassign")
+    async def reassign(self, request, pk=None):
         """
-        Endpoint: POST /api/staff-shifts/reassign/
+        Endpoint: POST /api/staff-shifts/{pk}/reassign/
         {
-            "staff_shift_id": 1,
             "shift_id": 2,
             "date": "2025-05-06"
         }
         """
-        staff_shift_id = request.data.get("staff_shift_id")
-        new_shift_id = request.data.get("shift_id")
-        date = request.data.get("date", timezone.now().date())
+        staff_shift = request.staff_shift
+        date = getattr(request, 'date', None)
+        shift_id = getattr(request, 'shift_id', None)
+        user_id = getattr(request, 'user_id', None)
+        hift_name = await sync_to_async(lambda: staff_shift.shift.name)()
+        print("staff_shift name: ", hift_name)
 
-        staff_shift = await StaffShift.objects.aget(id=staff_shift_id)
-        new_shift = await Shift.objects.aget(id=new_shift_id)
-
-        if staff_shift.shift.branch_id != new_shift.branch_id:
-            return Response({"error": "Shifts must belong to the same branch"}, status=status.HTTP_400_BAD_REQUEST)
-        if not await request.user.branches.filter(id=new_shift.branch_id).aexists():
-            return Response({"error": "No permission for this branch"}, status=status.HTTP_403_FORBIDDEN)
-
-        from notifications.tasks import log_shift_assignment
-        with transaction.atomic():
-            staff_shift.shift_id = new_shift_id
+        @aatomic()
+        async def run_atomic():        
+            staff_shift.shift_id = shift_id
             staff_shift.date = date
             await staff_shift.asave()
+            print("in @aatomic(): ", staff_shift.date)
 
             log_shift_assignment.delay(
-                branch_id=new_shift.branch_id,
+                branch_id=staff_shift.branch_id,
                 user_id=staff_shift.user_id,
-                shift_id=new_shift_id,
+                shift_id=shift_id,
                 date=date,
                 action="reassign"
             )
+        await run_atomic()
+        hift_name = await sync_to_async(lambda: staff_shift.shift.name)()
+        print("staff_shift name 2: ", hift_name)
 
         channel_layer = get_channel_layer()
         await channel_layer.group_send(
             f"user_{staff_shift.user_id}",
             {
                 "type": "shift_notification",
-                "message": f"Your shift on {date} has been reassigned to {new_shift.name}.",
+                "message": f"Your shift on {date} has been reassigned to {hift_name}.",
             }
         )
 

@@ -8,12 +8,9 @@ from dj_rest_auth.registration.serializers import RegisterSerializer
 from dj_rest_auth.serializers import UserDetailsSerializer
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.models import Group
-from django.db import transaction
-# from .models import CustomUser, Company, Restaurant, City, Country, RegionOrState, Branch, Menu, MenuCategory, MenuItem, StaffShift, OvertimeRequest, StaffAvailability
+
 from .models import *
 from .tasks import log_activity
-# from zMisc.utils import log_activity
 
 import logging
 
@@ -472,7 +469,11 @@ class ShiftPatternConfigSerializer(serializers.Serializer):
                     .values_list('id', flat=True)
                     .iterator()
                 )
-                cache.set(cache_key, valid_shift_ids, timeout=3600)
+                cache.set(cache_key, json.dumps(list(valid_shift_ids)), ex=3600)
+            else:
+                # Parse the JSON string back into a Python set
+                valid_shift_ids = set(json.loads(valid_shift_ids))
+                
             out_of_scope['invalid_shifts'].extend(list(shift_ids - valid_shift_ids))
             
         if out_of_scope['invalid_shifts']:

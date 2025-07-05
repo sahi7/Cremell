@@ -41,6 +41,8 @@ router.register(r'menu-items', MenuItemViewSet)
 
 router.register(r'shifts', ShiftViewSet)
 router.register(r"staff-shifts", StaffShiftViewSet, basename="staff-shift")
+#  - POST /api/staff-shifts/{id}/reassign/: Emergency overide on a staff shift.
+
 router.register(r"shift-patterns", ShiftPatternViewSet, basename="shift-pattern")
 #  - POST /api/shift-patterns/{id}/regenerate/: Generate staff shift(s) for the shift-pattern id.
 

@@ -4,7 +4,7 @@ from django.db.models import Q
 from asgiref.sync import sync_to_async
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
-from CRE.models import Branch, Restaurant, Shift, ShiftPattern
+from CRE.models import Branch, Restaurant, Shift, ShiftPattern, StaffShift
 from notifications.models import EmployeeTransfer
 
 CustomUser = get_user_model()
@@ -63,6 +63,7 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    StaffShift: Q(branch__company__in=user.companies.all()),
                     ShiftPattern: Q(branch__company__in=user.companies.all()),
                     Shift: Q(branch__restaurant__company__in=user.companies.all()),
                     Branch: Q(company__in=user.companies.all()),
@@ -82,8 +83,9 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
-                    ShiftPattern: Q(branch__company__in=user.companies.all()) & Q(branch__country__in=user.companies.all()) ,
-                    Shift: Q(branch__restaurant__company__in=user.companies.all()) & Q(branch__restaurant__country__in=user.companies.all()) ,
+                    StaffShift: Q(branch__company__in=user.companies.all()) & Q(branch__country__in=user.countries.all()),
+                    ShiftPattern: Q(branch__company__in=user.companies.all()) & Q(branch__country__in=user.countries.all()) ,
+                    Shift: Q(branch__restaurant__company__in=user.companies.all()) & Q(branch__restaurant__country__in=user.countries.all()) ,
                     Branch: Q(country__in=user.countries.all()),
                     Restaurant: Q(country__in=user.countries.all()),
                     EmployeeTransfer: Q(from_branch__restaurant__country__in=user.countries.all()) | 
@@ -103,6 +105,7 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    StaffShift: Q(branch__restaurant__in=user.restaurants.all()),
                     ShiftPattern: Q(branch__restaurant__in=user.restaurants.all()),
                     Shift: Q(branch__restaurant__in=user.restaurants.all()),
                     Branch: Q(restaurant__in=Restaurant.objects.filter(Q(id__in=user.restaurants.all()) | Q(created_by=user))),
@@ -121,6 +124,7 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             'queryset_filter': lambda user, model: (
                 {
+                    StaffShift: Q(branch__restaurant__in=user.restaurants.all()),
                     ShiftPattern: Q(branch__restaurant__in=user.restaurants.all()),
                     Shift: Q(branch__restaurant__in=user.restaurants.all()),
                     Branch: Q(restaurant__in=user.restaurants.all()),
@@ -136,6 +140,7 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    StaffShift: Q(branch_id__in=user.branches.all()),
                     ShiftPattern: Q(branch_id__in=user.branches.all()),
                     Shift: Q(branch_id__in=user.branches.all()),
                     Branch: Q(id__in=user.branches.all()),
