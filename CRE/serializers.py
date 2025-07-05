@@ -394,6 +394,9 @@ class ShiftPatternConfigSerializer(serializers.Serializer):
     def validate(self, data):
         pattern_type = self.context.get('pattern_type')
         data = self.context.get('data')
+        branch_id = self.context.get('branch_id')
+        shift_ids = set()
+        out_of_scope = {'invalid_shifts': []}
         
         if pattern_type == ShiftPattern.PatternType.ROLE_BASED:
             if not isinstance(data.get('default_shift'), int):
@@ -403,6 +406,12 @@ class ShiftPatternConfigSerializer(serializers.Serializer):
                     raise serializers.ValidationError("Exceptions days must be a list")
                 if not isinstance(data['exceptions'].get('shift'), int):
                     raise serializers.ValidationError("Exceptions shift must be numeric")
+            
+            # Shift ids check 
+            if data.get('exceptions', {}).get('shift'):
+                shift_ids.add(data['exceptions']['shift'])
+            if data.get('default_shift'):
+                shift_ids.add(data['default_shift'])
         
         elif pattern_type == ShiftPattern.PatternType.USER_SPECIFIC:
             if not isinstance(data.get('fixed_schedule'), list):
@@ -410,6 +419,11 @@ class ShiftPatternConfigSerializer(serializers.Serializer):
             for entry in data['fixed_schedule']:
                 if not isinstance(entry.get('day'), str):
                     raise serializers.ValidationError("Schedule entries require day string")
+
+            # Shift ids check     
+            for schedule in data.get('fixed_schedule', []):
+                if schedule.get('shift') and schedule['shift'] != 'OFF':
+                    shift_ids.add(schedule['shift'])
         
         elif pattern_type == ShiftPattern.PatternType.ROTATING:
             if not isinstance(data.get('cycle_length'), int) or data['cycle_length'] <= 0:
@@ -419,6 +433,10 @@ class ShiftPatternConfigSerializer(serializers.Serializer):
             for week in data['pattern']:
                 if not isinstance(week.get('shifts'), list):
                     raise serializers.ValidationError("Week entries require shifts list")
+                
+            # Shift ids check 
+            for pattern in data.get('pattern', []):
+                shift_ids.update(s for s in pattern.get('shifts', []) if s)
         
         elif pattern_type == ShiftPattern.PatternType.HYBRID:
             if not isinstance(data.get('components'), list):
@@ -426,6 +444,39 @@ class ShiftPatternConfigSerializer(serializers.Serializer):
             for component in data['components']:
                 if not component.get('type') in ['ROLE_BASED', 'USER_SPECIFIC', 'ROTATING', 'AD_HOC']:
                     raise serializers.ValidationError("Invalid component type")
+                
+            # Shift ids check 
+            for component in data.get('components', []):
+                if component.get('shift'):
+                    shift_ids.add(component['shift'])
+                if component.get('type') == 'ROTATING':
+                    for pattern in component.get('pattern', []):
+                        shift_ids.update(s for s in pattern.get('shifts', []) if s)
+
+
+        elif pattern_type == ShiftPattern.PatternType.AD_HOC:
+            # Shift ids check 
+            for component in data.get('components', []):
+                if component.get('shift'):
+                    shift_ids.add(component['shift'])
+                if component.get('type') == 'ROTATING':
+                    for pattern in component.get('pattern', []):
+                        shift_ids.update(s for s in pattern.get('shifts', []) if s)
+
+        if shift_ids:
+            cache_key = f"shift_ids:branch_{branch_id}"
+            valid_shift_ids = cache.get(cache_key)
+            if valid_shift_ids is None:
+                valid_shift_ids = set(
+                    Shift.objects.filter(id__in=shift_ids, branch_id=branch_id)
+                    .values_list('id', flat=True)
+                    .iterator()
+                )
+                cache.set(cache_key, valid_shift_ids, timeout=3600)
+            out_of_scope['invalid_shifts'].extend(list(shift_ids - valid_shift_ids))
+            
+        if out_of_scope['invalid_shifts']:
+            raise serializers.ValidationError(_("Invalid shifts: %(shifts)s") % {'shifts': out_of_scope['invalid_shifts']})
         
         return data
 
@@ -455,10 +506,17 @@ class ShiftPatternSerializer(serializers.ModelSerializer):
         if data.get("pattern_type") != "RT" and data.get("active_until") is None:
             raise serializers.ValidationError(_("Active until date is required for non-RT pattern types."))
             
+        branch = data.get('branch')
+        branch_id = branch.id if isinstance(branch, Branch) else branch
+
         # Validate config against pattern type
         config_serializer = ShiftPatternConfigSerializer(
             data=data.get('config', {}),
-            context={'pattern_type': data.get('pattern_type'), 'data': data.get('config', {})}
+            context={
+                'pattern_type': data.get('pattern_type'), 
+                'data': data.get('config', {}),
+                'branch_id': branch_id
+                }
         )
         config_serializer.is_valid(raise_exception=True)
         

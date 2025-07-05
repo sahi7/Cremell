@@ -391,7 +391,6 @@ class ShiftUpdateHandler:
         # Queue regeneration for affected date range
         # end_date = pattern.active_until or (timezone.now().date() + timezone.timedelta(days=14))
         end_date = cls.get_end_date(pattern)
-        print("end_date: ", end_date)
         regenerate_shifts.delay(
             branch_id=pattern.branch_id,
             start_date=pattern.active_from,

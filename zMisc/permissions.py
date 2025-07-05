@@ -1012,19 +1012,22 @@ class ShiftPatternPermission(BasePermission):
         if user_ids:
             try:
                 # Batch query for users
-                users = await sync_to_async(CustomUser.objects.filter)(
-                    id__in=user_ids
-                ).prefetch_related('companies', 'countries', 'branches', 'restaurants')
-                found_user_ids = {user.id async for user in users}
+                queryset = CustomUser.objects.filter(id__in=user_ids).prefetch_related('companies', 'countries', 'branches', 'restaurants')
+                users = queryset.aiterator() # evaluates the queryset
+                # found_user_ids = set()
                 
-                # Check for non-existent users
-                missing_users = set(user_ids) - set(found_user_ids)
-                if missing_users:
-                    out_of_scope['out_of_scope_users'].extend(list(missing_users))
+                # # Check for non-existent users
+                # missing_users = set(user_ids) - set(found_user_ids)
+                # if missing_users:
+                #     out_of_scope['out_of_scope_users'].extend(list(missing_users))
                 
                 # Check scope for existing users
                 async for user in users:
-                    if not await entity_permission._is_object_in_scope(request, user, CustomUser):
+                    # print("user in users: ", user, user.branches.all())
+                    # found_user_ids.add(user.id)
+                    if not await user.branches.filter(id=branch.id).aexists():
+                        out_of_scope['out_of_scope_users'].append(user.id)
+                    elif not await entity_permission._is_object_in_scope(request, user, CustomUser):
                         out_of_scope['out_of_scope_users'].append(user.id)
             
             except Exception as e:
