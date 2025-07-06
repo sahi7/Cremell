@@ -315,12 +315,13 @@ class ShiftAssignmentEngine:
                 branch_id=branch_id,
                 user_id=user_id,
                 shift_id=shift_id,
-                date=date
+                date=date,
+                action="assign"
             )
             for date, users in assignments.items()
             for user_id, shift_id in users.items()
         ]
-        await ShiftAssignmentLog.objects.abulk_create(log_objs)
+        await ShiftAssignmentLog.objects.abulk_create(log_objs, ignore_conflicts=True)
 
         # Queue notification task
         subject=_('Your Shift Schedule'),
@@ -392,37 +393,6 @@ class ShiftUpdateHandler:
             priority=1 if pattern.is_temp else 3
         )
     
-    @classmethod
-    async def handle_emergency_override(cls, user_id: int, branch_id: int, date: date, shift_id: int):
-        """Bypass normal resolution for urgent changes"""
-        user = await CustomUser.objects.aget(id=user_id)
-
-        # Verify user belongs to branch
-        if not await user.branches.filter(id=branch_id).aexists():
-            raise ValueError("User not assigned to specified branch")
-        
-        # Create temporary high-priority pattern
-        temp_pattern = await ShiftPattern.objects.acreate(
-            user_id=user_id,
-            branch_id=user.branch_id,
-            pattern_type=ShiftPattern.PatternType.USER_SPECIFIC,
-            config={"fixed_schedule": [{"day": date.strftime("%a"), "shift": shift_id}]},
-            priority=1000,
-            active_from=date,
-            active_until=date,
-            is_temp=True
-        )
-        
-        # Direct Redis update
-        redis_key = f"shift_assign:{user.branch_id}:{date.isoformat()}"
-        await cache.ahset(redis_key, str(user_id), shift_id)
-        
-        # Async DB update
-        await StaffShift.objects.aupdate_or_create(
-            user_id=user_id,
-            date=date,
-            defaults={'shift_id': shift_id}
-        )
 
 def shiftPatterns(self):
 

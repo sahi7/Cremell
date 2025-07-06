@@ -1,9 +1,8 @@
 import asyncio
-
+import redis.asyncio as redis
 from asgiref.sync import async_to_sync
 from celery import shared_task
 from channels.layers import get_channel_layer
-from django.core.cache import cache
 from django.core.mail import send_mail
 from django.conf import settings
 from django.utils import timezone
@@ -14,6 +13,8 @@ from allauth.account.models import EmailConfirmationHMAC, EmailAddress
 from .models import Task, EmployeeTransfer, TransferHistory, ShiftAssignmentLog
 from CRE.models import CustomUser
 from zMisc.utils import get_user_data, render_notification_template, get_stakeholders
+
+cache = redis.from_url(settings.REDIS_URL)
 
 @shared_task
 def monitor_task_timeouts():
@@ -217,7 +218,7 @@ def send_role_assignment_email(assignment_id, subject, message, recipient_email)
     send_mail(
         subject,
         message,
-        'vtuyyf@gmail.com',
+        'wufxna@gmail.com',
         [recipient_email],
         fail_silently=False
     )
@@ -268,7 +269,7 @@ def send_notification_task(
     email = EmailMultiAlternatives(
         subject=subject,
         body=plain_content,  # Plain text version (required)
-        from_email='vtuyyf@gmail.com',
+        from_email='wufxna@gmail.com',
         to=[user_data['email']],
     )
     email.attach_alternative(html_content, "text/html")  # HTML version
@@ -332,7 +333,7 @@ def send_batch_notifications(
                 email = mail.EmailMultiAlternatives(
                     subject=subject,
                     body=plain_content,  # Plain text version
-                    from_email='vtuyyf@gmail.com',
+                    from_email='wufxna@gmail.com',
                     to=[user_data['email']],
                     connection=connection
                 )
@@ -357,25 +358,35 @@ def send_batch_notifications(
     #         emails.append((
     #             subject,
     #             email_body,
-    #             'vtuyyf@gmail.com',
+    #             'wufxna@gmail.com',
     #             [user_data['email']],
     #         ))
     #     send_mass_mail(emails, fail_silently=False)
     # return True
 
+from django.db import IntegrityError
+from CRE.tasks import send_shift_notifications
 @shared_task(
     autoretry_for=(Exception,),
     retry_backoff=30,
     retry_kwargs={'max_retries': 3},
     acks_late=True
 )
-def log_shift_assignment(branch_id, user_id, shift_id, date, action):
-    """
-    Async task for recording shift assignments with retry logic
-    """
-    # Use cache lock to prevent duplicate logging
-    lock_key = f"shift_log_lock:{branch_id}:{user_id}:{date}"
-    with cache.lock(lock_key, timeout=60):
+def log_shift_assignment(
+    branch_id, 
+    user_id, 
+    shift_id, 
+    date, 
+    action,
+    original_user_id,
+    new_user_id,
+    original_shift_name,
+    new_shift_name,
+    original_date,
+    new_date,
+    changes
+):
+    try:
         ShiftAssignmentLog.objects.create(
             branch_id=branch_id,
             user_id=user_id,
@@ -383,3 +394,46 @@ def log_shift_assignment(branch_id, user_id, shift_id, date, action):
             date=date,
             action=action
         )
+    except IntegrityError:
+        pass  # Silently skip duplicate records
+
+    # Determine notification recipients and types
+    user_ids = []
+    notification_type = 'update'
+    same_user = original_user_id == new_user_id
+    
+    if same_user:
+        user_ids.append(new_user_id)
+        if changes['date'] and changes['shift']:
+            notification_type = 'date_and_shift_change'
+        elif changes['date']:
+            notification_type = 'date_change'
+        elif changes['shift']:
+            notification_type = 'shift_change'
+    else:
+        user_ids.extend([original_user_id, new_user_id])
+        notification_type = 'reassignment'  # Unified type for reassignment to different user
+
+    subject="Shift Assignment Update"
+    message=f"Your shift '{original_shift_name}' has been updated"
+    template_name="emails/shift_reassignment_notification.html"
+    extra_context={
+        'notification_type': notification_type,
+        'original_user_id': original_user_id,
+        'new_user_id': new_user_id,
+        'original_shift_name': original_shift_name,
+        'new_shift_name': new_shift_name,
+        'date': date,
+        'original_date': original_date
+    }
+    send_shift_notifications.delay(
+        user_ids=user_ids,
+        branch_id=branch_id,
+        subject=subject,
+        message="",  # Not used since template is provided
+        template_name=template_name,
+        extra_context=extra_context
+    )
+    print("extra_context: ", extra_context)
+
+    return True

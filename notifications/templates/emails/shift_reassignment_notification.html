@@ -1,0 +1,50 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{% trans "Shift Assignment Update" %}</title>
+</head>
+<body>
+    {% if notification_type == "date_and_shift_change" %}
+        <p>{% trans "Dear User," %}</p>
+        <p>
+            {% blocktrans with original_date=original_date|date:"Y-m-d" date=date|date:"Y-m-d" %}
+            Your shift on {{ original_date }} ({{ original_shift_name }}) has been updated to {{ date }} ({{ new_shift_name }}).
+            {% endblocktrans %}
+        </p>
+    {% elif notification_type == "date_change" %}
+        <p>{% trans "Dear User," %}</p>
+        <p>
+            {% blocktrans with original_date=original_date|date:"Y-m-d" date=date|date:"Y-m-d" %}
+            Your shift '{{ original_shift_name }}' has been rescheduled from {{ original_date }} to {{ date }}.
+            {% endblocktrans %}
+        </p>
+    {% elif notification_type == "shift_change" %}
+        <p>{% trans "Dear User," %}</p>
+        <p>
+            {% blocktrans with date=date|date:"Y-m-d" %}
+            Your shift on {{ date }} has been changed from '{{ original_shift_name }}' to '{{ new_shift_name }}'.
+            {% endblocktrans %}
+        </p>
+    {% elif notification_type == "assigned" %}
+        <p>{% trans "Dear User," %}</p>
+        <p>
+            {% blocktrans with date=date|date:"Y-m-d" %}
+            You have been assigned a new shift '{{ new_shift_name }}' on {{ date }}.
+            {% endblocktrans %}
+        </p>
+    {% elif notification_type == "removed" %}
+        <p>{% trans "Dear User," %}</p>
+        <p>
+            {% blocktrans with original_date=original_date|date:"Y-m-d" %}
+            Your shift '{{ original_shift_name }}' on {{ original_date }} has been removed.
+            {% endblocktrans %}
+        </p>
+    {% else %}
+        <p>{% trans "Dear User," %}</p>
+        <p>{% trans "Your shift assignment has been updated. Please check your schedule for details." %}</p>
+    {% endif %}
+    <p>{% trans "Thank you," %}</p>
+    <p>{% trans "Your Scheduling Team" %}</p>
+</body>
+</html>

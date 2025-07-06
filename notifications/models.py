@@ -161,7 +161,13 @@ class ShiftAssignmentLog(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
     shift = models.ForeignKey('CRE.Shift', on_delete=models.CASCADE)
     assigned_at = models.DateTimeField(auto_now_add=True)
-    pattern = models.ForeignKey('CRE.ShiftPattern', null=True, on_delete=models.SET_NULL)
+    action = models.CharField(max_length=100, verbose_name=_("Shift Action")) 
+
+    class Meta:
+        unique_together = ['branch', 'user', 'date']
+        indexes = [
+            models.Index(fields=['branch', 'user', 'date'], name='shift_log_idx')
+        ]
 
 
 class EmployeeTransfer(models.Model):

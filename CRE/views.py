@@ -608,36 +608,58 @@ class StaffShiftViewSet(ModelViewSet):
         }
         """
         staff_shift = request.staff_shift
+        original_user_id = staff_shift.user_id
+        original_date = staff_shift.date
         date = getattr(request, 'date', None)
         shift_id = getattr(request, 'shift_id', None)
         user_id = getattr(request, 'user_id', None)
-        hift_name = await sync_to_async(lambda: staff_shift.shift.name)()
-        print("staff_shift name: ", hift_name)
+        original_shift_name = await sync_to_async(lambda: staff_shift.shift.name)()
 
-        @aatomic()
-        async def run_atomic():        
+        # @aatomic()
+        async def run_atomic(new_shift_name):        
             staff_shift.shift_id = shift_id
             staff_shift.date = date
-            await staff_shift.asave()
-            print("in @aatomic(): ", staff_shift.date)
+            staff_shift.user_id = user_id
+            await staff_shift.asave(update_fields=['user_id', 'date', 'shift_id'])
+            # print("in @aatomic(): ", staff_shift.date)
+
+            new_user_id = staff_shift.user_id
+            new_date = staff_shift.date
+            
+            # Track what actually changed
+            changes = {
+                'user': new_user_id != original_user_id,
+                'date': new_date != original_date,
+                'shift': shift_id != staff_shift.shift_id
+            }
+            print("orig id - New id: ", original_user_id, new_user_id)
+            print("orig name - New name: ", original_shift_name, new_shift_name)
+            print("orig date - New date: ", original_date, new_date)
 
             log_shift_assignment.delay(
                 branch_id=staff_shift.branch_id,
                 user_id=staff_shift.user_id,
                 shift_id=shift_id,
                 date=date,
-                action="reassign"
+                action="reassign",
+                original_user_id=original_user_id,
+                new_user_id=new_user_id,
+                original_shift_name=original_shift_name,
+                new_shift_name=new_shift_name,
+                original_date=original_date,
+                new_date=new_date,
+                changes=changes
             )
-        await run_atomic()
-        hift_name = await sync_to_async(lambda: staff_shift.shift.name)()
-        print("staff_shift name 2: ", hift_name)
+        new_shift_name = await sync_to_async(lambda: staff_shift.shift.name)()
+        await run_atomic(new_shift_name)
+
 
         channel_layer = get_channel_layer()
         await channel_layer.group_send(
             f"user_{staff_shift.user_id}",
             {
                 "type": "shift_notification",
-                "message": f"Your shift on {date} has been reassigned to {hift_name}.",
+                "message": f"Your shift on {date} has been reassigned to {new_shift_name}.",
             }
         )
 

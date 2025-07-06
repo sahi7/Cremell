@@ -25,7 +25,7 @@ async def test_send_notification_task_generates_valid_activate_url(django_db_set
         site = await Site.objects.aget_or_create(id=1, domain='vtuyyf.com', name='vtuyyf.com')
         user = await CustomUser.objects.aget_or_create(
             id=1,
-            email='vtuyyf@gmail.com',
+            email='wufxna@gmail.com',
             username='testuser',
             role='company_admin',
             password='secure123'
@@ -58,8 +58,8 @@ async def test_send_notification_task_generates_valid_activate_url(django_db_set
         email_call = mock_email_send.call_args_list[0]
         email = email_call[0][0]  # EmailMultiAlternatives instance
         assert email.subject == 'Activate Your Account'
-        assert email.to == ['vtuyyf@gmail.com']
-        assert email.from_email == 'vtuyyf@gmail.com'
+        assert email.to == ['wufxna@gmail.com']
+        assert email.from_email == 'wufxna@gmail.com'
         assert 'text/html' in email.alternatives[0][1]
         html_content = email.alternatives[0][0]
         assert 'Activate Account' in html_content

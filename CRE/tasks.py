@@ -76,7 +76,7 @@ def send_assignment_email(user_id, object_type, object_id, field_name):
     user = CustomUser.objects.get(id=user_id)
     subject = f"New Assignment: {object_type.capitalize()} {field_name}"
     message = f"Hi {user.username},\n\nYou’ve been {field_name} to {object_type} ID {object_id}.\n\nRegards,\nTeam"
-    send_mail(subject, message, 'vtuyyf@gmail.com', [user.email], fail_silently=False)
+    send_mail(subject, message, 'wufxna@gmail.com', [user.email], fail_silently=False)
     return True
 
 @shared_task
@@ -108,18 +108,27 @@ def send_shift_notifications(
 
     # Organize shift data by user
     stakeholders = []
-    for user_id in user_ids:
-        if str(user_id) in extra_context['employee_shift_data']:
+    if 'employee_shift_data' in extra_context:
+        for user_id in user_ids:
+            if str(user_id) in extra_context['employee_shift_data']:
+                stakeholders.append({
+                    'id': user_id,
+                    'email': (CustomUser.objects.get(id=user_id)).email,
+                    'language': timezones[user_id]['language'],
+                    'timezone': timezones[user_id]['timezone'],
+                    'shifts': [{
+                        'date': extra_context['employee_shift_data'][str(user_id)]['date_key'],
+                        'shift_id': extra_context['employee_shift_data'][str(user_id)]['shift_id'],
+                        'shift_name': extra_context['employee_shift_data'][str(user_id)]['shift_name']
+                    }]
+                })
+    else:
+        for user_id in user_ids:
             stakeholders.append({
                 'id': user_id,
                 'email': (CustomUser.objects.get(id=user_id)).email,
                 'language': timezones[user_id]['language'],
-                'timezone': timezones[user_id]['timezone'],
-                'shifts': [{
-                    'date': extra_context['employee_shift_data'][str(user_id)]['date_key'],
-                    'shift_id': extra_context['employee_shift_data'][str(user_id)]['shift_id'],
-                    'shift_name': extra_context['employee_shift_data'][str(user_id)]['shift_name']
-                }]
+                'timezone': timezones[user_id]['timezone']
             })
     
     # Batch emails by language and timezone
@@ -132,7 +141,7 @@ def send_shift_notifications(
             
             for user_data in group:
                 # Add shifts to extra_context for template
-                extra_context['shifts'] = user_data['shifts']
+                extra_context['shifts'] = user_data.get("shifts")
                 
                 # Render HTML content
                 html_content = asyncio.run(render_notification_template(
@@ -150,7 +159,7 @@ def send_shift_notifications(
                 email = mail.EmailMultiAlternatives(
                     subject=subject,
                     body=plain_content,
-                    from_email='vtuyyf@gmail.com',
+                    from_email='wufxna@gmail.com',
                     to=[user_data['email']],
                     connection=connection
                 )

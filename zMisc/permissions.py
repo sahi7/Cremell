@@ -982,6 +982,8 @@ class ShiftPatternPermission(BasePermission):
             return await self._standard_checks(request, view)
     
     async def _standard_checks(self, request, view):
+        if request.method == 'GET':
+            return True
         data = request.data
         roles = data.get('roles', [])
         branch = data.get('branch')
@@ -1068,9 +1070,9 @@ class StaffShiftPermission(BasePermission):
         
         data = request.data
 
-        if 'shift_id' not in data or 'date' not in data:
+        if 'shift_id' not in data or 'date' not in data or 'user_id' not in data:
             # return False
-            raise PermissionDenied(_("Must specify shift's ID and date"))
+            raise PermissionDenied(_("A required field is missing"))
         
         shift_id = data["shift_id"]
         date = data["date"]
@@ -1078,7 +1080,7 @@ class StaffShiftPermission(BasePermission):
 
         # Fetch existing StaffShift
         try:
-            staff_shift = await StaffShift.objects.aget(id=staff_shift_id)
+            staff_shift = await StaffShift.objects.select_related('user').aget(id=staff_shift_id)
             request.staff_shift = staff_shift
         except StaffShift.DoesNotExist:
             raise PermissionDenied(_("StaffShift not found"))
