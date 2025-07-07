@@ -692,8 +692,7 @@ class ShiftPatternViewSet(ModelViewSet):
     @action(
         detail=True,
         methods=["post"],
-        url_path="regenerate",
-        # permission_classes=(ScopeAccessPolicy,)  # Only ScopeAccessPolicy
+        url_path="regenerate"
     )
     async def regenerate(self, request, pk=None):
         """
@@ -708,11 +707,16 @@ class OvertimeRequestViewSet(ModelViewSet):
     """API for overtime requests."""
     queryset = OvertimeRequest.objects.all()
     serializer_class = OvertimeRequestSerializer
-    # permission_classes = [permissions.IsAuthenticated]
+    permission_classes = (ScopeAccessPolicy, )
 
-    def perform_create(self, serializer):
+    def get_queryset(self):
+        user = self.request.user
+        scope_filter = async_to_sync(ScopeAccessPolicy().get_queryset_scope)(user, view=self)
+        return self.queryset.filter(scope_filter)
+
+    async def perform_create(self, serializer):
         """User creates an overtime request."""
-        serializer.save(staff_shift=StaffShift.objects.get(
+        serializer.asave(staff_shift = await StaffShift.objects.aget(
             user=self.request.user,
             date=timezone.now().date()
         ))

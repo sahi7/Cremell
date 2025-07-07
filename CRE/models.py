@@ -146,12 +146,17 @@ class CustomUser(AbstractUser):
                 await self.groups.aadd(group)
             elif action == 'remove':
                 await self.groups.aremove(group)
+            elif action == 'get':
+                return group_name
     
     async def add_to_group(self, role):
         await self.manage_group(role)
 
     async def remove_from_group(self, role):
         await self.manage_group(role, action='remove')
+
+    async def get_group(self, role):
+        return await self.manage_group(role, action='get')
 
     async def get_timezone_language(user_ids):
         """

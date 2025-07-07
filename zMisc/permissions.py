@@ -15,7 +15,7 @@ from django.db.models import Q
 from django.apps import apps
 from django.db.models import ForeignKey
 from CRE.tasks import log_activity
-from CRE.models import Branch, Restaurant, Country, Company, Shift, StaffShift
+from CRE.models import Branch, Restaurant, Country, Company, Shift, StaffShift, ShiftPattern
 from notifications.models import RoleAssignment
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.utils import AttributeChecker, compare_role_values, validate_role, get_scopes_and_groups
@@ -1045,9 +1045,24 @@ class ShiftPatternPermission(BasePermission):
     
     async def _regenerate_checks(self, request, view):
         """Regenerate-specific checks"""
-        # pk = view.kwargs.get('pk')
+        pk = view.kwargs.get('pk')
         # obj = await ShiftPattern.objects.aget(pk=pk)
         request.pattern_id = view.kwargs.get('pk')
+
+        user = request.user
+        user_group = await user.get_group(user.role)
+        policy = ScopeAccessPolicy()
+        config = policy.SCOPE_CONFIG[user_group]
+
+        model_class = view.queryset.model
+        queryset_filter = config['queryset_filter'](user, model_class)
+        
+        allowed = await model_class.objects.filter(Q(pk=pk) & queryset_filter).aexists()
+        # print("model class: ", model_class.__name__)
+
+        if not allowed:
+            raise PermissionDenied("You are not authorized to access this shift pattern")
+        
         return True
         
     
@@ -1063,6 +1078,9 @@ class ShiftPatternPermission(BasePermission):
 
 class StaffShiftPermission(BasePermission):
     async def has_permission(self, request, view):
+        if request.method == 'GET':
+            return True
+        
         from datetime import datetime
         staff_shift_id = view.kwargs.get('pk')
         request.staff_shift_id = staff_shift_id

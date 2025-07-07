@@ -44,7 +44,7 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   5. Allow reversion during grace period.
   6. When the finalize field reaches its mark (grace period ends), a background task sets is_active=False for deleted objects (creates a JSON map for all related models to the deleted object for use when copying data to another database and removing from the active database).
   7. Notify stakeholders (post-finalization, confirming deletion completion).
-- Shift management
+- Shift management ✅
  Create shift model
   Prevent overlapping shift templates for the same branch (e.g., no two “Morning Shift” templates with conflicting times).
   Cache shift templates in Redis to reduce database queries for frequent access.
@@ -54,6 +54,7 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   3. When creating pattern check that the shift is of the branch & users[] is of branch
   4. Create action and modify handle_emergency overide
 - Overtime management
+  Du
 - Complete order process
 - Print receipts
 

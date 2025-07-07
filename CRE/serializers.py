@@ -532,7 +532,15 @@ class OvertimeRequestSerializer(ModelSerializer):
     class Meta:
         model = OvertimeRequest
         fields = '__all__'
-        read_only_fields = ('staff_shift', 'requested_at', 'manager_response_at')
+        read_only_fields = ('is_approved', 'staff_shift', 'requested_at', 'manager_response_at')
+
+    async def create(self, validated_data):
+        try:
+            ot_request = await OvertimeRequest.objects.acreate(**validated_data)
+
+            return ot_request
+        except Exception as e:
+            raise serializers.ValidationError(str(e))
 
 class StaffAvailabilitySerializer(ModelSerializer):
     class Meta:

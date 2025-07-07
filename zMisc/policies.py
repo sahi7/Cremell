@@ -4,7 +4,7 @@ from django.db.models import Q
 from asgiref.sync import sync_to_async
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
-from CRE.models import Branch, Restaurant, Shift, ShiftPattern, StaffShift
+from CRE.models import Branch, Restaurant, Shift, ShiftPattern, StaffShift, OvertimeRequest
 from notifications.models import EmployeeTransfer
 
 CustomUser = get_user_model()
@@ -63,6 +63,7 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    OvertimeRequest: Q(staff_shift__branch__company__in=user.companies.all()),
                     StaffShift: Q(branch__company__in=user.companies.all()),
                     ShiftPattern: Q(branch__company__in=user.companies.all()),
                     Shift: Q(branch__restaurant__company__in=user.companies.all()),
@@ -83,6 +84,7 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    OvertimeRequest: Q(staff_shift__branch__company__in=user.companies.all()) & Q(staff_shift__branch__country__in=user.countries.all()),
                     StaffShift: Q(branch__company__in=user.companies.all()) & Q(branch__country__in=user.countries.all()),
                     ShiftPattern: Q(branch__company__in=user.companies.all()) & Q(branch__country__in=user.countries.all()) ,
                     Shift: Q(branch__restaurant__company__in=user.companies.all()) & Q(branch__restaurant__country__in=user.countries.all()) ,
@@ -105,6 +107,7 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    OvertimeRequest: Q(staff_shift__branch__restaurant__in=user.restaurants.all()),
                     StaffShift: Q(branch__restaurant__in=user.restaurants.all()),
                     ShiftPattern: Q(branch__restaurant__in=user.restaurants.all()),
                     Shift: Q(branch__restaurant__in=user.restaurants.all()),
@@ -124,6 +127,7 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             'queryset_filter': lambda user, model: (
                 {
+                    OvertimeRequest: Q(staff_shift__branch__restaurant__in=user.restaurants.all()),
                     StaffShift: Q(branch__restaurant__in=user.restaurants.all()),
                     ShiftPattern: Q(branch__restaurant__in=user.restaurants.all()),
                     Shift: Q(branch__restaurant__in=user.restaurants.all()),
@@ -140,6 +144,23 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    OvertimeRequest: Q(staff_shift__branch_id__in=user.branches.all()),
+                    StaffShift: Q(branch_id__in=user.branches.all()),
+                    ShiftPattern: Q(branch_id__in=user.branches.all()),
+                    Shift: Q(branch_id__in=user.branches.all()),
+                    Branch: Q(id__in=user.branches.all()),
+                    Restaurant: Q(branches__in=user.branches.all()),
+                    EmployeeTransfer: Q(from_branch__in=user.branches.all()) | Q(manager=user)
+                }.get(model, Q(pk__in=[]))
+            ),
+        },
+        "BranchManager": {
+            "scopes": lambda user: {
+                'branches': set(user.branches.values_list('id', flat=True)),
+            },
+            "queryset_filter": lambda user, model: (
+                {
+                    OvertimeRequest: Q(staff_shift__branch_id__in=user.branches.all()),
                     StaffShift: Q(branch_id__in=user.branches.all()),
                     ShiftPattern: Q(branch_id__in=user.branches.all()),
                     Shift: Q(branch_id__in=user.branches.all()),
