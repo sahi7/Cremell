@@ -15,8 +15,9 @@ from django.db.models import Q
 from django.apps import apps
 from django.db.models import ForeignKey
 from CRE.tasks import log_activity
-from CRE.models import Branch, Restaurant, Country, Company, Shift, StaffShift, ShiftPattern
-from notifications.models import RoleAssignment
+# from CRE.models import Branch, Restaurant, Country, Company, Shift, StaffShift, ShiftPattern
+from CRE.models import *
+from notifications.models import RoleAssignment, EmployeeTransfer
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.utils import AttributeChecker, compare_role_values, validate_role, get_scopes_and_groups
 
@@ -361,6 +362,75 @@ class UserCreationPermission(BasePermission):
 
         # Apply the async filter function with role_value filtering
         return await queryset_filter(user, user_role_value, *id_args)
+    
+class StaffAccessPolicy(BasePermission):
+    """
+    Async permission class for users with roles in ROLE_CHOICES but not in SCOPE_CONFIG groups.
+    Optimized for low latency with Redis-cached branch IDs and direct object checks.
+    """
+    # Map models to object permission checks
+    OBJECT_CHECKS = {
+        OvertimeRequest: lambda obj, user, branch_ids: StaffShift.objects.select_related('branch').filter(
+            id=obj.staff_shift_id, user=user, branch_id__in=branch_ids
+        ).aexists(),
+        StaffShift: lambda obj, user, branch_ids: obj.user_id == user.id and obj.branch_id in branch_ids,
+        ShiftPattern: lambda obj, user, branch_ids: obj.branch_id in branch_ids,
+        Shift: lambda obj, user, branch_ids: obj.branch_id in branch_ids,
+        Branch: lambda obj, user, branch_ids: obj.id in branch_ids,
+        Restaurant: lambda obj, user, branch_ids: Branch.objects.filter(restaurant_id=obj.id, id__in=branch_ids).aexists(),
+        EmployeeTransfer: lambda obj, user, branch_ids: (
+            Branch.objects.filter(id=obj.from_branch_id, id__in=branch_ids).aexists() or
+            obj.manager_id == user.id
+        ),
+        CustomUser: lambda obj, user, branch_ids: obj.branches.filter(id__in=branch_ids).aexists(),
+    }
+
+    # Map models to queryset filters
+    QUERYSET_FILTERS = {
+        OvertimeRequest: lambda user, branch_ids: Q(staff_shift__user=user, staff_shift__branch_id__in=branch_ids),
+        StaffShift: lambda user, branch_ids: Q(user=user, branch_id__in=branch_ids),
+        ShiftPattern: lambda user, branch_ids: Q(branch_id__in=branch_ids),
+        Shift: lambda user, branch_ids: Q(branch_id__in=branch_ids),
+        Branch: lambda user, branch_ids: Q(id__in=branch_ids),
+        Restaurant: lambda user, branch_ids: Q(branches__id__in=branch_ids),
+        EmployeeTransfer: lambda user, branch_ids: Q(from_branch_id__in=branch_ids) | Q(manager=user),
+        CustomUser: lambda user, branch_ids: Q(branches__id__in=branch_ids),
+    }
+
+    async def has_permission(self, request, view):
+        print("STAFF POLICY")
+        user = request.user
+        if not validate_role(user.role):
+            return False
+
+        # Check if user has a role but no SCOPE_CONFIG groups
+        scopes = await get_scopes_and_groups(user.id, prefetch=['branches'])
+
+        # Check required branches in request body
+        requested_branches = set(request.data.get("branches", []))
+        if not requested_branches or scopes.get('branch'):
+            return False  # Requires branches
+        return requested_branches.issubset(scopes['branch'])
+
+    async def has_object_permission(self, request, view, obj):
+        user = request.user
+        scopes = await get_scopes_and_groups(user.id, role=user.role)
+        branch_ids = scopes['branch']
+        
+        # Use dictionary dispatch to avoid if/elif
+        check = self.OBJECT_CHECKS.get(obj.__class__)
+        if not check:
+            return False
+        return await check(obj, user, branch_ids)
+
+    async def get_queryset_scope(self, user, view=None):
+        scopes = await get_scopes_and_groups(user.id, role=user.role)
+        branch_ids = scopes['branch']
+        model = view.queryset.model
+        
+        filter_func = self.QUERYSET_FILTERS.get(model, lambda u, b: Q(pk__in=[]))
+        return filter_func(user, branch_ids)
+    
 
 class TransferPermission(BasePermission):
     # Redis client for caching

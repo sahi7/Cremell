@@ -154,7 +154,7 @@ class ScopeAccessPolicy(AccessPolicy):
                 }.get(model, Q(pk__in=[]))
             ),
         },
-        "BranchManager": {
+        "Staff": {
             "scopes": lambda user: {
                 'branches': set(user.branches.values_list('id', flat=True)),
             },

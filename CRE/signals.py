@@ -1,9 +1,11 @@
+from redis.asyncio import Redis
+from django.conf import settings
 from django.apps import apps
 from django.contrib.auth.models import Group, Permission
 from django.db.models.signals import post_migrate, post_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
-from .models import StaffAvailability, StaffShift
+from .models import StaffAvailability, StaffShift, Shift
 from .models import Order, OrderItem
 from notifications.models import Task
 from redis.asyncio import Redis
@@ -142,3 +144,11 @@ def notify_manager_on_overtime_request(sender, instance, created, **kwargs):
     """
     if created:
         pass  # WebSocket notification logic implemented in consumers
+
+@receiver(post_save, sender=Shift)
+@receiver(post_delete, sender=Shift)
+async def invalidate_shift_cache(sender, instance, **kwargs):
+    cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+    branch_id = instance.branch_id
+    cache_key = f"shift_ids:branch_{branch_id}"
+    await cache.delete(cache_key)

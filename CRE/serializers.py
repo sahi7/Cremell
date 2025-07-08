@@ -459,13 +459,15 @@ class ShiftPatternConfigSerializer(serializers.Serializer):
                 if component.get('type') == 'ROTATING':
                     for pattern in component.get('pattern', []):
                         shift_ids.update(s for s in pattern.get('shifts', []) if s)
-
+        from redis import Redis
         if shift_ids:
+            print("shift_ids: ", shift_ids)
             cache_key = f"shift_ids:branch_{branch_id}"
+            cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
             valid_shift_ids = cache.get(cache_key)
             if valid_shift_ids is None:
                 valid_shift_ids = set(
-                    Shift.objects.filter(id__in=shift_ids, branch_id=branch_id)
+                    Shift.objects.filter(branch_id=branch_id)
                     .values_list('id', flat=True)
                     .iterator()
                 )

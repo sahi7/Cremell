@@ -716,7 +716,7 @@ class OvertimeRequestViewSet(ModelViewSet):
 
     async def perform_create(self, serializer):
         """User creates an overtime request."""
-        serializer.asave(staff_shift = await StaffShift.objects.aget(
+        await serializer.save(staff_shift = await StaffShift.objects.aget(
             user=self.request.user,
             date=timezone.now().date()
         ))
