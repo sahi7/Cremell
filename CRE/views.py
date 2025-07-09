@@ -593,15 +593,9 @@ class StaffShiftViewSet(ModelViewSet):
     serializer_class = StaffShiftSerializer
 
     def get_permissions(self):
-        user = self.request.user
-        role_value = async_to_sync(user.get_role_value)()
-        if role_value <= 4:
-            self._access_policy = ScopeAccessPolicy()
-            permission_classes = [ScopeAccessPolicy, StaffShiftPermission]
-        else:
-            self._access_policy = StaffAccessPolicy()
-            permission_classes = [StaffAccessPolicy, StaffShiftPermission]
-        return [permission() for permission in permission_classes]
+        role_value = async_to_sync(self.request.user.get_role_value)()
+        self._access_policy = (ScopeAccessPolicy if role_value <= 4 else StaffAccessPolicy)()
+        return [self._access_policy, StaffShiftPermission()]
 
     def get_queryset(self):
         user = self.request.user
@@ -717,19 +711,44 @@ class OvertimeRequestViewSet(ModelViewSet):
     """API for overtime requests."""
     queryset = OvertimeRequest.objects.all()
     serializer_class = OvertimeRequestSerializer
-    permission_classes = (ScopeAccessPolicy, )
+
+    def get_permissions(self):
+        role_value = async_to_sync(self.request.user.get_role_value)()
+        self._access_policy = (ScopeAccessPolicy if role_value <= 4 else StaffAccessPolicy)()
+        return [self._access_policy]
 
     def get_queryset(self):
         user = self.request.user
-        scope_filter = async_to_sync(ScopeAccessPolicy().get_queryset_scope)(user, view=self)
+        scope_filter = async_to_sync(self._access_policy.get_queryset_scope)(user, view=self)
         return self.queryset.filter(scope_filter)
 
     async def perform_create(self, serializer):
-        """User creates an overtime request."""
-        await serializer.save(staff_shift = await StaffShift.objects.aget(
-            user=self.request.user,
-            date=timezone.now().date()
-        ))
+        """User creates an overtime request directly in view."""
+        try:
+            staff_shift = await StaffShift.objects.aget(
+                user=self.request.user,
+                date=timezone.now().date()
+            )
+            ot_request = await sync_to_async(lambda: OvertimeRequest.objects.create(
+                staff_shift=staff_shift,
+                **serializer.validated_data
+            ))()
+            logger.info(f"OvertimeRequest created for user {self.request.user.id}, staff_shift {staff_shift.id}, id {ot_request.id}")
+            serializer.instance = ot_request
+        except StaffShift.DoesNotExist:
+            logger.error(f"No StaffShift found for user {self.request.user.id} on {timezone.now().date()}")
+            raise serializers.ValidationError("No shift assigned for today.")
+        except Exception as e:
+            logger.error(f"Failed to create OvertimeRequest: {str(e)}")
+            raise serializers.ValidationError(f"Failed to create request: {str(e)}")
+
+    async def create(self, request, *args, **kwargs):
+        """Override create to await async perform_create."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        await self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     @action(detail=True, methods=['post'], url_path='approve')
     def approve_overtime(self, request, pk=None):

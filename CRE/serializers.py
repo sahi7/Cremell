@@ -539,9 +539,10 @@ class OvertimeRequestSerializer(ModelSerializer):
     async def create(self, validated_data):
         try:
             ot_request = await OvertimeRequest.objects.acreate(**validated_data)
-
+            logger.info(f"OvertimeRequest created with ID {ot_request.id}")
             return ot_request
         except Exception as e:
+            logger.error(f"Error creating OvertimeRequest: {str(e)}")
             raise serializers.ValidationError(str(e))
 
 class StaffAvailabilitySerializer(ModelSerializer):
