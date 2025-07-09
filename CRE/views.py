@@ -715,7 +715,7 @@ class OvertimeRequestViewSet(ModelViewSet):
     def get_permissions(self):
         role_value = async_to_sync(self.request.user.get_role_value)()
         self._access_policy = (ScopeAccessPolicy if role_value <= 4 else StaffAccessPolicy)()
-        return [self._access_policy]
+        return [self._access_policy, OvertimeRequestPermission()]
 
     def get_queryset(self):
         user = self.request.user

@@ -396,7 +396,6 @@ class StaffAccessPolicy(BasePermission):
         EmployeeTransfer: lambda user, branch_ids: Q(from_branch_id__in=branch_ids) | Q(manager=user),
         CustomUser: lambda user, branch_ids: Q(branches__id__in=branch_ids),
     }
-    print("IN STAFF POLICY")
     async def has_permission(self, request, view):
         user = request.user
         if not validate_role(user.role):
@@ -426,7 +425,6 @@ class StaffAccessPolicy(BasePermission):
 
     async def get_queryset_scope(self, user, view=None):
         scopes = await get_scopes_and_groups(user.id, prefetch=['branches'])
-        print("SCOPES: ", scopes)
         branch_ids = scopes['branch']
         model = view.queryset.model
         
@@ -1217,8 +1215,21 @@ class StaffShiftPermission(BasePermission):
     
 class OvertimeRequestPermission(BasePermission):
     async def has_permission(self, request, view):
-        rv = request.user.get_role_value()
+        rv = await request.user.get_role_value()
         print("view.action: ", view.action)
-        if rv <= 5:
-            if view.action not in ['get', 'create', 'update', 'partial_update']:
+        if rv > 5:
+            if view.action not in ['list', 'retrieve','create', 'update', 'partial_update']:
                 return False
+            
+        return True
+    
+    async def has_object_permission(self, request, view, obj):
+        user = request.user
+        policy = StaffAccessPolicy()
+
+        scopes = await get_scopes_and_groups(user.id, prefetch=['branches'])
+        branch_ids = scopes.get('branch', set())
+        check = policy.OBJECT_CHECKS.get(obj.__class__)
+        if not check:
+            return False
+        return await check(obj, user, branch_ids)
