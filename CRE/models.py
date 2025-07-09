@@ -123,8 +123,20 @@ class CustomUser(AbstractUser):
         }
         # return role_hierarchy.get(role or self.role, 0)  # If no role is specified, default to the instance's role
         # Use provided role or instance's role
+        # print("DB HIT?", getattr(self, "_prefetched_objects_cache", False))
+        cache_key = f"role_id:user_{self.id}"
+        cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+        cached = await cache.get(cache_key)
+        if cached is not None:
+            return int(cached)
+        
         target_role = role if role is not None else getattr(self, 'role', None) 
-        return role_hierarchy.get(target_role, 0)
+        role_id = role_hierarchy.get(target_role, 0)
+
+        # Cache role_id
+        await cache.set(cache_key, str(role_id), ex=3600)
+
+        return role_id
 
     async def manage_group(self, role, action='add'):
         """

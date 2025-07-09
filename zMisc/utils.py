@@ -211,15 +211,15 @@ async def get_scopes_and_groups(user_id, get_instance=False, prefetch: list[str]
 
     result = {}
     if 'companies' in to_prefetch:
-        result['company'] = set(await user.companies.values_list('id', flat=True).aget())
+        result['company'] = [c.id async for c in user.companies.all()]
     if 'countries' in to_prefetch:
-        result['country'] = set(await user.countries.values_list('id', flat=True).aget())
+        result['country'] = [c.id async for c in user.countries.all()]
     if 'restaurants' in to_prefetch:
-        result['restaurant'] = set(await user.restaurants.values_list('id', flat=True).aget())
+        result['restaurant'] = [c.id async for c in user.restaurants.all()]
     if 'branches' in to_prefetch:
-        result['branch'] = set(await user.branches.values_list('id', flat=True).aget())
+        result['branch'] = [c.id async for c in user.branches.all()]
     if 'groups' in to_prefetch:
-        result['groups'] = set(await user.groups.values_list('name', flat=True).aget())
+        result['groups'] = {g.name async for g in user.groups.all()}
 
     await cache.set(cache_key, json.dumps({k: list(v) for k,v in result.items()}), ex=600)
 

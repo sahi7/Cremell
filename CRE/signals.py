@@ -7,7 +7,7 @@ from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from .models import StaffAvailability, StaffShift, Shift
 from .models import Order, OrderItem
-from notifications.models import Task
+from notifications.models import Task, EmployeeTransfer
 from redis.asyncio import Redis
 
 CustomUser = get_user_model()
@@ -151,4 +151,12 @@ async def invalidate_shift_cache(sender, instance, **kwargs):
     cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
     branch_id = instance.branch_id
     cache_key = f"shift_ids:branch_{branch_id}"
+    await cache.delete(cache_key)
+
+@receiver(post_save, sender=EmployeeTransfer)
+@receiver(post_delete, sender=EmployeeTransfer)
+async def invalidate_user_role_id(sender, instance, **kwargs):
+    cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+    user_id = instance.user_id
+    cache_key = f"role_id:user_{user_id}"
     await cache.delete(cache_key)

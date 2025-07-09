@@ -398,7 +398,6 @@ class StaffAccessPolicy(BasePermission):
     }
 
     async def has_permission(self, request, view):
-        print("STAFF POLICY")
         user = request.user
         if not validate_role(user.role):
             return False
@@ -408,13 +407,15 @@ class StaffAccessPolicy(BasePermission):
 
         # Check required branches in request body
         requested_branches = set(request.data.get("branches", []))
-        if not requested_branches or scopes.get('branch'):
+        if not requested_branches:
             return False  # Requires branches
+        if not scopes.get('branch'):
+            return False
         return requested_branches.issubset(scopes['branch'])
 
     async def has_object_permission(self, request, view, obj):
         user = request.user
-        scopes = await get_scopes_and_groups(user.id, role=user.role)
+        scopes = await get_scopes_and_groups(user.id, prefetch=['branches'])
         branch_ids = scopes['branch']
         
         # Use dictionary dispatch to avoid if/elif
@@ -424,7 +425,7 @@ class StaffAccessPolicy(BasePermission):
         return await check(obj, user, branch_ids)
 
     async def get_queryset_scope(self, user, view=None):
-        scopes = await get_scopes_and_groups(user.id, role=user.role)
+        scopes = await get_scopes_and_groups(user.id, prefetch=['branches'])
         branch_ids = scopes['branch']
         model = view.queryset.model
         

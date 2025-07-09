@@ -591,11 +591,21 @@ class StaffShiftViewSet(ModelViewSet):
     """
     queryset = StaffShift.objects.all()
     serializer_class = StaffShiftSerializer
-    permission_classes = (ScopeAccessPolicy, StaffShiftPermission, )
+
+    def get_permissions(self):
+        user = self.request.user
+        role_value = async_to_sync(user.get_role_value)()
+        if role_value <= 4:
+            self._access_policy = ScopeAccessPolicy()
+            permission_classes = [ScopeAccessPolicy, StaffShiftPermission]
+        else:
+            self._access_policy = StaffAccessPolicy()
+            permission_classes = [StaffAccessPolicy, StaffShiftPermission]
+        return [permission() for permission in permission_classes]
 
     def get_queryset(self):
         user = self.request.user
-        scope_filter = async_to_sync(ScopeAccessPolicy().get_queryset_scope)(user, view=self)
+        scope_filter = async_to_sync(self._access_policy.get_queryset_scope)(user, view=self)
         return self.queryset.filter(scope_filter)
 
     @action(detail=True, methods=["post"], url_path="reassign")
@@ -632,9 +642,9 @@ class StaffShiftViewSet(ModelViewSet):
                 'date': new_date != original_date,
                 'shift': shift_id != staff_shift.shift_id
             }
-            print("orig id - New id: ", original_user_id, new_user_id)
-            print("orig name - New name: ", original_shift_name, new_shift_name)
-            print("orig date - New date: ", original_date, new_date)
+            # print("orig id - New id: ", original_user_id, new_user_id)
+            # print("orig name - New name: ", original_shift_name, new_shift_name)
+            # print("orig date - New date: ", original_date, new_date)
 
             log_shift_assignment.delay(
                 branch_id=staff_shift.branch_id,
