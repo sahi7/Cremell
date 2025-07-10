@@ -707,6 +707,7 @@ class ShiftPatternViewSet(ModelViewSet):
         await ShiftUpdateHandler.handle_pattern_change(pattern_id)
         return Response({"status": _("Shift regeneration queued")}, status=status.HTTP_202_ACCEPTED)
 
+from notifications.tasks import send_batch_notifications
 class OvertimeRequestViewSet(ModelViewSet):
     """API for overtime requests."""
     queryset = OvertimeRequest.objects.all()
@@ -725,7 +726,7 @@ class OvertimeRequestViewSet(ModelViewSet):
     async def perform_create(self, serializer):
         """User creates an overtime request directly in view."""
         try:
-            staff_shift = await StaffShift.objects.aget(
+            staff_shift = await StaffShift.objects.select_related('branch').aget(
                 user=self.request.user,
                 date=timezone.now().date()
             )
@@ -733,14 +734,30 @@ class OvertimeRequestViewSet(ModelViewSet):
                 staff_shift=staff_shift,
                 **serializer.validated_data
             ))()
+
+            # Trigger notification task
+            extra_context = {
+                'date': staff_shift.date.strftime('%Y-%m-%d'),
+                'ot_request_id': ot_request.id
+            }
+            send_batch_notifications.delay(
+                restaurant_id = staff_shift.branch.restaurant_id,
+                branch_id=staff_shift.branch_id,
+                # country_id=country_id,
+                message = _(f"Overtime has been requested by {self.request.user.username}"),
+                subject = _("New Overtime Request"),
+                extra_context=extra_context,
+                template_name = "emails/overtime_request.html"
+            )
+
             logger.info(f"OvertimeRequest created for user {self.request.user.id}, staff_shift {staff_shift.id}, id {ot_request.id}")
             serializer.instance = ot_request
         except StaffShift.DoesNotExist:
             logger.error(f"No StaffShift found for user {self.request.user.id} on {timezone.now().date()}")
             raise serializers.ValidationError("No shift assigned for today.")
-        except Exception as e:
-            logger.error(f"Failed to create OvertimeRequest: {str(e)}")
-            raise serializers.ValidationError(f"Failed to create request: {str(e)}")
+        # except Exception as e:
+        #     logger.error(f"Failed to create OvertimeRequest: {str(e)}")
+        #     raise serializers.ValidationError(f"Failed to create request: {str(e)}")
 
     async def create(self, request, *args, **kwargs):
         """Override create to await async perform_create."""

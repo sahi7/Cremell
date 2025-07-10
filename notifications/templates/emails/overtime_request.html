@@ -1,0 +1,24 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% trans "New Overtime Request Notification" %}</title>
+</head>
+<body>
+    <p>
+        {% blocktrans with request_date=date %}
+        A new overtime request has been created by {{ username }} for {{ request_date }} at {{ branch_name }}.
+        {% endblocktrans %}
+    </p>
+    <p>
+        {% trans "Request ID" %}: {{ ot_request_id }}
+    </p>
+    <p>
+        {% blocktrans %}
+        Please review the request details in the system.
+        {% endblocktrans %}
+    </p>
+</body>
+</html>

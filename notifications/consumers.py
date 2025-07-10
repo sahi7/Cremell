@@ -1,7 +1,46 @@
+import json
+import logging
+
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.utils.translation import gettext_lazy as _
-import json
+
+logger = logging.getLogger(__name__)
+
+class StakeholderConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        """
+        Handle WebSocket connection, adding authenticated user to their group.
+        """
+        user = self.scope['user']
+        if user.is_authenticated:
+            self.user_group = f"user_{user.id}"
+            await self.channel_layer.group_add(self.user_group, self.channel_name)
+            await self.accept()
+            logger.info(f"WebSocket connected for user {user.id}")
+        else:
+            logger.warning("WebSocket connection rejected: User not authenticated")
+            await self.close(code=4001)  # Unauthorized
+
+    async def disconnect(self, close_code):
+        """
+        Handle WebSocket disconnection, removing user from their group.
+        """
+        if hasattr(self, 'user_group'):
+            await self.channel_layer.group_discard(self.user_group, self.channel_name)
+            logger.info(f"WebSocket disconnected for user group {self.user_group}, code: {close_code}")
+
+    async def stakeholder_notification(self, event):
+        """
+        Handle stakeholder notification, sending message to client.
+        """
+        message = event['message']
+        await self.send(text_data=json.dumps({
+            'type': 'overtime.notification',
+            'message': message
+        }))
+        logger.debug(f"Sent notification to {self.user_group}: {message}")
+
 
 class BranchConsumer(AsyncWebsocketConsumer):
     async def connect(self):

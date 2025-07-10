@@ -313,12 +313,13 @@ def send_batch_notifications(
     sorted_stakeholders = sorted(stakeholders, key=lambda x: (x['language'], x['timezone']))
     try:
         connection.open()
+        channel_layer = get_channel_layer()
         for (lang, tz), group in groupby(sorted_stakeholders, key=lambda x: (x['language'], x['timezone'])):
             email_messages = []
             
             for user_data in group:
                 # Render HTML content (unchanged)
-                html_content = asyncio.run(render_notification_template(
+                html_content = asyncio.run(render_notification_template( 
                     user_data,
                     message,
                     template_name=template_name,
@@ -339,13 +340,25 @@ def send_batch_notifications(
                 )
                 email.attach_alternative(html_content, "text/html")
                 email_messages.append(email)
-            
+                
+                # Send notification 
+                group_name = f"user_{user_data['id']}"
+                async_to_sync(channel_layer.group_send)(
+                group_name,
+                    {
+                        "type": "stakeholder.notification",
+                        "message": message
+                    }
+                )
+
             # Send batch
             connection.send_messages(email_messages)
-            
+
         return True
     finally:
         connection.close()
+
+        
     # for (lang, tz), group in groupby(sorted_stakeholders, key=lambda x: (x['language'], x['timezone'])):
     #     emails = []
     #     for user_data in group:

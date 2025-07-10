@@ -57,6 +57,7 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   Du
 - Complete order process
 - Print receipts
+- Improve get_stakeholders when r_val has been corrected
 
 
 # REDUCE DB REQUESTS WITH CACHING #
