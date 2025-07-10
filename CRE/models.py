@@ -11,6 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 from django.conf import settings
 from django.db import models
+from rest_framework.exceptions import ValidationError
 from redis.asyncio import Redis
 
 class CustomUserManager(BaseUserManager):
@@ -683,12 +684,22 @@ class StaffShift(models.Model):
             self.is_overtime_approved
         )
 
-    async def extend_overtime(self, extra_hours):
+    async def extend_overtime(self, extra_hours, staff_shift):
         """Extend shift with overtime, storing in UTC."""
-        if not self.overtime_end_datetime:
+        self = await StaffShift.objects.select_related('branch', 'shift').aget(id=self.id)
+        branch_tz = pytz.timezone(self.branch.timezone)
+        # today = timezone.now().astimezone(branch_tz).date()
+        if self.end_datetime is not None:
+            # Option 1: Use end_datetime
             self.overtime_end_datetime = self.end_datetime + timezone.timedelta(hours=extra_hours)
-            self.is_overtime_approved = True
-            await self.asave()
+        else:
+            # Option 2: Combine shift.end_time with today
+            naive_end_time = timezone.datetime.combine(self.date, self.shift.end_time)
+            localized_end_time = branch_tz.localize(naive_end_time)
+            self.overtime_end_datetime = localized_end_time + timezone.timedelta(hours=extra_hours)
+
+        self.is_overtime_approved = True
+        await self.asave()
 
     def __str__(self):
         return f"{self.user.username} - {self.shift.name} on {self.date}"
@@ -807,9 +818,16 @@ class OvertimeRequest(models.Model):
 
     async def approve(self):
         """Manager approves the request."""
+        branch_tz = pytz.timezone(self.staff_shift.branch.timezone)
+        today = timezone.now().astimezone(branch_tz).date()
+        if self.is_approved == True:
+            raise ValidationError(_("Overtime  already approved."))
+        if self.staff_shift.date < today:
+            raise ValidationError(_("Cannot approve overtime for a shift that has already ended."))
         self.is_approved = True
         self.manager_response_at = timezone.now()
-        await self.staff_shift.extend_overtime(self.requested_hours)
+        # print(f"branch_tz - today: {branch_tz} - {today}")
+        await self.staff_shift.extend_overtime(self.requested_hours, self.staff_shift)
         await self.asave()
 
     def __str__(self):

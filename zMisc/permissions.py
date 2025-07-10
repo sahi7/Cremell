@@ -1220,16 +1220,18 @@ class OvertimeRequestPermission(BasePermission):
         if rv > 5:
             if view.action not in ['list', 'retrieve','create', 'update', 'partial_update']:
                 return False
-            
+    
         return True
     
     async def has_object_permission(self, request, view, obj):
+        print("in has_object_permission")
         user = request.user
         policy = StaffAccessPolicy()
 
         scopes = await get_scopes_and_groups(user.id, prefetch=['branches'])
         branch_ids = scopes.get('branch', set())
         check = policy.OBJECT_CHECKS.get(obj.__class__)
+        print("check: ", check)
         if not check:
             return False
         return await check(obj, user, branch_ids)

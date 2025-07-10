@@ -768,18 +768,19 @@ class OvertimeRequestViewSet(ModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     @action(detail=True, methods=['post'], url_path='approve')
-    def approve_overtime(self, request, pk=None):
+    async def approve_overtime(self, request, *args, **kwargs):
         """Manager approves an overtime request."""
         # if not request.user.is_staff:
         #     return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
-        ot_request = self.get_object()
-        ot_request.approve()
+        pk = kwargs['pk']
+        ot_request = await OvertimeRequest.objects.select_related('staff_shift__branch').aget(id=pk)
+        await ot_request.approve()
         # Notify user via WebSocket
         channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"user_{ot_request.staff_shift.user.id}",
+        await channel_layer.group_send(
+            f"user_{ot_request.staff_shift.user_id}",
             {
-                'type': 'overtime_notification',
+                'type': 'stakeholder.notification',
                 'message': 'Your overtime request has been approved.'
             }
         )

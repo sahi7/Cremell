@@ -286,17 +286,47 @@ class ShiftAssignmentEngine:
     
     async def _bulk_create_assignments(self, branch_id: int, assignments: dict, employee_shift_data: dict):
         """Batch insert with conflict handling"""
+        import pytz
+        from datetime import datetime
         from CRE.tasks import send_shift_notifications
-        objs = [
-            StaffShift(
-                user_id=user_id,
-                shift_id=shift_id,
-                date=date,
-                branch_id=branch_id
-            )
-            for date, users in assignments.items()
-            for user_id, shift_id in users.items()
-        ]
+        shift_ids = {shift_id for date_key, user_shifts in assignments.items() for user_id, shift_id in user_shifts.items()}
+        shifts = await Shift.objects.select_related('branch').filter(id__in=shift_ids).ain_bulk()
+
+        objs = []
+        for date_str, users in assignments.items():
+            # Convert the date string to a date object
+            date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            for user_id, shift_id in users.items():
+                shift = shifts.get(shift_id)
+                if not shift:
+                    continue  # Skip invalid shift_id
+                branch_tz = pytz.timezone(shift.branch.timezone)
+                naive_start = timezone.datetime.combine(date, shift.start_time)
+                naive_end = timezone.datetime.combine(date, shift.end_time)
+                start_datetime = branch_tz.localize(naive_start).astimezone(pytz.UTC)
+                end_datetime = branch_tz.localize(naive_end).astimezone(pytz.UTC)
+
+                objs.append(
+                    StaffShift(
+                        user_id=user_id,
+                        shift_id=shift_id,
+                        date=date,
+                        branch_id=shift.branch.id,
+                        start_datetime=start_datetime,
+                        end_datetime=end_datetime
+                    )
+                )
+
+        # objs = [
+        #     StaffShift(
+        #         user_id=user_id,
+        #         shift_id=shift_id,
+        #         date=date,
+        #         branch_id=branch_id
+        #     )
+        #     for date, users in assignments.items()
+        #     for user_id, shift_id in users.items()
+        # ]
         # print(f"Creating {len(objs)} shifts...")
         # print("objs:", [f"User:{obj.user_id} Shift:{obj.shift_id} Date:{obj.date}" for obj in objs])
         # for i, obj in enumerate(objs[:3]):  # Print first 3 as sample
@@ -328,7 +358,6 @@ class ShiftAssignmentEngine:
         message=_('Your shift schedule has been updated.'),
         template_name='emails/shift_schedule_notification.html',
 
-        shift_ids = {shift_id for date_key, user_shifts in assignments.items() for user_id, shift_id in user_shifts.items()}
         shift_names = {shift.id: shift.name async for shift in Shift.objects.filter(id__in=shift_ids)}
 
         extra_context = {
