@@ -363,6 +363,11 @@ class BranchMenuSerializer(ModelSerializer):
         model = Branch
         fields = ['id', 'name', 'menus']
 
+class OrderSerializer(ModelSerializer):
+    class Meta:
+        model = Order
+        fields = '__all__'
+
 class ShiftSerializer(ModelSerializer):
     """Serializer for Shift model with async validation."""
     branch_id = serializers.PrimaryKeyRelatedField(

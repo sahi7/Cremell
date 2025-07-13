@@ -49,6 +49,9 @@ router.register(r"shift-patterns", ShiftPatternViewSet, basename="shift-pattern"
 router.register(r"overtime-request", OvertimeRequestViewSet, basename="ot-request")
 #  - POST /api/overtime-request/{id}/approve/: For admin to approve ot_request
 
+router.register(r"orders", OrderViewSet)
+# POST /api/orders/{id}/modify/: Modify orders
+
 def api_path(route, view, name=None):
     return path(f'api/{route}', view, name=name)
 

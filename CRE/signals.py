@@ -127,7 +127,7 @@ async def update_availability_on_task_change(sender, instance, **kwargs):
         if instance.status in ('pending', 'claimed'):  # Task is active
             availability.current_task = instance
         elif instance.status in ('completed', 'escalated'):  # Task is done
-            availability.current_task = None
+            availability.current_task = None     
         await availability.update_status()
 
 @receiver(post_save, sender=StaffShift)
@@ -158,5 +158,5 @@ async def invalidate_shift_cache(sender, instance, **kwargs):
 async def invalidate_user_role_id(sender, instance, **kwargs):
     cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
     user_id = instance.user_id
-    cache_key = f"role_id:user_{user_id}"
-    await cache.delete(cache_key)
+    # cache_key = f"role_id:user_{user_id}:{instance.user.role}"
+    # await cache.delete(cache_key)

@@ -444,7 +444,7 @@ class MenuViewSet(ModelViewSet):
     ViewSet for managing Menu objects.
     Provides CRUD operations for Menu model.
     """
-    queryset = Menu.objects.all()  # Retrieve all Menu objects
+    queryset = Menu.objects.all(is_active=True)  # Retrieve all Menu objects
     serializer_class = MenuSerializer  # Use MenuSerializer for serialization
 
 
@@ -453,7 +453,7 @@ class MenuCategoryViewSet(ModelViewSet):
     ViewSet for managing MenuCategory objects.
     Provides CRUD operations for MenuCategory model.
     """
-    queryset = MenuCategory.objects.all() 
+    queryset = MenuCategory.objects.all(is_active=True) 
     serializer_class = MenuCategorySerializer 
 
 
@@ -462,18 +462,26 @@ class MenuItemViewSet(ModelViewSet):
     ViewSet for managing MenuItem objects.
     Provides CRUD operations for MenuItem model.
     """
-    queryset = MenuItem.objects.all() 
+    queryset = MenuItem.objects.all(is_active=True) 
     serializer_class = MenuItemSerializer  
 
 
-class OrderModifyView(APIView):
+class OrderViewSet(ModelViewSet):
     """
-    API endpoint for modifying orders.
+    API endpoint for CRUD orders.
     Supports adding and removing items from an existing order.
     Uses optimistic locking to prevent concurrent modifications.
     """
+    queryset = Order.objects.filter(is_active=True)
+    serializer_class = OrderSerializer
 
-    async def put(self, request, order_id):
+    def get_permissions(self):
+        role_value = async_to_sync(self.request.user.get_role_value)()
+        self._access_policy = (ScopeAccessPolicy if role_value <= 4 else StaffAccessPolicy)()
+        return [self._access_policy, OrderPermission()]
+
+    @action(detail=True, methods="patch", url_path='modify')
+    async def order_modify(self, request, *args, **kwargs):
         """
         Handles PUT requests for order modifications.
         
@@ -497,11 +505,12 @@ class OrderModifyView(APIView):
                 ]
             }
         """
+        pk = kwargs['pk']
         try:
             # Start an atomic transaction to ensure data consistency
             with transaction.atomic():
                 # Lock the order row to prevent concurrent modifications
-                order = await Order.objects.select_for_update().aget(id=order_id)
+                order = await Order.objects.select_for_update().aget(id=pk)
                 
                 # Check for version mismatch (optimistic locking)
                 if order.version != request.data.get('expected_version'):

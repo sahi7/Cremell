@@ -54,8 +54,9 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   3. When creating pattern check that the shift is of the branch & users[] is of branch
   4. Create action and modify handle_emergency overide
 - Overtime management
-  Du
+  1. Bulk overtime confirmation for multiple users
 - Complete order process
+  Cache order items for branch daily (update cache on edit)
 - Print receipts
 - Improve get_stakeholders when r_val has been corrected
 

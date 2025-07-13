@@ -125,18 +125,17 @@ class CustomUser(AbstractUser):
         # return role_hierarchy.get(role or self.role, 0)  # If no role is specified, default to the instance's role
         # Use provided role or instance's role
         # print("DB HIT?", getattr(self, "_prefetched_objects_cache", False))
-        cache_key = f"role_id:user_{self.id}"
+        target_role = role if role is not None else getattr(self, 'role', None) 
+        cache_key = f"role_id:user_{self.id}:{target_role}"
         cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
         cached = await cache.get(cache_key)
         if cached is not None:
             return int(cached)
         
-        target_role = role if role is not None else getattr(self, 'role', None) 
         role_id = role_hierarchy.get(target_role, 0)
 
         # Cache role_id
         await cache.set(cache_key, str(role_id), ex=3600)
-
         return role_id
 
     async def manage_group(self, role, action='add'):
@@ -520,10 +519,10 @@ class Branch(models.Model):
 
 
 class Menu(models.Model):
-    branches = models.ManyToManyField(Branch, related_name='menus')
-    restaurant = models.ForeignKey(Restaurant, on_delete=models.CASCADE, related_name='menus', null=True, blank=True)
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='menus')
     name = models.CharField(max_length=100, verbose_name=_("Name"))
     description = models.TextField(blank=True, null=True, verbose_name=_("Description"))
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='created_menus')
     is_active = models.BooleanField(default=True)
 
     def __str__(self):
@@ -532,12 +531,15 @@ class Menu(models.Model):
     class Meta:
         verbose_name = _("Menu")
         verbose_name_plural = _("Menus")
+        indexes = [models.Index(fields=['branch'])]
 
 
 class MenuCategory(models.Model):
     name = models.CharField(max_length=100, verbose_name=_("Name"))
     description = models.TextField(blank=True, null=True, verbose_name=_("Description"))
     menu = models.ForeignKey(Menu, on_delete=models.CASCADE, related_name='categories')
+    is_active = models.BooleanField(default=True) # soft-delete approach
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='created_menucategories')
 
     def __str__(self):
         return self.name
@@ -545,6 +547,7 @@ class MenuCategory(models.Model):
     class Meta:
         verbose_name = _("Menu Category")
         verbose_name_plural = _("Menu Categories")
+        indexes = [models.Index(fields=['menu'])]
 
 
 class MenuItem(models.Model):
@@ -552,8 +555,10 @@ class MenuItem(models.Model):
     description = models.TextField(blank=True, null=True, verbose_name=_("Description"))
     price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name=_("Price"))
     is_available = models.BooleanField(default=True, verbose_name=_("Available"))
+    is_active = models.BooleanField(default=True)
     image = models.ImageField(upload_to='menu_items/', blank=True, null=True, verbose_name=_("Image"))
-    category = models.ForeignKey( MenuCategory, on_delete=models.CASCADE, related_name='menu_items', verbose_name=_("Category"))
+    category = models.ForeignKey(MenuCategory, on_delete=models.CASCADE, related_name='items', verbose_name=_("Category"))
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='created_menuitems')
 
     def __str__(self):
         return self.name
@@ -561,6 +566,7 @@ class MenuItem(models.Model):
     class Meta:
         verbose_name = _("Menu Item")
         verbose_name_plural = _("Menu Items")
+        indexes = [models.Index(fields=['category'])]
 
 
 class Order(models.Model):
@@ -591,22 +597,21 @@ class Order(models.Model):
     version = models.IntegerField(default=0)
 
     status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='received', verbose_name=_("Status"))
+    order_number = models.CharField(max_length=50, unique=True)
     order_type = models.CharField(max_length=20, choices=ORDER_TYPE_CHOICES, default='dine_in', verbose_name=_("Order Type"))
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='web', verbose_name=_("Source"))
-
     table_number = models.CharField(max_length=10, blank=True, null=True)  # For dine-in
     delivery_driver = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
         related_name='deliveries'
     )
-
     branch = models.ForeignKey('Branch', on_delete=models.CASCADE, related_name='orders', verbose_name=_("Branch"))
-
-    status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='Received', verbose_name=_("Status"))
     total_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name=_("Total Price"))
     special_instructions = models.TextField(blank=True)
-    modified_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='modified_orders')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
+    is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='created_orders')
+    deleted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='deleted_orders')
 
     def __str__(self):
         return f"{_('Order')} {self.id} - {self.get_status_display()}"
@@ -614,13 +619,19 @@ class Order(models.Model):
     class Meta:
         verbose_name = _("Order")
         verbose_name_plural = _("Orders")
+        indexes = [
+            models.Index(fields=['branch', 'status', 'total_price'])
+        ]
 
 
 class OrderItem(models.Model):
-    order = models.ForeignKey('Order', on_delete=models.CASCADE, related_name='order_items', verbose_name=_("Order"))
+    order = models.ForeignKey('Order', on_delete=models.CASCADE, related_name='items', verbose_name=_("Order"))
     menu_item = models.ForeignKey('MenuItem', on_delete=models.CASCADE, related_name='order_items', verbose_name=_("Menu Item"))
     quantity = models.PositiveIntegerField(default=1, verbose_name=_("Quantity"))
     item_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name=_("Item Price"))
+    is_active = models.BooleanField(default=True)
+    added_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='added_orderitems')
+    deleted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='deleted_orderitems')
 
     def __str__(self):
         return f"{self.menu_item.name} x {self.quantity}"
@@ -628,6 +639,9 @@ class OrderItem(models.Model):
     class Meta:
         verbose_name = _("Order Item")
         verbose_name_plural = _("Order Items")
+        indexes = [
+            models.Index(fields=['order'])
+        ]
 
 
 class Shift(models.Model):

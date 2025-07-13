@@ -1235,3 +1235,7 @@ class OvertimeRequestPermission(BasePermission):
         if not check:
             return False
         return await check(obj, user, branch_ids)
+    
+class OrderPermission(BasePermission):
+    async def has_permission(self, request,view):
+        pass
