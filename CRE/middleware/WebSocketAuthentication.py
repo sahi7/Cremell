@@ -4,6 +4,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.authentication import TokenAuthentication
 from django.contrib.auth.models import AnonymousUser
 from channels.db import database_sync_to_async
+from zMisc.utils import get_scopes_and_groups
 
 
 @database_sync_to_async
@@ -44,6 +45,8 @@ class TokenAuthMiddleware:
                 user = await get_user_from_token(token, TokenAuthentication)
 
         scope['user'] = user
+        _scopes = await get_scopes_and_groups(user.id)
+        scope['branches'] = _scopes.get('branch', [])
         return await self.inner(scope, receive, send)
 
 

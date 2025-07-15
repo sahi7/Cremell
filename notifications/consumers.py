@@ -83,9 +83,50 @@ class OrderConsumer(AsyncWebsocketConsumer):
 
 class KitchenConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.branch_group = f"kitchen_{self.scope['branch_id']}"
+        user = self.scope['user']
+        if not user.is_authenticated:
+            logger.warning("WebSocket connection rejected: User not authenticated")
+            await self.close(code=4001)  # Unauthorized
+            return
+
+        # Extract branch_id from URL route or query parameters
+        branch_id = self.scope.get('url_route', {}).get('kwargs', {}).get('branch_id')
+        print("branch_id 1: ", branch_id)
+        if not branch_id:
+            query_string = self.scope.get('query_string', b'').decode()
+            query_params = dict(q.split('=') for q in query_string.split('&') if '=' in q)
+            branch_id = query_params.get('branch_id')
+            print("branch_id 2: ", branch_id)
+
+        # Validate branch_id against user's branches
+        user_branches = self.scope.get('branches', [])
+        print("user_branches: ", branch_id)
+        if not branch_id or str(branch_id) not in [str(b) for b in user_branches]:
+            logger.warning(f"WebSocket connection rejected: Invalid or unauthorized branch_id {branch_id} for user {user.id}")
+            await self.close(code=4003)  # Forbidden
+            return
+
+        self.branch_group = f"kitchen_{branch_id}"
         await self.channel_layer.group_add(self.branch_group, self.channel_name)
         await self.accept()
+        logger.info(f"WebSocket connected for user {user.id} to branch {branch_id}")
+
+    async def disconnect(self, close_code):
+        if hasattr(self, 'branch_group'):
+            await self.channel_layer.group_discard(self.branch_group, self.channel_name)
+        logger.info(f"WebSocket disconnected for user {self.scope['user'].id} with code {close_code}")
+
+    async def receive(self, text_data=None, bytes_data=None):
+        # Handle incoming WebSocket messages if needed
+        pass
+
+    async def order_notification(self, event):
+        # Handle messages sent to the branch group
+        message = event['message']
+        await self.send(text_data=json.dumps({
+            'type': 'order.notification',
+            'message': message
+        }))
 
 
 class EmployeeUpdateConsumer(AsyncWebsocketConsumer):

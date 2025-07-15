@@ -402,7 +402,7 @@ class StaffAccessPolicy(BasePermission):
             return False
 
         # Check if user has a role but no SCOPE_CONFIG groups
-        scopes = await get_scopes_and_groups(user.id, prefetch=['branches'])
+        scopes = await get_scopes_and_groups(user.id)
 
         # Check required branches in request body
         requested_branches = set(request.data.get("branches", []))
@@ -414,7 +414,7 @@ class StaffAccessPolicy(BasePermission):
 
     async def has_object_permission(self, request, view, obj):
         user = request.user
-        scopes = await get_scopes_and_groups(user.id, prefetch=['branches'])
+        scopes = await get_scopes_and_groups(user.id)
         branch_ids = scopes['branch']
         
         # Use dictionary dispatch to avoid if/elif
@@ -424,7 +424,7 @@ class StaffAccessPolicy(BasePermission):
         return await check(obj, user, branch_ids)
 
     async def get_queryset_scope(self, user, view=None):
-        scopes = await get_scopes_and_groups(user.id, prefetch=['branches'])
+        scopes = await get_scopes_and_groups(user.id)
         branch_ids = scopes['branch']
         model = view.queryset.model
         
@@ -1228,7 +1228,7 @@ class OvertimeRequestPermission(BasePermission):
         user = request.user
         policy = StaffAccessPolicy()
 
-        scopes = await get_scopes_and_groups(user.id, prefetch=['branches'])
+        scopes = await get_scopes_and_groups(user.id)
         branch_ids = scopes.get('branch', set())
         check = policy.OBJECT_CHECKS.get(obj.__class__)
         print("check: ", check)
@@ -1238,4 +1238,18 @@ class OvertimeRequestPermission(BasePermission):
     
 class OrderPermission(BasePermission):
     async def has_permission(self, request,view):
-        pass
+        data = request.data
+        branch = data['branches'][0]
+
+class MenuCategoryPermission(BasePermission):
+    async def has_permission(self, request,view):
+        user = request.user
+        data = request.data
+        menu = data['menu']
+        policy = StaffAccessPolicy()
+        scopes = await get_scopes_and_groups(user.id)
+        branch_ids = scopes.get('branch', set())
+        check = policy.OBJECT_CHECKS.get(view.Model.__class__)
+        print("check: ", check)
+        if not check:
+            return False

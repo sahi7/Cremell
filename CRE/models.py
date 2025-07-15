@@ -437,6 +437,16 @@ class Branch(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    _country_code = None  # Instance-level cache
+    
+    @property
+    async def acountry_code(self):
+        if self._country_code is None:
+            # Only hits DB once per instance lifetime
+            self._cached_country_code = self.country.code  
+        return self._cached_country_code
+
+
     async def get_effective_language(self):
         """Returns branch’s language or falls back to restaurant/company language."""
         if self.default_language:
@@ -846,3 +856,16 @@ class OvertimeRequest(models.Model):
 
     def __str__(self):
         return f"{self.staff_shift.user.username} - {self.requested_hours} hours"
+    
+
+class SequenceCounter(models.Model):
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE)
+    sequence_type = models.CharField(max_length=50)
+    max_digits = models.PositiveSmallIntegerField(default=4)
+    last_value = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ('branch', 'sequence_type')
+        indexes = [
+            models.Index(fields=['branch', 'sequence_type']),
+        ]

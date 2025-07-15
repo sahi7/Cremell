@@ -163,67 +163,72 @@ async def compare_role_values(user, role_to_create):
     return role_to_create_value <= user_role_value
 
 
-# async def get_scopes_and_groups(user_id, get_instance=False):
-#     # Prefetch companies, countries, and groups in one query
-#     cache_key = f"user_scope:{user_id}"
-#     cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
-#     data = cache.get(cache_key)
-#     user = await CustomUser.objects.prefetch_related('companies', 'countries', 'branches', 'restaurants', 'groups').aget(id=user_id)
-#     if get_instance:
-#         return user
-    
-#     result = {
-#         'company': [c.id async for c in user.companies.all()], 
-#         'country': [c.id async for c in user.countries.all()],
-#         'restaurant': [c.id async for c in user.restaurants.all()],
-#         'branch': [c.id async for c in user.branches.all()],
-#         'groups': {g.name async for g in user.groups.all()}
-#     }
-#     print("result: ", result)
-#     return result
-
-async def get_scopes_and_groups(user_id, get_instance=False, prefetch: list[str] | str = 'all'):
-    """
-    Efficiently fetch user scopes (IDs) with minimal DB queries.
-    Args:
-        user_id: ID of the CustomUser.
-        get_instance: If True, return user instance instead of scopes.
-        prefetch: Either:
-            - 'all' (prefetch all relations)
-            - List of specific relations to prefetch
-    Returns:
-        Dict of sets with IDs for requested relations, or user instance if get_instance=True.
-    """
-    all_fields = ['companies', 'countries', 'branches', 'restaurants', 'groups']
-    to_prefetch = all_fields if prefetch == 'all' else [field for field in (prefetch if isinstance(prefetch, list) else [prefetch]) if field in all_fields]
+async def get_scopes_and_groups(user_id, get_instance=False):
+    # Prefetch companies, countries, and groups in one query
     cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
-    cache_key = f"user_scopes:{user_id}:{'-'.join(sorted(to_prefetch))}"
-    
-    # Try cache if not getting full instance
+    cache_key = f"user_scopes:{user_id}"
     if not get_instance:
         cached = await cache.get(cache_key)
         if cached:
             return {k: set(v) for k,v in json.loads(cached).items()}
 
-    user = await CustomUser.objects.prefetch_related(*to_prefetch).aget(id=user_id)
+    user = await CustomUser.objects.prefetch_related('companies', 'countries', 'branches', 'restaurants', 'groups').aget(id=user_id)
     if get_instance:
         return user
-
-    result = {}
-    if 'companies' in to_prefetch:
-        result['company'] = [c.id async for c in user.companies.all()]
-    if 'countries' in to_prefetch:
-        result['country'] = [c.id async for c in user.countries.all()]
-    if 'restaurants' in to_prefetch:
-        result['restaurant'] = [c.id async for c in user.restaurants.all()]
-    if 'branches' in to_prefetch:
-        result['branch'] = [c.id async for c in user.branches.all()]
-    if 'groups' in to_prefetch:
-        result['groups'] = {g.name async for g in user.groups.all()}
-
-    await cache.set(cache_key, json.dumps({k: list(v) for k,v in result.items()}), ex=600)
-
+    
+    result = {
+        'company': [c.id async for c in user.companies.all()], 
+        'country': [c.id async for c in user.countries.all()],
+        'restaurant': [c.id async for c in user.restaurants.all()],
+        'branch': [c.id async for c in user.branches.all()],
+        'groups': {g.name async for g in user.groups.all()}
+    }
+    print("result: ", result)
+    await cache.set(cache_key, json.dumps({k: list(v) for k,v in result.items()}), ex=3600)
     return result
+
+# async def get_scopes_and_groups(user_id, get_instance=False, prefetch: list[str] | str = 'all'):
+#     """
+#     Efficiently fetch user scopes (IDs) with minimal DB queries.
+#     Args:
+#         user_id: ID of the CustomUser.
+#         get_instance: If True, return user instance instead of scopes.
+#         prefetch: Either:
+#             - 'all' (prefetch all relations)
+#             - List of specific relations to prefetch
+#     Returns:
+#         Dict of sets with IDs for requested relations, or user instance if get_instance=True.
+#     """
+#     all_fields = ['companies', 'countries', 'branches', 'restaurants', 'groups']
+#     to_prefetch = all_fields if prefetch == 'all' else [field for field in (prefetch if isinstance(prefetch, list) else [prefetch]) if field in all_fields]
+#     cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+#     cache_key = f"user_scopes:{user_id}:{'-'.join(sorted(to_prefetch))}"
+    
+#     # Try cache if not getting full instance
+#     if not get_instance:
+#         cached = await cache.get(cache_key)
+#         if cached:
+#             return {k: set(v) for k,v in json.loads(cached).items()}
+
+#     user = await CustomUser.objects.prefetch_related(*to_prefetch).aget(id=user_id)
+#     if get_instance:
+#         return user
+
+#     result = {}
+#     if 'companies' in to_prefetch:
+#         result['company'] = [c.id async for c in user.companies.all()]
+#     if 'countries' in to_prefetch:
+#         result['country'] = [c.id async for c in user.countries.all()]
+#     if 'restaurants' in to_prefetch:
+#         result['restaurant'] = [c.id async for c in user.restaurants.all()]
+#     if 'branches' in to_prefetch:
+#         result['branch'] = [c.id async for c in user.branches.all()]
+#     if 'groups' in to_prefetch:
+#         result['groups'] = {g.name async for g in user.groups.all()}
+
+#     await cache.set(cache_key, json.dumps({k: list(v) for k,v in result.items()}), ex=600)
+
+#     return result
 
 async def get_user_data(
     user_id: int,

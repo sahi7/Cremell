@@ -334,27 +334,63 @@ class BranchSerializer(ModelSerializer):
         
         return branch
 
-
-class MenuItemSerializer(ModelSerializer):
+class MenuSerializer(ModelSerializer):
     class Meta:
-        model = MenuItem
-        fields = ['id', 'name', 'description', 'price']
+        model = Menu
+        fields = '__all__'
 
+    def validate(self, data):
+        """Validate that branch_id is in the user's branches from request.data['branches']."""
+        branch = data.get('branch')
+        name = data.get('name')
+        if not name or not branch:
+            raise serializers.ValidationError(_("The Menu name & Branch[] is required."))
+        return data
+
+    async def create(self, validated_data):
+        """
+        Async create method to save Menu instance using asave.
+        """
+        request = self.context.get('request')
+        validated_data['created_by'] = request.user
+        instance = Menu(**validated_data)
+        await instance.asave()
+        return instance
 
 class MenuCategorySerializer(ModelSerializer):
-    items = MenuItemSerializer(many=True, read_only=True)
-
     class Meta:
         model = MenuCategory
         fields = ['id', 'name', 'items']
 
-
-class MenuSerializer(ModelSerializer):
+    async def create(self, validated_data):
+        """
+        Async create method to save MenuCategory instance using asave.
+        """
+        instance = MenuCategory(**validated_data)
+        await instance.asave()
+        return instance
+    
+class MenuItemSerializer(ModelSerializer):
     categories = MenuCategorySerializer(many=True, read_only=True)
-
     class Meta:
-        model = Menu
-        fields = ['id', 'name', 'categories']
+        model = MenuItem
+        fields = ['id', 'name', 'description', 'price']
+
+    def validate(self, data):
+        """Validate that branch_id is in the user's branches from request.data['branches']."""
+        branches = data.get('branch')
+        if not data.get('name') or not branches:
+            raise serializers.ValidationError(_("The Menu name & Branch[] is required."))
+
+    async def create(self, validated_data):
+        """
+        Async create method to save MenuItem instance using asave.
+        """
+        request = self.context.get('request')
+        validated_data['created_by'] = request.user
+        instance = MenuItem(**validated_data)
+        await instance.asave()
+        return instance
 
 class BranchMenuSerializer(ModelSerializer):
     menus = MenuSerializer(many=True, read_only=True)
@@ -363,10 +399,29 @@ class BranchMenuSerializer(ModelSerializer):
         model = Branch
         fields = ['id', 'name', 'menus']
 
+class OrderItemSerializer(ModelSerializer):
+    class Meta:
+        model = OrderItem
+        fields = ['menu_item', 'quantity', 'price']
+
 class OrderSerializer(ModelSerializer):
+    items = OrderItemSerializer(many=True, write_only=True)
+    
     class Meta:
         model = Order
         fields = '__all__'
+
+    def validate(self, data):
+        """Custom validation for order_type and table_number."""
+        order_type = data.get('order_type')
+        table_number = data.get('table_number')
+        if order_type == 'dine_in' and not table_number:
+            raise serializers.ValidationError(_("Table number is required for dine-in orders."))
+        if order_type != 'dine_in' and table_number:
+            raise serializers.ValidationError(_("Table number is only applicable for dine-in orders."))
+        if not data.get('items'):
+            raise serializers.ValidationError(_("At least one order item is required."))
+        return data
 
 class ShiftSerializer(ModelSerializer):
     """Serializer for Shift model with async validation."""

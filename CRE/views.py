@@ -10,7 +10,6 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework_simplejwt.views import TokenBlacklistView
@@ -26,8 +25,6 @@ from asgiref.sync import sync_to_async
 from adrf.views import APIView
 from adrf.viewsets import ModelViewSet
 
-# from .serializers import UserSerializer, CustomRegisterSerializer, RegistrationSerializer, RestaurantSerializer, BranchSerializer, BranchMenuSerializer, MenuSerializer, MenuCategorySerializer
-# from .serializers import MenuItemSerializer, CompanySerializer, StaffShiftSerializer, OvertimeRequestSerializer
 from .serializers import *
 from .models import *
 # from .models import Company, Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
@@ -39,6 +36,7 @@ from zMisc.permissions import *
 from zMisc.utils import validate_scope, validate_role
 from zMisc.shiftresolver import ShiftUpdateHandler
 from zMisc.atransactions import aatomic
+from services.sequences import generate_order_number
 import logging
 
 logger = logging.getLogger(__name__)
@@ -444,8 +442,33 @@ class MenuViewSet(ModelViewSet):
     ViewSet for managing Menu objects.
     Provides CRUD operations for Menu model.
     """
-    queryset = Menu.objects.all(is_active=True)  # Retrieve all Menu objects
+    queryset = Menu.objects.filter(is_active=True)  # Retrieve all Menu objects 
     serializer_class = MenuSerializer  # Use MenuSerializer for serialization
+
+    def get_permissions(self):
+        role_value = async_to_sync(self.request.user.get_role_value)()
+        self._access_policy = (ScopeAccessPolicy if role_value <= 4 else StaffAccessPolicy)()
+        return [self._access_policy, ]
+    
+    def get_queryset(self):
+        user = self.request.user
+        scope_filter = async_to_sync(self._access_policy.get_queryset_scope)(user, view=self)
+        return self.queryset.filter(scope_filter)
+
+    async def create(self, request, *args, **kwargs):
+        """
+        Override create to modify request data and use async serializer.
+        Sets branch_id to the first branch in request.data['branches'].
+        """
+        # Create a mutable copy of request.data
+        data = request.data.copy()
+        # Modify branch_id to use the first branch from branches list
+        if 'branches' in data and data['branches']:
+            data['branch'] = int(data['branches'][0])
+        serializer = self.get_serializer(data=data)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        instance = await serializer.save()
+        return Response(serializer.to_representation(instance), status=status.HTTP_201_CREATED)
 
 
 class MenuCategoryViewSet(ModelViewSet):
@@ -453,8 +476,18 @@ class MenuCategoryViewSet(ModelViewSet):
     ViewSet for managing MenuCategory objects.
     Provides CRUD operations for MenuCategory model.
     """
-    queryset = MenuCategory.objects.all(is_active=True) 
+    queryset = MenuCategory.objects.filter(is_active=True) 
     serializer_class = MenuCategorySerializer 
+
+    def get_permissions(self):
+        role_value = async_to_sync(self.request.user.get_role_value)()
+        self._access_policy = (ScopeAccessPolicy if role_value <= 4 else StaffAccessPolicy)()
+        return [self._access_policy, ]
+    
+    def get_queryset(self):
+        user = self.request.user
+        scope_filter = async_to_sync(self._access_policy.get_queryset_scope)(user, view=self)
+        return self.queryset.filter(scope_filter)
 
 
 class MenuItemViewSet(ModelViewSet):
@@ -462,10 +495,11 @@ class MenuItemViewSet(ModelViewSet):
     ViewSet for managing MenuItem objects.
     Provides CRUD operations for MenuItem model.
     """
-    queryset = MenuItem.objects.all(is_active=True) 
+    queryset = MenuItem.objects.filter(is_active=True) 
     serializer_class = MenuItemSerializer  
 
-
+from decimal import Decimal
+from services.sequences import generate_order_number
 class OrderViewSet(ModelViewSet):
     """
     API endpoint for CRUD orders.
@@ -479,6 +513,116 @@ class OrderViewSet(ModelViewSet):
         role_value = async_to_sync(self.request.user.get_role_value)()
         self._access_policy = (ScopeAccessPolicy if role_value <= 4 else StaffAccessPolicy)()
         return [self._access_policy, OrderPermission()]
+    
+    def get_queryset(self):
+        user = self.request.user
+        scope_filter = async_to_sync(self._access_policy.get_queryset_scope)(user, view=self)
+        return self.queryset.filter(scope_filter)
+
+    async def create(self, request, *args, **kwargs):
+        """
+        Async Order Creation Endpoint
+        Example Payload:
+        {
+            "branch": 1,
+            "order_type": "dine_in",
+            "table_number": "A12",
+            "items": [
+                {"menu_item": 1, "quantity": 2, "special_requests": "No onions"},
+                {"menu_item": 2, "quantity": 1, "course": "main"}  # Added course timing
+            ],
+            "notes": "No onions please"
+        }
+        """
+        from CRE.tasks import send_to_kds
+
+        # Initial Validation
+        data = request.data.copy()
+        data['branch_id'] = int(request.data['branches'][0])
+        serializer = OrderSerializer(data=data)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        validated_data = serializer.validated_data
+
+        @aatomic
+        async def create_order():
+            try:
+                # 1. Get Branch with select_for_update
+                branch = await Branch.objects.select_for_update().aget(id=data['branch_id'])
+                user = request.user
+                
+                # 2. Generate Order Number
+                order_number = await generate_order_number(branch)
+
+                # 2.1 Calculate total price
+                total_price = Decimal('0.00')
+                menu_items = []
+                
+                # 3. Create Order Base
+                order = await Order.objects.acreate(
+                    branch=branch,
+                    order_number=order_number,
+                    source=validated_data.get('source', 'web'),
+                    total_price=total_price,
+                    created_by=user,
+                    special_instructions=data.get('notes', '')
+                )
+                
+                # 4. Process Order Items
+                for item_data in validated_data['items']:
+                    menu_item = await MenuItem.objects.aget(id=item_data['menu_item'])
+                    quantity = item_data['quantity']
+                    
+                    # Price calculation with quantity
+                    item_price = menu_item.price * quantity
+                    total_price += item_price
+                    
+                    menu_items.append({
+                        'menu_item': menu_item,
+                        'quantity': quantity,
+                        'price': item_price
+                    })
+                
+                # 5. Bulk Create Items
+                order_items = [
+                    OrderItem(
+                        order=order,
+                        menu_item=item['menu_item'],
+                        quantity=item['quantity'],
+                        price=item['price'],
+                        added_by=user,
+                    )
+                    for item in menu_items
+                ]
+                await OrderItem.objects.abulk_create(order_items)
+                
+                # 6. Update Branch Stats (Example)
+                await branch.aincrement_order_count()
+                
+                # 7. Trigger Async Tasks
+                asyncio.create_task(
+                    send_to_kds.delay(order.id)
+                )
+                # asyncio.create_task(
+                #     update_inventory_levels.delay([i.menu_item_id for i in order_items])
+                # )
+                
+                # Return Response
+                serializer = OrderSerializer(order)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+                
+            except ValidationError as e:
+                return Response(
+                    {"error": str(e)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            except Exception as e:
+                logger.error(f"Order creation failed: {str(e)}")
+                return Response(
+                    {"error": _("Internal server error")},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        create_order()
+
 
     @action(detail=True, methods="patch", url_path='modify')
     async def order_modify(self, request, *args, **kwargs):

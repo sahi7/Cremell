@@ -15,7 +15,7 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.mail import send_mail
 
 from notifications.models import RestaurantActivity, BranchActivity
-from .models import StaffShift, Restaurant, Branch
+from .models import StaffShift, Restaurant, Branch, Order
 from zMisc.utils import determine_activity_model, render_notification_template
 import logging
 
@@ -218,3 +218,14 @@ def log_activity(user_id, activity_type, details=None, obj_id=None, obj_type=Non
     model.objects.create(**activity_data)
 
     return True
+channel_layer = get_channel_layer()
+@shared_task
+def send_to_kds(order_id):
+    order = Order.objects.select_related('branch').get(pk=order_id)
+    async_to_sync(channel_layer.group_send)(
+            f"kitchen_{order.branch_id}",
+            {
+                'type': 'order.notification',
+                'message': f"New Order | {order.order_number}"
+            }
+        )

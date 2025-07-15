@@ -447,6 +447,6 @@ def log_shift_assignment(
         template_name=template_name,
         extra_context=extra_context
     )
-    print("extra_context: ", extra_context)
+    # print("extra_context: ", extra_context)
 
     return True

@@ -4,7 +4,7 @@ from django.db.models import Q
 from asgiref.sync import sync_to_async
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
-from CRE.models import Branch, Restaurant, Shift, ShiftPattern, StaffShift, OvertimeRequest
+from CRE.models import *
 from notifications.models import EmployeeTransfer
 
 CustomUser = get_user_model()
@@ -63,6 +63,11 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    OrderItem: Q(order__branch__company__in=user.companies.all()),
+                    Order: Q(branch__company__in=user.companies.all()),
+                    MenuItem: Q(category__menu__branch__company__in=user.companies.all()),
+                    MenuCategory: Q(menu__branch__company__in=user.companies.all()),
+                    Menu: Q(branch__company__in=user.companies.all()),
                     OvertimeRequest: Q(staff_shift__branch__company__in=user.companies.all()),
                     StaffShift: Q(branch__company__in=user.companies.all()),
                     ShiftPattern: Q(branch__company__in=user.companies.all()),
@@ -84,12 +89,17 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    OrderItem: Q(order__branch__company__in=user.companies.all()) & Q(order__branch__country__in=user.countries.all()),
+                    Order: Q(branch__company__in=user.companies.all()) & Q(branch__country__in=user.countries.all()),
+                    MenuItem: Q(category__menu__branch__company__in=user.companies.all()) & Q(category__menu__branch__country__in=user.countries.all()),
+                    MenuCategory: Q(menu__branch__company__in=user.companies.all()) & Q(menu__branch__country__in=user.countries.all()),
+                    Menu: Q(branch__company__in=user.companies.all()) & Q(branch__country__in=user.countries.all()),
                     OvertimeRequest: Q(staff_shift__branch__company__in=user.companies.all()) & Q(staff_shift__branch__country__in=user.countries.all()),
                     StaffShift: Q(branch__company__in=user.companies.all()) & Q(branch__country__in=user.countries.all()),
                     ShiftPattern: Q(branch__company__in=user.companies.all()) & Q(branch__country__in=user.countries.all()) ,
                     Shift: Q(branch__restaurant__company__in=user.companies.all()) & Q(branch__restaurant__country__in=user.countries.all()) ,
-                    Branch: Q(country__in=user.countries.all()),
-                    Restaurant: Q(country__in=user.countries.all()),
+                    Branch: Q(company_id__in=user.companies.all())  & Q(country_id__in=user.countries.all()),
+                    Restaurant: Q(company_id__in=user.companies.all()) & Q(country_id__in=user.countries.all()),
                     EmployeeTransfer: Q(from_branch__restaurant__country__in=user.countries.all()) | 
                                         Q(from_restaurant__country__in=user.countries.all()) | 
                                         Q(to_branch__restaurant__country__in=user.countries.all()) | 
@@ -107,6 +117,11 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    OrderItem: Q(order__branch__restaurant__in=user.restaurants.all()),
+                    Order: Q(branch__restaurant__in=user.restaurants.all()),
+                    MenuItem: Q(category__menu__branch__restaurant__company__in=user.restaurants.all()),
+                    MenuCategory: Q(menu__branch_restaurant__in=user.branches.all()),
+                    Menu: Q(branch__restaurant__in=user.restaurants.all()),
                     OvertimeRequest: Q(staff_shift__branch__restaurant__in=user.restaurants.all()),
                     StaffShift: Q(branch__restaurant__in=user.restaurants.all()),
                     ShiftPattern: Q(branch__restaurant__in=user.restaurants.all()),
@@ -127,6 +142,11 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             'queryset_filter': lambda user, model: (
                 {
+                    OrderItem: Q(order__branch__restaurant__in=user.restaurants.all()),
+                    Order: Q(branch__restaurant__in=user.restaurants.all()),
+                    MenuItem: Q(category__menu__branch__restaurant__company__in=user.restaurants.all()),
+                    MenuCategory: Q(menu__branch_restaurant__in=user.branches.all()),
+                    Menu: Q(branch__restaurant__in=user.restaurants.all()),
                     OvertimeRequest: Q(staff_shift__branch__restaurant__in=user.restaurants.all()),
                     StaffShift: Q(branch__restaurant__in=user.restaurants.all()),
                     ShiftPattern: Q(branch__restaurant__in=user.restaurants.all()),
@@ -144,6 +164,11 @@ class ScopeAccessPolicy(AccessPolicy):
             },
             "queryset_filter": lambda user, model: (
                 {
+                    OrderItem: Q(order__branch_id__in=user.branches.all()),
+                    Order: Q(branch_id__in=user.branches.all()),
+                    MenuItem: Q(category__menu__branch__in=user.branches.all()),
+                    MenuCategory: Q(menu__branch_id__in=user.branches.all()),
+                    Menu: Q(branch_id__in=user.branches.all()),
                     OvertimeRequest: Q(staff_shift__branch_id__in=user.branches.all()),
                     StaffShift: Q(branch_id__in=user.branches.all()),
                     ShiftPattern: Q(branch_id__in=user.branches.all()),

@@ -66,7 +66,6 @@ urlpatterns = [
     api_path('register/', RegistrationView.as_view(), name='user-register'),
     api_path('check-user/', CheckUserExistsView.as_view(), name='check-user'),
     api_path('user-scope/', UserScopeView.as_view(), name='user-scope'),
-    api_path('orders/<int:order_id>/modify/', OrderModifyView.as_view(), name='order-modify'),
     api_path('assignments/', AssignmentView.as_view(), name='assignment-update'),
     path('api/', include(router.urls)),
     path('api/', include('notifications.urls')),
