@@ -448,7 +448,7 @@ class MenuViewSet(ModelViewSet):
     def get_permissions(self):
         role_value = async_to_sync(self.request.user.get_role_value)()
         self._access_policy = (ScopeAccessPolicy if role_value <= 4 else StaffAccessPolicy)()
-        return [self._access_policy, ]
+        return [self._access_policy, MenuPermission()]
     
     def get_queryset(self):
         user = self.request.user
@@ -482,12 +482,18 @@ class MenuCategoryViewSet(ModelViewSet):
     def get_permissions(self):
         role_value = async_to_sync(self.request.user.get_role_value)()
         self._access_policy = (ScopeAccessPolicy if role_value <= 4 else StaffAccessPolicy)()
-        return [self._access_policy, ]
+        return [self._access_policy, MenuCategoryPermission()]
     
     def get_queryset(self):
         user = self.request.user
         scope_filter = async_to_sync(self._access_policy.get_queryset_scope)(user, view=self)
         return self.queryset.filter(scope_filter)
+    
+    async def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        instance = await serializer.save()
+        return Response(serializer.to_representation(instance), status=status.HTTP_201_CREATED)
 
 
 class MenuItemViewSet(ModelViewSet):

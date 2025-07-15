@@ -170,7 +170,8 @@ async def get_scopes_and_groups(user_id, get_instance=False):
     if not get_instance:
         cached = await cache.get(cache_key)
         if cached:
-            return {k: set(v) for k,v in json.loads(cached).items()}
+            # return {k: set(v) for k,v in json.loads(cached).items()}
+            return json.loads(cached)
 
     user = await CustomUser.objects.prefetch_related('companies', 'countries', 'branches', 'restaurants', 'groups').aget(id=user_id)
     if get_instance:
@@ -181,11 +182,20 @@ async def get_scopes_and_groups(user_id, get_instance=False):
         'country': [c.id async for c in user.countries.all()],
         'restaurant': [c.id async for c in user.restaurants.all()],
         'branch': [c.id async for c in user.branches.all()],
-        'groups': {g.name async for g in user.groups.all()}
+        'groups': [g.name async for g in user.groups.all()],
+        'r_val': await user.get_role_value()
     }
     print("result: ", result)
-    await cache.set(cache_key, json.dumps({k: list(v) for k,v in result.items()}), ex=3600)
-    return result
+    # await cache.set(cache_key, json.dumps({k: list(v) for k,v in result.items()}), ex=3600)
+    filtered_result = {
+        k: v for k, v in result.items() 
+        if v or isinstance(v, (int, float, bool))  # Keep non-empty or non-sequential types
+    }
+
+    # Cache filtered data
+    print("filtered_result: ", filtered_result)
+    await cache.set(cache_key, json.dumps(filtered_result), ex=3600)
+    return filtered_result
 
 # async def get_scopes_and_groups(user_id, get_instance=False, prefetch: list[str] | str = 'all'):
 #     """

@@ -91,16 +91,13 @@ class KitchenConsumer(AsyncWebsocketConsumer):
 
         # Extract branch_id from URL route or query parameters
         branch_id = self.scope.get('url_route', {}).get('kwargs', {}).get('branch_id')
-        print("branch_id 1: ", branch_id)
         if not branch_id:
             query_string = self.scope.get('query_string', b'').decode()
             query_params = dict(q.split('=') for q in query_string.split('&') if '=' in q)
             branch_id = query_params.get('branch_id')
-            print("branch_id 2: ", branch_id)
 
         # Validate branch_id against user's branches
         user_branches = self.scope.get('branches', [])
-        print("user_branches: ", branch_id)
         if not branch_id or str(branch_id) not in [str(b) for b in user_branches]:
             logger.warning(f"WebSocket connection rejected: Invalid or unauthorized branch_id {branch_id} for user {user.id}")
             await self.close(code=4003)  # Forbidden

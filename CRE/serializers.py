@@ -319,7 +319,7 @@ class BranchSerializer(ModelSerializer):
 
     class Meta:
         model = Branch
-        fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'status', 'timezone', 'manager', 'created_by']
+        fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'status', 'timezone', 'default_language', 'manager', 'created_by']
 
     async def create(self, validated_data):
         request = self.context.get('request')
@@ -337,7 +337,7 @@ class BranchSerializer(ModelSerializer):
 class MenuSerializer(ModelSerializer):
     class Meta:
         model = Menu
-        fields = '__all__'
+        fields = ['id', 'name', 'description', 'branch', 'created_by']
 
     def validate(self, data):
         """Validate that branch_id is in the user's branches from request.data['branches']."""
@@ -358,9 +358,11 @@ class MenuSerializer(ModelSerializer):
         return instance
 
 class MenuCategorySerializer(ModelSerializer):
+    created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
+
     class Meta:
         model = MenuCategory
-        fields = ['id', 'name', 'items']
+        fields = ['id', 'name', 'description', 'menu', 'created_by']
 
     async def create(self, validated_data):
         """

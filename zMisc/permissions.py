@@ -800,6 +800,8 @@ class EntityUpdatePermission(BasePermission):
 
         allowed_scopes = await sync_to_async(config["scopes"])(requester)
         obj_scope_ids = await self._get_object_scope_ids(obj, model)
+        print("allowed_scopes: ", allowed_scopes)
+        print("obj_scope_ids: ", obj_scope_ids)
 
         return obj_scope_ids and any(obj_scope_ids.issubset(allowed_scopes.get(scope, set())) 
                                     for scope in ['companies', 'countries', 'restaurants', 'branches'])
@@ -831,6 +833,11 @@ class EntityUpdatePermission(BasePermission):
         elif model == Company:
             if obj.id:
                 return {obj.id}
+        elif model == Menu:
+            if obj.branch.restaurant_id:
+                return {obj.branch.restaurant_id}
+            elif obj.branch.company_id:
+                return {obj.branch.company_id}
         return set()
 
 class     RoleAssignmentPermission(BasePermission):
@@ -1224,7 +1231,7 @@ class OvertimeRequestPermission(BasePermission):
         return True
     
     async def has_object_permission(self, request, view, obj):
-        print("in has_object_permission")
+        # print("in has_object_permission")
         user = request.user
         policy = StaffAccessPolicy()
 
@@ -1241,15 +1248,34 @@ class OrderPermission(BasePermission):
         data = request.data
         branch = data['branches'][0]
 
+class MenuPermission(BasePermission):
+    async def has_permission(self, request,view):
+        if request.method == 'GET':
+            return True
+        user = request.user
+        scopes = await get_scopes_and_groups(user.id)
+        if scopes.get('r_val') > 5:
+            return False
+        
+        return True
+        
 class MenuCategoryPermission(BasePermission):
     async def has_permission(self, request,view):
+        if request.method == 'GET':
+            return True
         user = request.user
         data = request.data
-        menu = data['menu']
-        policy = StaffAccessPolicy()
         scopes = await get_scopes_and_groups(user.id)
-        branch_ids = scopes.get('branch', set())
-        check = policy.OBJECT_CHECKS.get(view.Model.__class__)
-        print("check: ", check)
-        if not check:
+        entity_permission = EntityUpdatePermission()
+        if scopes.get('r_val') > 5:
             return False
+        try:
+            menu = await Menu.objects.prefetch_related('branch').aget(id=data['menu'])
+            branch_id = menu.branch_id
+        except Menu.DoesNotExist:
+            raise PermissionDenied(_("Menu not found"))
+        
+        if not await entity_permission._is_object_in_scope(request, menu, Menu):
+            raise PermissionDenied(_("Menu not within your branch."))
+        
+        return True

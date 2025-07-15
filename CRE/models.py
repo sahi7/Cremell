@@ -541,6 +541,7 @@ class Menu(models.Model):
     class Meta:
         verbose_name = _("Menu")
         verbose_name_plural = _("Menus")
+        unique_together = ('branch', 'name')
         indexes = [models.Index(fields=['branch'])]
 
 
@@ -576,6 +577,7 @@ class MenuItem(models.Model):
     class Meta:
         verbose_name = _("Menu Item")
         verbose_name_plural = _("Menu Items")
+        unique_together = ('name', 'category')
         indexes = [models.Index(fields=['category'])]
 
 
