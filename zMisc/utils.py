@@ -183,7 +183,7 @@ async def get_scopes_and_groups(user_id, get_instance=False):
         'restaurant': [c.id async for c in user.restaurants.all()],
         'branch': [c.id async for c in user.branches.all()],
         'groups': [g.name async for g in user.groups.all()],
-        'r_val': await user.get_role_value()
+        'role': user.role
     }
     print("result: ", result)
     # await cache.set(cache_key, json.dumps({k: list(v) for k,v in result.items()}), ex=3600)

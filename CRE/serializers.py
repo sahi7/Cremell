@@ -376,13 +376,15 @@ class MenuItemSerializer(ModelSerializer):
     categories = MenuCategorySerializer(many=True, read_only=True)
     class Meta:
         model = MenuItem
-        fields = ['id', 'name', 'description', 'price']
+        fields = ['id', 'name', 'description', 'price', 'is_available', 'category', 'categories']
 
     def validate(self, data):
-        """Validate that branch_id is in the user's branches from request.data['branches']."""
-        branches = data.get('branch')
-        if not data.get('name') or not branches:
-            raise serializers.ValidationError(_("The Menu name & Branch[] is required."))
+        """Validate that category and name."""
+        category = data.get('category')
+        if not data.get('name') or not category:
+            raise serializers.ValidationError(_("The Item's name & category is required."))
+        
+        return data
 
     async def create(self, validated_data):
         """
@@ -404,14 +406,14 @@ class BranchMenuSerializer(ModelSerializer):
 class OrderItemSerializer(ModelSerializer):
     class Meta:
         model = OrderItem
-        fields = ['menu_item', 'quantity', 'price']
+        fields = ['menu_item', 'quantity']
 
 class OrderSerializer(ModelSerializer):
     items = OrderItemSerializer(many=True, write_only=True)
     
     class Meta:
         model = Order
-        fields = '__all__'
+        fields = ['id', 'branch', 'order_type', 'source', 'table_number', 'special_instructions', 'version', 'items']
 
     def validate(self, data):
         """Custom validation for order_type and table_number."""
@@ -423,6 +425,7 @@ class OrderSerializer(ModelSerializer):
             raise serializers.ValidationError(_("Table number is only applicable for dine-in orders."))
         if not data.get('items'):
             raise serializers.ValidationError(_("At least one order item is required."))
+        # print("data: ", data)
         return data
 
 class ShiftSerializer(ModelSerializer):

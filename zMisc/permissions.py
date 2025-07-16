@@ -838,6 +838,11 @@ class EntityUpdatePermission(BasePermission):
                 return {obj.branch.restaurant_id}
             elif obj.branch.company_id:
                 return {obj.branch.company_id}
+        elif model == MenuCategory:
+            if obj.menu.branch.restaurant_id:
+                return {obj.menu.branch.restaurant_id}
+            elif obj.menu.branch.company_id:
+                return {obj.menu.branch.company_id}
         return set()
 
 class     RoleAssignmentPermission(BasePermission):
@@ -1244,38 +1249,79 @@ class OvertimeRequestPermission(BasePermission):
         return await check(obj, user, branch_ids)
     
 class OrderPermission(BasePermission):
-    async def has_permission(self, request,view):
+    async def has_permission(self, request, view):
         data = request.data
         branch = data['branches'][0]
 
 class MenuPermission(BasePermission):
-    async def has_permission(self, request,view):
+    async def has_permission(self, request, view):
         if request.method == 'GET':
             return True
         user = request.user
-        scopes = await get_scopes_and_groups(user.id)
-        if scopes.get('r_val') > 5:
+        r_val = await user.get_role_value()
+        if r_val > 5:
             return False
         
         return True
         
 class MenuCategoryPermission(BasePermission):
-    async def has_permission(self, request,view):
+    async def has_permission(self, request, view):
         if request.method == 'GET':
             return True
         user = request.user
         data = request.data
-        scopes = await get_scopes_and_groups(user.id)
+        r_val = await user.get_role_value()
         entity_permission = EntityUpdatePermission()
-        if scopes.get('r_val') > 5:
+        if r_val > 5:
             return False
         try:
             menu = await Menu.objects.prefetch_related('branch').aget(id=data['menu'])
-            branch_id = menu.branch_id
         except Menu.DoesNotExist:
             raise PermissionDenied(_("Menu not found"))
+        except KeyError:
+            raise PermissionDenied(_("All required fields not provided"))
         
         if not await entity_permission._is_object_in_scope(request, menu, Menu):
             raise PermissionDenied(_("Menu not within your branch."))
         
         return True
+    
+class MenuItemPermission(BasePermission):
+    async def has_permission(self, request, view):
+        if request.method == 'GET':
+            return True
+        
+        user = request.user
+        data = request.data
+        r_val = await user.get_role_value()
+        entity_permission = EntityUpdatePermission()
+
+        if r_val > 5:
+            return False
+        try:
+            menu_cat = await MenuCategory.objects.prefetch_related('menu__branch').aget(id=data['category'])
+        except MenuCategory.DoesNotExist:
+            raise PermissionDenied(_("Menu category not found"))
+        except KeyError:
+            raise PermissionDenied(_("All required fields not provided"))
+        
+        if not await entity_permission._is_object_in_scope(request, menu_cat, MenuCategory):
+            raise PermissionDenied(_("Menu category not within your branch."))
+        
+        return True
+    
+class OrderPermission(BasePermission):
+    async def has_permission(self, request, view):
+        if request.method == 'GET':
+            return True
+        
+        user = request.user
+        data = request.data
+        r_val = await user.get_role_value()
+        entity_permission = EntityUpdatePermission()
+
+        if r_val < 1 or (r_val > 5 and r_val not in [6, 9]):
+            return False
+        
+        return True
+        

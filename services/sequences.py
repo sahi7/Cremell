@@ -24,6 +24,8 @@ class SequencePool:
         async with await redis_client.pipeline() as pipe:
             # Get current counter value
             current = await pipe.get(self.counter_key)
+            result = await pipe.execute()
+            current = result[0]
             if current is None:
                 current = 0
             current = int(current)

@@ -504,6 +504,23 @@ class MenuItemViewSet(ModelViewSet):
     queryset = MenuItem.objects.filter(is_active=True) 
     serializer_class = MenuItemSerializer  
 
+    def get_permissions(self):
+        role_value = async_to_sync(self.request.user.get_role_value)()
+        self._access_policy = (ScopeAccessPolicy if role_value <= 4 else StaffAccessPolicy)()
+        return [self._access_policy, MenuItemPermission()]
+    
+    def get_queryset(self):
+        user = self.request.user
+        scope_filter = async_to_sync(self._access_policy.get_queryset_scope)(user, view=self)
+        return self.queryset.filter(scope_filter)
+    
+    async def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        instance = await serializer.save()
+        return Response(serializer.to_representation(instance), status=status.HTTP_201_CREATED)
+
+
 from decimal import Decimal
 from services.sequences import generate_order_number
 class OrderViewSet(ModelViewSet):
@@ -530,7 +547,7 @@ class OrderViewSet(ModelViewSet):
         Async Order Creation Endpoint
         Example Payload:
         {
-            "branch": 1,
+            "branches": [1],
             "order_type": "dine_in",
             "table_number": "A12",
             "items": [
@@ -544,41 +561,33 @@ class OrderViewSet(ModelViewSet):
 
         # Initial Validation
         data = request.data.copy()
-        data['branch_id'] = int(request.data['branches'][0])
+        data['branch'] = int(request.data['branches'][0])
         serializer = OrderSerializer(data=data)
         await sync_to_async(serializer.is_valid)(raise_exception=True)
         validated_data = serializer.validated_data
 
-        @aatomic
+        # @aatomic()
         async def create_order():
             try:
-                # 1. Get Branch with select_for_update
-                branch = await Branch.objects.select_for_update().aget(id=data['branch_id'])
+                 # 1. Get Branch with lock
+                # branch = await Branch.objects.select_for_update().aget(id=data['branch'])
+                branch = await Branch.objects.prefetch_related('country').aget(id=data['branch'])
                 user = request.user
                 
-                # 2. Generate Order Number
-                order_number = await generate_order_number(branch)
-
-                # 2.1 Calculate total price
+                # 2. Calculate Total Price First
                 total_price = Decimal('0.00')
                 menu_items = []
                 
-                # 3. Create Order Base
-                order = await Order.objects.acreate(
-                    branch=branch,
-                    order_number=order_number,
-                    source=validated_data.get('source', 'web'),
-                    total_price=total_price,
-                    created_by=user,
-                    special_instructions=data.get('notes', '')
-                )
+                # Pre-fetch all menu items at once for efficiency
+                item_ids = [item['menu_item'].id for item in validated_data['items']]
+                print("item_ids: ", item_ids)
+                items_map = {item.id: item async for item in MenuItem.objects.filter(id__in=item_ids)}
+                print("items_map: ", items_map)
                 
-                # 4. Process Order Items
+                # Calculate total price and prepare items
                 for item_data in validated_data['items']:
-                    menu_item = await MenuItem.objects.aget(id=item_data['menu_item'])
+                    menu_item = items_map[item_data['menu_item'].id ]
                     quantity = item_data['quantity']
-                    
-                    # Price calculation with quantity
                     item_price = menu_item.price * quantity
                     total_price += item_price
                     
@@ -587,34 +596,48 @@ class OrderViewSet(ModelViewSet):
                         'quantity': quantity,
                         'price': item_price
                     })
-                
-                # 5. Bulk Create Items
-                order_items = [
+                print("total_price: ", total_price)
+                print("menu_items: ", menu_items)
+
+                # 3. Create Order with Final Price
+                order = await Order.objects.acreate(
+                    branch=branch,
+                    order_number=await generate_order_number(branch),
+                    source=validated_data.get('source', 'web'),
+                    total_price=total_price,  # Now has the correct calculated value
+                    created_by=user,
+                    special_instructions=data.get('notes', ''),
+                    status='received'  # Ensure default status is set
+                )
+
+                # 4. Bulk Create Items
+                await OrderItem.objects.abulk_create([
                     OrderItem(
                         order=order,
                         menu_item=item['menu_item'],
                         quantity=item['quantity'],
                         price=item['price'],
                         added_by=user,
-                    )
-                    for item in menu_items
-                ]
-                await OrderItem.objects.abulk_create(order_items)
-                
-                # 6. Update Branch Stats (Example)
-                await branch.aincrement_order_count()
-                
-                # 7. Trigger Async Tasks
+                    ) for item in menu_items
+                ])
+
+                # 6. Trigger Async Tasks
                 asyncio.create_task(
                     send_to_kds.delay(order.id)
                 )
+
+                serializer = OrderSerializer(order)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+            except KeyError as e:
+                logger.error(f"Missing key in order data: {str(e)}")
+                raise ValidationError({"error": f"Missing required field: {str(e)}"})
+                
                 # asyncio.create_task(
                 #     update_inventory_levels.delay([i.menu_item_id for i in order_items])
                 # )
                 
                 # Return Response
-                serializer = OrderSerializer(order)
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
                 
             except ValidationError as e:
                 return Response(
@@ -627,7 +650,7 @@ class OrderViewSet(ModelViewSet):
                     {"error": _("Internal server error")},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-        create_order()
+        await create_order()
 
 
     @action(detail=True, methods="patch", url_path='modify')

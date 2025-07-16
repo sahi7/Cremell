@@ -119,7 +119,7 @@ class ScopeAccessPolicy(AccessPolicy):
                 {
                     OrderItem: Q(order__branch__restaurant__in=user.restaurants.all()),
                     Order: Q(branch__restaurant__in=user.restaurants.all()),
-                    MenuItem: Q(category__menu__branch__restaurant__company__in=user.restaurants.all()),
+                    MenuItem: Q(category__menu__branch__restaurant__in=user.restaurants.all()),
                     MenuCategory: Q(menu__branch__restaurant__in=user.restaurants.all()),
                     Menu: Q(branch__restaurant__in=user.restaurants.all()),
                     OvertimeRequest: Q(staff_shift__branch__restaurant__in=user.restaurants.all()),
@@ -144,7 +144,7 @@ class ScopeAccessPolicy(AccessPolicy):
                 {
                     OrderItem: Q(order__branch__restaurant__in=user.restaurants.all()),
                     Order: Q(branch__restaurant__in=user.restaurants.all()),
-                    MenuItem: Q(category__menu__branch__restaurant__company__in=user.restaurants.all()),
+                    MenuItem: Q(category__menu__branch__restaurant__in=user.restaurants.all()),
                     MenuCategory: Q(menu__branch__restaurant_id__in=user.restaurants.all()),
                     Menu: Q(branch__restaurant__in=user.restaurants.all()),
                     OvertimeRequest: Q(staff_shift__branch__restaurant__in=user.restaurants.all()),

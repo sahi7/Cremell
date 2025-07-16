@@ -443,8 +443,8 @@ class Branch(models.Model):
     async def acountry_code(self):
         if self._country_code is None:
             # Only hits DB once per instance lifetime
-            self._cached_country_code = self.country.code  
-        return self._cached_country_code
+            self._country_code = self.country.code  
+        return self._country_code
 
 
     async def get_effective_language(self):
