@@ -662,7 +662,7 @@ class OrderViewSet(ModelViewSet):
         return Response(serialized_data, status=status.HTTP_201_CREATED)
 
 
-    @action(detail=True, methods="patch", url_path='modify')
+    @action(detail=True, methods=['patch'], url_path='modify')
     async def order_modify(self, request, *args, **kwargs):
         """
         Handles PUT requests for order modifications.
@@ -688,41 +688,57 @@ class OrderViewSet(ModelViewSet):
             }
         """
         pk = kwargs['pk']
+        response_data = None
         try:
             # Start an atomic transaction to ensure data consistency
-            with transaction.atomic():
+            # with transaction.atomic():
+            # @aatomic
+            async def modify_order():
+                # 1. Lock and get order
                 # Lock the order row to prevent concurrent modifications
-                order = await Order.objects.select_for_update().aget(id=pk)
+                # order = await Order.objects.select_for_update().aget(id=pk)
+                order = await Order.objects.aget(id=pk)
+                print("order: ", order)
                 
+                # 2. Check version
                 # Check for version mismatch (optimistic locking)
                 if order.version != request.data.get('expected_version'):
                     return Response(
                         {"error": "Concurrent modification detected"},
                         status=status.HTTP_409_CONFLICT
                     )
+                print("order version: ", order.version)
                 
+                # 3. Process changes
                 # Process each change in the request
                 for change in request.data.get('changes', []):
                     if change['action'] == 'add':
-                        # Add a new item to the order
+                        menu_item = await MenuItem.objects.aget(id=change['menu_item'])
                         await OrderItem.objects.acreate(
                             order=order,
-                            menu_item_id=change['menu_item'],
+                            menu_item=menu_item,
                             quantity=change['quantity'],
-                            item_price=await MenuItem.objects.aget(id=change['menu_item']).price
+                            item_price=menu_item.price * change['quantity']
                         )
                     elif change['action'] == 'remove':
-                        # Remove an item from the order
-                        await OrderItem.objects.filter(id=change['order_item']).adelete()
+                        await OrderItem.objects.filter(
+                            id=change['order_item'],
+                            order=order
+                        ).adelete()
                 
+                # 4. Refresh order data
                 # Refresh the order object to reflect changes
                 await order.arefresh_from_db()
                 
-                # Return the updated order version and total price
-                return Response({
+                # 5. Prepare success response (LAST THING WE DO)
+                response_data = {
                     "version": order.version,
-                    "total_price": order.total_price
-                }, status=status.HTTP_200_OK)
+                    "total_price": order.total_price,
+                    "status": "success"
+                }
+                print("response_data: ", response_data)
+                    
+            await modify_order()
         
         except Order.DoesNotExist:
             # Handle case where order does not exist
@@ -738,12 +754,16 @@ class OrderViewSet(ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        except Exception as e:
-            # Handle unexpected errors
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        # except Exception as e:
+        #     # Handle unexpected errors
+        #     return Response(
+        #         {"error": str(e)},
+        #         status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        #     )
+
+        # 6. FINAL STEP: Return success response
+        return Response(response_data, status=status.HTTP_200_OK)
+        
 
 class ShiftViewSet(ModelViewSet):
     """
