@@ -7,49 +7,43 @@ from asgiref.sync import async_to_sync
 from CRE.models import CustomUser, StaffAvailability
 from .models import Task, BranchActivity, EmployeeTransfer
 
-@receiver(post_save, sender=Task)
-def broadcast_task_update(sender, instance, **kwargs):
-    from .tasks import broadcast_to_channel
-    broadcast_to_channel.delay(
-        instance.order.branch_id,
-        'task_update',
-        {'task_id': instance.id, 'status': instance.status}
-    )
 
 @receiver(post_save, sender=Task)
 def update_staff_availability(sender, instance, **kwargs):
-    if instance.status == 'claimed':
-        StaffAvailability.objects.filter(user=instance.claimed_by).update(
-            status='busy',
-            current_task=instance
-        )
-        # Log activity
-        BranchActivity.objects.create(
-            branch=instance.order.branch,
-            activity_type='task_claim',
-            user=instance.claimed_by,
-            details={
-                'task_id': instance.id,
-                'order_id': instance.order.id,
-                'task_type': instance.task_type
-            }
-        )
-    elif instance.status == 'completed':
-        StaffAvailability.objects.filter(user=instance.claimed_by).update(
-            status='available',
-            current_task=None
-        )
-        # Log activity
-        BranchActivity.objects.create(
-            branch=instance.order.branch,
-            activity_type='task_complete',
-            user=instance.claimed_by,
-            details={
-                'task_id': instance.id,
-                'order_id': instance.order.id,
-                'duration': (timezone.now() - instance.created_at).total_seconds()
-            }
-        )
+    from notifications.tasks import update_staff_availability
+    update_staff_availability.delay(instance.id)
+#     if instance.status == 'claimed':
+#         StaffAvailability.objects.filter(user=instance.claimed_by).update(
+#             status='busy',
+#             current_task=instance
+#         )
+#         # Log activity
+#         BranchActivity.objects.create(
+#             branch=instance.order.branch,
+#             activity_type='task_claim',
+#             user=instance.claimed_by,
+#             details={
+#                 'task_id': instance.id,
+#                 'order_id': instance.order.id,
+#                 'task_type': instance.task_type
+#             }
+#         )
+#     elif instance.status == 'completed':
+#         StaffAvailability.objects.filter(user=instance.claimed_by).update(
+#             status='available',
+#             current_task=None
+#         )
+#         # Log activity
+#         BranchActivity.objects.create(
+#             branch=instance.order.branch,
+#             activity_type='task_complete',
+#             user=instance.claimed_by,
+#             details={
+#                 'task_id': instance.id,
+#                 'order_id': instance.order.id,
+#                 'duration': (timezone.now() - instance.created_at).total_seconds()
+#             }
+#         )
 
 @receiver(pre_save, sender=StaffAvailability) # TOD0: CHeck if there is a way to know when user is in overtime than running this signal everytime the user 'availability' is updated
 def handle_shift_overtime(sender, instance, **kwargs):

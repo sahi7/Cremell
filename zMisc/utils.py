@@ -515,6 +515,15 @@ async def get_stakeholders(
     return stakeholders
 
 
+async def validate_role(user, task_type):
+    role_mapping = {
+        'prepare': 'cook',
+        'serve': 'runner',
+        'payment': 'cashier'
+    }
+    return user.role == role_mapping.get(task_type, '')
+
+
 class AttributeChecker:
     async def check_manager(self, manager_id, company_id=None, manager_type='restaurant'):
         """

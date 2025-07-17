@@ -10,9 +10,12 @@ from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ObjectDoesNotExist
 from allauth.account.models import EmailConfirmationHMAC, EmailAddress
 
-from .models import Task, EmployeeTransfer, TransferHistory, ShiftAssignmentLog
-from CRE.models import CustomUser
+from .models import Task, EmployeeTransfer, TransferHistory, ShiftAssignmentLog, BranchActivity
+from CRE.models import Order, CustomUser
 from zMisc.utils import get_user_data, render_notification_template, get_stakeholders
+
+import logging
+logger = logging.getLogger(__name__)
 
 cache = redis.from_url(settings.REDIS_URL)
 
@@ -31,21 +34,6 @@ def monitor_task_timeouts():
         task.save()
         broadcast_task_update.send(sender=Task, instance=task)
 
-@shared_task
-def broadcast_to_channel(branch_id, message_type, data):
-    channel_layer = get_channel_layer()
-    group_name = f"branch_{branch_id}_{data.get('channel_type', 'kitchen')}"
-    
-    async_to_sync(channel_layer.group_send)(
-        group_name,
-        {
-            "type": "task.update",
-            "data": {
-                "type": message_type,
-                **data
-            }
-        }
-    )
 
 @shared_task
 def process_transfer(transfer_id, approve=False, reject=False, reviewer_id=None):
@@ -450,3 +438,56 @@ def log_shift_assignment(
     # print("extra_context: ", extra_context)
 
     return True
+
+
+@shared_task
+def create_initial_task(order_id):
+    order = Order.objects.get(id=order_id)
+    task = Task.objects.create(
+        order=order,
+        task_type='prepare',
+        status='pending',
+        timeout_at=timezone.now() + timezone.timedelta(minutes=10)
+    )
+    # publish_event('order.created', {'order_id': order_id, 'task_id': task.id})
+    # notify_staff(order.branch_id, 'kitchen', f"New task {task.id} for order {order_id}")
+
+
+@shared_task
+def update_staff_availability(task_id):
+    task = Task.objects.get(id=task_id)
+    if task.claimed_by and hasattr(task.claimed_by, 'availability'):
+        availability = task.claimed_by.availability
+        if task.status in ('pending', 'claimed'):
+            availability.status = 'busy'
+            availability.current_task = task
+        else:
+            availability.status = 'available'
+            availability.current_task = None
+        availability.save()
+        BranchActivity.objects.create(
+            branch=task.order.branch,
+            activity_type=f"task_{task.status}",
+            user=task.claimed_by,
+            details={'task_id': task.id, 'order_id': task.order.id}
+        )
+
+
+@shared_task
+async def update_order_status(order_id, new_status, expected_version):
+    try:
+        with transaction.atomic():
+            order = Order.objects.filter(
+                id=order_id, version=expected_version
+            ).select_for_update().first()
+            if not order:
+                raise ValueError("Concurrent update detected")
+            order.status = new_status
+            order.version += 1
+            order.save()
+            # await publish_event('order.status_updated', {
+            #     'order_id': order_id,
+            #     'status': new_status
+            # })
+    except Exception as e:
+        logger.error(f"Order status update failed for order {order_id}: {str(e)}")

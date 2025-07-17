@@ -579,10 +579,12 @@ class OrderViewSet(ModelViewSet):
                 menu_items = []
                 
                 # Pre-fetch all menu items at once for efficiency
+                # @TOD0: There is some duplication here, need to get a single line from these 2 lines 
+                # i.e leave the object instance on the first line and use [item_data['menu_item'].id 
                 item_ids = [item['menu_item'].id for item in validated_data['items']]
-                print("item_ids: ", item_ids)
+                # print("item_ids: ", item_ids)
                 items_map = {item.id: item async for item in MenuItem.objects.filter(id__in=item_ids)}
-                print("items_map: ", items_map)
+                # print("items_map: ", items_map)
                 
                 # Calculate total price and prepare items
                 for item_data in validated_data['items']:
@@ -596,10 +598,15 @@ class OrderViewSet(ModelViewSet):
                         'quantity': quantity,
                         'price': item_price
                     })
-                print("total_price: ", total_price)
-                print("menu_items: ", menu_items)
+                # print("total_price: ", total_price)
+                # print("menu_items: ", menu_items)
+                # print("validated_data: ", validated_data)
 
                 # 3. Create Order with Final Price
+                filtered_validated_data = {
+                    k: v for k, v in validated_data.items()
+                    if k not in ['branch', 'items']
+                }
                 order = await Order.objects.acreate(
                     branch=branch,
                     order_number=await generate_order_number(branch),
@@ -607,7 +614,8 @@ class OrderViewSet(ModelViewSet):
                     total_price=total_price,  # Now has the correct calculated value
                     created_by=user,
                     special_instructions=data.get('notes', ''),
-                    status='received'  # Ensure default status is set
+                    status='received',  # Ensure default status is set
+                    **filtered_validated_data
                 )
 
                 # 4. Bulk Create Items
@@ -616,19 +624,17 @@ class OrderViewSet(ModelViewSet):
                         order=order,
                         menu_item=item['menu_item'],
                         quantity=item['quantity'],
-                        price=item['price'],
+                        item_price=item['price'],
                         added_by=user,
                     ) for item in menu_items
                 ])
 
-                # 6. Trigger Async Tasks
-                asyncio.create_task(
-                    send_to_kds.delay(order.id)
-                )
+                # 6. Fire notification and forget
+                send_to_kds.delay(order.id)
 
-                serializer = OrderSerializer(order)
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
+                # serializer = OrderSerializer(order)
 
+               
             except KeyError as e:
                 logger.error(f"Missing key in order data: {str(e)}")
                 raise ValidationError({"error": f"Missing required field: {str(e)}"})
@@ -651,6 +657,9 @@ class OrderViewSet(ModelViewSet):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
         await create_order()
+        
+        serialized_data = await sync_to_async(lambda: serializer.data)()
+        return Response(serialized_data, status=status.HTTP_201_CREATED)
 
 
     @action(detail=True, methods="patch", url_path='modify')

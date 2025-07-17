@@ -607,7 +607,6 @@ class Order(models.Model):
 
     # Add version for optimistic locking
     version = models.IntegerField(default=0)
-
     status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='received', verbose_name=_("Status"))
     order_number = models.CharField(max_length=50, unique=True)
     order_type = models.CharField(max_length=20, choices=ORDER_TYPE_CHOICES, default='dine_in', verbose_name=_("Order Type"))

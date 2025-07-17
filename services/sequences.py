@@ -48,8 +48,8 @@ class SequencePool:
         seq = await redis_client.rpop(self.pool_key)
         if seq is None:
             return None
-            
-        return f"{prefix}{seq}{suffix}"
+        seq_str = seq.decode('utf-8')
+        return f"{prefix}{seq_str}{suffix}"
 
     async def ensure_capacity(self, min_available: int = 50):
         """Ensures minimum available sequences"""
@@ -73,13 +73,13 @@ async def generate_order_number(branch: "Branch") -> str:
     country_code = await branch.acountry_code
     if (number := await pool.get_next(
         prefix=country_code,
-        suffix=f"-{uuid.uuid4().hex[:6].upper()}"
+        suffix=f"{uuid.uuid4().hex[:6].upper()}"
     )) is None:
         # Emergency fallback (should rarely trigger)
         await pool.pregenerate_batch(10)
         number = await pool.get_next(
             prefix=country_code,
-            suffix=f"-{uuid.uuid4().hex[:6].upper()}"
+            suffix=f"{uuid.uuid4().hex[:6].upper()}"
         )
     
     # Async replenishment check

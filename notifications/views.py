@@ -6,20 +6,24 @@ from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from adrf.viewsets import ModelViewSet
+from adrf.viewsets import ModelViewSet, APIView
 from adrf.viewsets import ViewSet
 from channels.layers import get_channel_layer
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
-from .models import EmployeeTransfer, TransferHistory, RoleAssignment
+from .models import Task, EmployeeTransfer, TransferHistory, RoleAssignment
 from .tasks import process_transfer, send_role_assignment_email
 from .serializers import TransferSerializer, TransferHistorySerializer, RoleAssignmentSerializer
 from CRE.tasks import log_activity
-from CRE.models import Shift, Branch
+from CRE.models import Shift, Branch, StaffAvailability
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.permissions import TransferPermission, UserCreationPermission, RoleAssignmentPermission
+from zMisc.atransactions import aatomic
+
+import logging
+logger = logging.getLogger(__name__)
 
 CustomUser = get_user_model()
 
@@ -366,3 +370,41 @@ class RoleAssignmentViewSet(ViewSet):
             )
         except RoleAssignment.DoesNotExist:
             return Response({"error": _("Invalid assignment.")}, status=status.HTTP_404_NOT_FOUND)
+        
+from zMisc.utils import validate_role
+from .tasks import update_staff_availability, update_order_status
+class TaskClaimView(APIView):
+    async def post(self, request):
+        task_id = request.data['task_id']
+        user = request.user
+        try:
+            @aatomic()
+            async def claim_task():
+                task = await Task.objects.select_for_update().filter(
+                    id=task_id, status='pending', version=request.data['version']
+                ).afirst()
+                if not task:
+                    return Response({'error': _('Task unavailable or modified')}, status=400)
+                if not await validate_role(user, task.task_type):
+                    return Response({'error': _("Invalid role, can't claim task")}, status=403)
+                availability = await StaffAvailability.objects.aget(user=user)
+                if availability.status != 'available':
+                    return Response({'error': _('Has a task in progress -- Staff not available')}, status=400)
+                task.status = 'claimed'
+                task.claimed_by = user
+                task.claimed_at = timezone.now()
+                task.version += 1
+                await task.asave()
+                await update_staff_availability.delay(task.id)
+                await update_order_status.delay(task.order.id, 'preparing', task.order.version)
+                # await publish_event('task.claimed', {
+                #     'task_id': task.id,
+                #     'order_id': task.order.id,
+                #     'branch_id': task.order.branch.id,
+                #     'user_id': user.id
+                # })
+                return Response({'task_id': task.id}, status=200)
+            await claim_task()
+        except Exception as e:
+            logger.error(f"Task claim failed: {str(e)}")
+            return Response({'error': 'Task claim failed'}, status=500)

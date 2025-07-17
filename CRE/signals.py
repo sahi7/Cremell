@@ -99,21 +99,21 @@ def cleanup_unused_permissions_and_groups():
 
 
 @receiver(post_save, sender=Order)
-def handle_order_creation(sender, instance, created, **kwargs):
+async def handle_order_creation(sender, instance, created, **kwargs):
     if created:
         # Create initial task
         from notifications.tasks import create_initial_task
         create_initial_task.delay(instance.id)
 
-@receiver(post_save, sender=OrderItem)
-@receiver(post_delete, sender=OrderItem)
-def update_order_total(sender, instance, **kwargs):
-    order = instance.order
-    order.total_price = order.order_items.aggregate(
-        total=Sum(F('item_price') * F('quantity'))
-    )['total'] or 0
-    order.version += 1
-    order.save(update_fields=['total_price', 'version'])
+# @receiver(post_save, sender=OrderItem)
+# @receiver(post_delete, sender=OrderItem)
+# def update_order_total(sender, instance, **kwargs):
+#     order = instance.order
+#     order.total_price = order.order_items.aggregate(
+#         total=Sum(F('item_price') * F('quantity'))
+#     )['total'] or 0
+#     order.version += 1
+#     order.save(update_fields=['total_price', 'version'])
 
 @receiver(post_save, sender=Task)
 async def update_availability_on_task_change(sender, instance, **kwargs):
@@ -131,10 +131,10 @@ async def update_availability_on_task_change(sender, instance, **kwargs):
         await availability.update_status()
 
 @receiver(post_save, sender=StaffShift)
-def update_availability_on_shift_change(sender, instance, **kwargs):
+async def update_availability_on_shift_change(sender, instance, **kwargs):
     """Update StaffAvailability when a StaffShift is created or modified (e.g., overtime added)."""
     if hasattr(instance.user, 'availability'):
-        instance.user.availability.update_status()
+        await instance.user.availability.update_status()
 
 @receiver(post_save, sender='CRE.OvertimeRequest')
 def notify_manager_on_overtime_request(sender, instance, created, **kwargs):

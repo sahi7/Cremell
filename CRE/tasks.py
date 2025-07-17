@@ -218,12 +218,24 @@ def log_activity(user_id, activity_type, details=None, obj_id=None, obj_type=Non
     model.objects.create(**activity_data)
 
     return True
+
 channel_layer = get_channel_layer()
 @shared_task
 def send_to_kds(order_id):
     order = Order.objects.select_related('branch').get(pk=order_id)
     async_to_sync(channel_layer.group_send)(
-            f"kitchen_{order.branch_id}",
+            f"kitchen_{order.branch_id}_cook",
+            {
+                'type': 'order.notification',
+                'message': f"New Order | {order.order_number}"
+            }
+        )
+    
+@shared_task
+def send_to_pos(order_id):
+    order = Order.objects.select_related('branch').get(pk=order_id)
+    async_to_sync(channel_layer.group_send)(
+            f"kitchen_{order.branch_id}_cook",
             {
                 'type': 'order.notification',
                 'message': f"New Order | {order.order_number}"

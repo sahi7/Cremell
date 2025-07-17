@@ -11,7 +11,7 @@ from django.utils.translation import gettext as _
 from collections import defaultdict
 from typing import Optional, Union
 from notifications.models import ShiftAssignmentLog
-from CRE.models import Branch, Shift, StaffShift, ShiftPattern, CustomUser
+from CRE.models import Branch, Shift, StaffShift, ShiftPattern, CustomUser, StaffAvailability
 from CRE.serializers import ShiftPatternSerializer
 import logging
 
@@ -381,6 +381,28 @@ class ShiftAssignmentEngine:
                 message=message,
                 template_name=template_name,
                 extra_context=extra_context,
+            )
+
+        # Find users without availability records
+        existing_users = set(
+            await StaffAvailability.objects.filter(
+                user_id__in=user_ids
+            ).values_list('user_id', flat=True)
+        )
+        new_users = user_ids - existing_users
+
+        # Bulk create availability records
+        if new_users:
+            availability_objs = [
+                StaffAvailability(
+                    user_id=user_id,
+                    status='offline'  # Default status
+                )
+                for user_id in new_users
+            ]
+            await StaffAvailability.objects.abulk_create(
+                availability_objs,
+                ignore_conflicts=True  # Safety net
             )
 
 import asyncio

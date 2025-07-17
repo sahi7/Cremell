@@ -84,6 +84,7 @@ class OrderConsumer(AsyncWebsocketConsumer):
 class KitchenConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         user = self.scope['user']
+        user_role = user.role
         if not user.is_authenticated:
             logger.warning("WebSocket connection rejected: User not authenticated")
             await self.close(code=4001)  # Unauthorized
@@ -103,7 +104,7 @@ class KitchenConsumer(AsyncWebsocketConsumer):
             await self.close(code=4003)  # Forbidden
             return
 
-        self.branch_group = f"kitchen_{branch_id}"
+        self.branch_group = f"kitchen_{branch_id}_{user_role}"
         await self.channel_layer.group_add(self.branch_group, self.channel_name)
         await self.accept()
         logger.info(f"WebSocket connected for user {user.id} to branch {branch_id}")
