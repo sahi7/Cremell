@@ -12,7 +12,7 @@ class Task(models.Model):
         ('payment', 'Process Payment')
     ]
     version = models.IntegerField(default=0)
-    order = models.ForeignKey('CRE.Order', on_delete=models.CASCADE)
+    order = models.ForeignKey('CRE.Order', on_delete=models.CASCADE, related_name='tasks')
     task_type = models.CharField(max_length=20, choices=TASK_TYPES)
     status = models.CharField(max_length=20, choices=[
         ('pending', 'Pending'),
@@ -20,7 +20,7 @@ class Task(models.Model):
         ('completed', 'Completed'),
         ('escalated', 'Escalated')
     ])
-    claimed_by = models.ForeignKey(CustomUser, null=True, on_delete=models.SET_NULL)
+    claimed_by = models.ForeignKey(CustomUser, null=True, on_delete=models.SET_NULL, related_name='tasks')
     preparation_time = models.DurationField(null=True, blank=True)
     version = models.IntegerField(default=0)
     timeout_at = models.DateTimeField()

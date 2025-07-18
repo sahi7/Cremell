@@ -35,8 +35,9 @@ class StakeholderConsumer(AsyncWebsocketConsumer):
         Handle stakeholder notification, sending message to client.
         """
         message = event['message']
+        model = event['type']
         await self.send(text_data=json.dumps({
-            'type': 'overtime.notification',
+            'type': f'{model}.notification',
             'message': message
         }))
         logger.debug(f"Sent notification to {self.user_group}: {message}")

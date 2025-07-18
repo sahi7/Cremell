@@ -14,7 +14,7 @@ from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.mail import send_mail
 
-from notifications.models import RestaurantActivity, BranchActivity
+from notifications.models import Task, RestaurantActivity, BranchActivity
 from .models import StaffShift, Restaurant, Branch, Order
 from zMisc.utils import determine_activity_model, render_notification_template
 import logging
@@ -221,15 +221,61 @@ def log_activity(user_id, activity_type, details=None, obj_id=None, obj_type=Non
 
 channel_layer = get_channel_layer()
 @shared_task
-def send_to_kds(order_id):
-    order = Order.objects.select_related('branch').get(pk=order_id)
-    async_to_sync(channel_layer.group_send)(
-            f"kitchen_{order.branch_id}_cook",
-            {
-                'type': 'order.notification',
-                'message': f"New Order | {order.order_number}"
-            }
-        )
+def send_to_kds(order_id, details=None):
+# async def send_to_kds(order_id):
+    try:
+        # Fetch order with related branch
+        order = Order.objects.select_related('branch').get(pk=order_id)
+        dets = {
+            'order_items': details.get('item_names'),
+            'order_id': order.id,
+            'order_number': order.order_number,
+            'total_price': str(order.total_price)
+        }
+
+        # Define statuses to check
+        target_statuses = {'preparing', 'ready'}
+
+        if order.status in target_statuses:
+            # Find the cook who claimed the prepare task
+            task = Task.objects.filter(
+                order=order,
+                task_type='prepare',
+                status='claimed'
+            ).select_related('claimed_by').first()
+
+            if task and task.claimed_by:
+                # Send to specific cook
+                channel_layer = get_channel_layer()
+                async_to_sync(channel_layer.group_send)(
+                    f"user_{task.claimed_by.id}",
+                    {
+                        'model': 'order',
+                        'type': 'stakeholder.notification',
+                        'message': f"Order {order.order_number} Has been modified"
+                    }
+                )
+                log_activity.delay(details['user_id'] , 'order_modify', dets, order.branch_id, 'branch')
+                logger.debug(f"Sent notification to user_{task.claimed_by.id} for order {order_id}")
+            else:
+                logger.warning(f"No claimed prepare task found for order {order_id}")
+        else:
+            # Fallback to kitchen group
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f"kitchen_{order.branch.id}_cook",
+                {
+                    'type': 'order.notification',
+                    'message': f"New Order | {order.order_number}"
+                }
+            )
+            log_activity.delay(details['user_id'] , 'order_create', dets, order.branch_id, 'branch')
+            logger.debug(f"Sent notification to kitchen_{order.branch.id}_cook for order {order_id}")
+
+    except Order.DoesNotExist:
+        logger.error(f"Order {order_id} not found")
+    except Exception as e:
+        logger.error(f"Failed to send KDS notification for order {order_id}: {str(e)}")
     
 @shared_task
 def send_to_pos(order_id):

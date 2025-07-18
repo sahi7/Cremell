@@ -406,7 +406,7 @@ class BranchMenuSerializer(ModelSerializer):
 class OrderItemSerializer(ModelSerializer):
     class Meta:
         model = OrderItem
-        fields = ['menu_item', 'quantity', 'item_price']
+        fields = ['id', 'menu_item', 'quantity', 'item_price']
         extra_kwargs = {
             'item_price': {'read_only': True}  # Never accept input
         }
@@ -416,8 +416,8 @@ class OrderSerializer(ModelSerializer):
     
     class Meta:
         model = Order
-        fields = ['id', 'branch', 'order_type', 'source', 'table_number', 'special_instructions', 'version', 'items']
-        read_only_fields = ('created_by', 'deleted_by', 'is_active')
+        fields = ['id', 'branch', 'order_type', 'source', 'table_number', 'special_instructions', 'version', 'total_price', 'items']
+        read_only_fields = ('created_by', 'deleted_by', 'is_active', 'total_price')
 
     def validate(self, data):
         """Custom validation for order_type and table_number."""

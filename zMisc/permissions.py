@@ -370,6 +370,7 @@ class StaffAccessPolicy(BasePermission):
     """
     # Map models to object permission checks
     OBJECT_CHECKS = {
+        Order: lambda obj, user, branch_ids: obj.created_by_id == user.id and obj.branch_id in branch_ids,
         OvertimeRequest: lambda obj, user, branch_ids: StaffShift.objects.select_related('branch').filter(
             id=obj.staff_shift_id, user=user, branch_id__in=branch_ids
         ).aexists(),
@@ -387,6 +388,7 @@ class StaffAccessPolicy(BasePermission):
 
     # Map models to queryset filters
     QUERYSET_FILTERS = {
+        Order: lambda user, branch_ids: Q(created_by=user, branch_id__in=branch_ids),
         OvertimeRequest: lambda user, branch_ids: Q(staff_shift__user=user, staff_shift__branch_id__in=branch_ids),
         StaffShift: lambda user, branch_ids: Q(user=user, branch_id__in=branch_ids),
         ShiftPattern: lambda user, branch_ids: Q(branch_id__in=branch_ids),
@@ -1247,11 +1249,6 @@ class OvertimeRequestPermission(BasePermission):
         if not check:
             return False
         return await check(obj, user, branch_ids)
-    
-class OrderPermission(BasePermission):
-    async def has_permission(self, request, view):
-        data = request.data
-        branch = data['branches'][0]
 
 class MenuPermission(BasePermission):
     async def has_permission(self, request, view):
@@ -1319,10 +1316,24 @@ class OrderPermission(BasePermission):
         data = request.data
         r_val = await user.get_role_value()
         entity_permission = EntityUpdatePermission()
+        print("view act: ", view.action)
 
         if r_val < 1 or (r_val > 5 and r_val not in [6, 9]):
             return False
         
         
         return True
+    
+    async def has_object_permission(self, request, view, obj):
+        # print("in has_object_permission")
+        user = request.user
+        policy = StaffAccessPolicy()
+
+        scopes = await get_scopes_and_groups(user.id)
+        branch_ids = scopes.get('branch', set())
+        check = policy.OBJECT_CHECKS.get(obj.__class__)
+        print("check: ", check)
+        if not check:
+            return False
+        return await check(obj, user, branch_ids)
         

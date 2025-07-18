@@ -334,6 +334,7 @@ def send_batch_notifications(
                 async_to_sync(channel_layer.group_send)(
                 group_name,
                     {
+                        "model": "general",
                         "type": "stakeholder.notification",
                         "message": message
                     }
