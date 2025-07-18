@@ -515,7 +515,7 @@ async def get_stakeholders(
     return stakeholders
 
 
-async def validate_role(user, task_type):
+async def validate_order_role(user, task_type):
     role_mapping = {
         'prepare': 'cook',
         'serve': 'runner',

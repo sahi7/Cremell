@@ -121,7 +121,7 @@ class AssignmentView(APIView):
 
     """
     serializer_class = AssignmentSerializer
-    permission_classes = (ScopeAccessPolicy, EntityUpdatePermission,ObjectStatusPermission, )
+    permission_classes = (ScopeAccessPolicy, EntityUpdatePermission, ObjectStatusPermission, )
 
     async def patch(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data)

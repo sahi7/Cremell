@@ -371,7 +371,7 @@ class RoleAssignmentViewSet(ViewSet):
         except RoleAssignment.DoesNotExist:
             return Response({"error": _("Invalid assignment.")}, status=status.HTTP_404_NOT_FOUND)
         
-from zMisc.utils import validate_role
+from zMisc.utils import validate_order_role
 from .tasks import update_staff_availability, update_order_status
 class TaskClaimView(APIView):
     async def post(self, request):
@@ -385,7 +385,7 @@ class TaskClaimView(APIView):
                 ).afirst()
                 if not task:
                     return Response({'error': _('Task unavailable or modified')}, status=400)
-                if not await validate_role(user, task.task_type):
+                if not await validate_order_role(user, task.task_type):
                     return Response({'error': _("Invalid role, can't claim task")}, status=403)
                 availability = await StaffAvailability.objects.aget(user=user)
                 if availability.status != 'available':

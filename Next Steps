@@ -53,12 +53,14 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   2. Modify shift patterns to take user ids list rather than a single id
   3. When creating pattern check that the shift is of the branch & users[] is of branch
   4. Create action and modify handle_emergency overide
+  5. Create StaffAvailability On First Shift Assignment
 - Overtime management
   1. Bulk overtime confirmation for multiple users
 - Complete order process
   Cache order items for branch daily (update cache on edit)
 - Print receipts
 - Improve get_stakeholders when r_val has been corrected
+- views_helper does not change user.status when they are assigned
 
 
 # REDUCE DB REQUESTS WITH CACHING #
