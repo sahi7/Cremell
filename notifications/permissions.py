@@ -1,0 +1,40 @@
+from rest_framework.permissions import BasePermission
+
+from .models import Task
+from zMisc.utils import get_scopes_and_groups
+
+
+class IsCookAndBranch(BasePermission):
+    async def has_permission(self, request, view):
+        user = request.user
+        task_id = request.data.get('task_id')
+        version = request.data.get('version')
+        r_val = await user.get_role_value()
+
+        if not task_id or version is None:
+            return False
+        
+        # Check if user is authenticated and has 'cook' role
+        if r_val < 1 or (r_val > 6 and r_val not in [8, 9]):
+            return False
+
+        # Check if task's branch is in user's branches
+        scopes = await get_scopes_and_groups(user.id)
+        _branches = scopes['branch']
+
+        try:
+            # Fetch task with related order and branch
+            task = await Task.objects.select_related('order').filter(
+                id=task_id, status='pending', version=version
+            ).afirst()
+            if not task:
+                return False
+            
+            # Check if task's branch is in user's branches
+            if task.order.branch_id not in _branches:
+                return False
+            request.task = task
+
+            return True
+        except Task.DoesNotExist:
+            return False

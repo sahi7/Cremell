@@ -14,5 +14,7 @@ urlpatterns = [
 
     path('n/', include(router.urls)),
     path('a/', include(arouter.urls)),
+    path('tasks/claim/', TaskClaimView.as_view(), name='task-claim'),
+    path('tasks/complete/', TaskCompleteView.as_view(), name='task-complete'),
 
 ]

@@ -370,19 +370,20 @@ class RoleAssignmentViewSet(ViewSet):
             )
         except RoleAssignment.DoesNotExist:
             return Response({"error": _("Invalid assignment.")}, status=status.HTTP_404_NOT_FOUND)
-        
+
+from .permissions import IsCookAndBranch    
 from zMisc.utils import validate_order_role
 from .tasks import update_staff_availability, update_order_status
 class TaskClaimView(APIView):
+    permission_classes = [IsCookAndBranch]
+
     async def post(self, request):
         task_id = request.data['task_id']
         user = request.user
         try:
             @aatomic()
             async def claim_task():
-                task = await Task.objects.select_for_update().filter(
-                    id=task_id, status='pending', version=request.data['version']
-                ).afirst()
+                task = request.task
                 if not task:
                     return Response({'error': _('Task unavailable or modified')}, status=400)
                 if not await validate_order_role(user, task.task_type):
@@ -390,13 +391,18 @@ class TaskClaimView(APIView):
                 availability = await StaffAvailability.objects.aget(user=user)
                 if availability.status != 'available':
                     return Response({'error': _('Has a task in progress -- Staff not available')}, status=400)
+                
+                # Update task
                 task.status = 'claimed'
                 task.claimed_by = user
                 task.claimed_at = timezone.now()
                 task.version += 1
                 await task.asave()
+
+                # Determine order status based on task type
+                new_order_status = 'preparing' if task.task_type == 'prepare' else 'delivered' if task.task_type == 'serve' else task.order.status
                 await update_staff_availability.delay(task.id)
-                await update_order_status.delay(task.order.id, 'preparing', task.order.version)
+                await update_order_status.delay(task.order.id, new_order_status, task.order.version)
                 # await publish_event('task.claimed', {
                 #     'task_id': task.id,
                 #     'order_id': task.order.id,
@@ -408,3 +414,41 @@ class TaskClaimView(APIView):
         except Exception as e:
             logger.error(f"Task claim failed: {str(e)}")
             return Response({'error': 'Task claim failed'}, status=500)
+
+from .tasks import create_serve_task      
+class TaskCompleteView(APIView):
+    permission_classes = [IsAssignedCookAndBranch]
+
+    async def post(self, request):
+        user = request.user
+        try:
+            async def complete_task():
+                task = request.task
+                if not task:
+                    return Response({'error': 'Task unavailable or modified'}, status=400)
+                
+                # Update task to completed
+                task.status = 'completed'
+                task.completed_at = timezone.now()
+                task.preparation_time = task.completed_at - task.claimed_at
+                task.version += 1
+                await task.asave()
+                
+                # Update order status and create serve task if prepare task
+                if task.task_type == 'prepare':
+                    await update_order_status.delay(task.order.id, 'ready', task.order.version)
+                    await create_serve_task.delay(task.order.id)
+                
+                # Update staff availability and log activity
+                await update_staff_availability.delay(task.id)
+                # await publish_event('task.completed', {
+                #     'task_id': task.id,
+                #     'order_id': task.order.id,
+                #     'branch_id': task.order.branch.id,
+                #     'user_id': user.id
+                # })
+                return Response({'task_id': task.id}, status=200)
+            await complete_task()
+        except Exception as e:
+            logger.error(f"Task completion failed: {str(e)}")
+            return Response({'error': 'Task completion failed'}, status=500)

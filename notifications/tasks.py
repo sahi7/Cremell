@@ -473,6 +473,7 @@ def update_staff_availability(task_id):
             details={'task_id': task.id, 'order_id': task.order.id}
         )
 
+from django.db import transaction
 
 @shared_task
 async def update_order_status(order_id, new_status, expected_version):
@@ -492,3 +493,31 @@ async def update_order_status(order_id, new_status, expected_version):
             # })
     except Exception as e:
         logger.error(f"Order status update failed for order {order_id}: {str(e)}")
+
+@shared_task
+async def create_serve_task(order_id):
+    try:
+        order = await Order.objects.aget(id=order_id)
+        task = await Task.objects.acreate(
+            order=order,
+            task_type='serve',
+            status='pending',
+            timeout_at=timezone.now() + timezone.timedelta(minutes=10),
+            version=1
+        )
+        # await publish_event('task.created', {
+        #     'task_id': task.id,
+        #     'order_id': order_id,
+        #     'branch_id': order.branch.id
+        # })
+        # Notify available food runners
+        channel_layer = get_channel_layer()
+        await channel_layer.group_send(
+            f"{order.branch.id}_runner_available",
+            {
+                'type': 'task.notification',
+                'message': f"New serve task {task.id} for order {order.id}"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Serve task creation failed for order {order_id}: {str(e)}")

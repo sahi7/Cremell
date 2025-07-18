@@ -27,11 +27,12 @@ from adrf.viewsets import ModelViewSet
 
 from .serializers import *
 from .models import *
-# from .models import Company, Restaurant, Branch, Menu, MenuItem, MenuCategory, Order, OrderItem, Shift, StaffShift, StaffAvailability, OvertimeRequest
+from .tasks import create_staff_availability
+
 from archive.tasks import finalize_deletion, handle_deletion_tasks
 from notifications.tasks import log_shift_assignment
 from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy, ScopeAccessPolicy
-# from zMisc.permissions import UserCreationPermission, RestaurantPermission, BranchPermission, ObjectStatusPermission, DeletionPermission
+
 from zMisc.permissions import *
 from zMisc.utils import validate_scope, validate_role
 from zMisc.shiftresolver import ShiftUpdateHandler
@@ -136,7 +137,8 @@ class UserViewSet(ModelViewSet):
         }
         
         # Fetch user groups asynchronously with a single query
-        user_groups = {group.name async for group in user.groups.all()}
+        _scopes = await get_scopes_and_groups(user.id)
+        user_groups = _scopes['groups']
         
         # Check restrictions
         for group_name in user_groups:
@@ -160,6 +162,8 @@ class UserViewSet(ModelViewSet):
         
         # Add to group
         await user.add_to_group(role_to_create)
+
+        create_staff_availability.delay(user.id)
 
         # Prepare response
         serializer.instance = user

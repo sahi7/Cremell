@@ -1313,9 +1313,7 @@ class OrderPermission(BasePermission):
             return True
         
         user = request.user
-        data = request.data
         r_val = await user.get_role_value()
-        entity_permission = EntityUpdatePermission()
         print("view act: ", view.action)
 
         if r_val < 1 or (r_val > 5 and r_val not in [6, 9]):

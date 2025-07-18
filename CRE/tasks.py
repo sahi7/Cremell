@@ -15,13 +15,24 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.mail import send_mail
 
 from notifications.models import Task, RestaurantActivity, BranchActivity
-from .models import StaffShift, Restaurant, Branch, Order
+from .models import StaffShift, Restaurant, Branch, Order, StaffAvailability
 from zMisc.utils import determine_activity_model, render_notification_template
 import logging
 
 logger = logging.getLogger(__name__)
 CustomUser = get_user_model()
 
+@shared_task
+def create_staff_availability(user_id):
+    try:
+        user = CustomUser.objects.get(id=user_id)
+        StaffAvailability.objects.create(
+            user=user,
+            status='offline'
+        )
+    except Exception as e:
+        logger.error(f"Failed to create StaffAvailability for user {user_id}: {str(e)}")
+        
 @shared_task
 def check_overdue_shifts():
     now = timezone.now()
