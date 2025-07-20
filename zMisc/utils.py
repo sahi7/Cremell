@@ -14,7 +14,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone, translation
 from django.template.loader import render_to_string
 from notifications.models import BranchActivity, RestaurantActivity
-from CRE.models import Branch, Restaurant, Company, Country
+from CRE.models import Branch, Restaurant, Company, Country, StaffAvailability
 
 logger = logging.getLogger(__name__)
 CustomUser = get_user_model()

@@ -371,8 +371,8 @@ class RoleAssignmentViewSet(ViewSet):
         except RoleAssignment.DoesNotExist:
             return Response({"error": _("Invalid assignment.")}, status=status.HTTP_404_NOT_FOUND)
 
-from .permissions import IsCookAndBranch    
 from zMisc.utils import validate_order_role
+from .permissions import IsCookAndBranch    
 from .tasks import update_staff_availability, update_order_status
 class TaskClaimView(APIView):
     permission_classes = [IsCookAndBranch]
@@ -380,44 +380,49 @@ class TaskClaimView(APIView):
     async def post(self, request):
         task_id = request.data['task_id']
         user = request.user
-        try:
-            @aatomic()
-            async def claim_task():
-                task = request.task
-                if not task:
-                    return Response({'error': _('Task unavailable or modified')}, status=400)
-                if not await validate_order_role(user, task.task_type):
-                    return Response({'error': _("Invalid role, can't claim task")}, status=403)
-                availability = await StaffAvailability.objects.aget(user=user)
-                if availability.status != 'available':
-                    return Response({'error': _('Has a task in progress -- Staff not available')}, status=400)
-                
-                # Update task
-                task.status = 'claimed'
-                task.claimed_by = user
-                task.claimed_at = timezone.now()
-                task.version += 1
-                await task.asave()
+        
+        # @aatomic()
+        async def claim_task():
+            # try:
+            task = request.task
+            if not task:
+                return Response({'error': _('Task unavailable or modified')}, status=400)
+            if not await validate_order_role(user, task.task_type):
+                return Response({'error': _("Invalid role, can't claim task")}, status=403)
+            availability = await StaffAvailability.objects.aget(user_id=user.id)
+            # print("availability: ", availability.status)
+            if not availability:
+                return Response({'error': 'Staff not available'}, status=400)
+            # await availability.update_status()
+            
+            # Update task
+            task.status = 'claimed'
+            task.claimed_by = user
+            task.claimed_at = timezone.now()
+            task.version += 1
+            await task.asave()
 
-                # Determine order status based on task type
-                new_order_status = 'preparing' if task.task_type == 'prepare' else 'delivered' if task.task_type == 'serve' else task.order.status
-                await update_staff_availability.delay(task.id)
-                await update_order_status.delay(task.order.id, new_order_status, task.order.version)
-                # await publish_event('task.claimed', {
-                #     'task_id': task.id,
-                #     'order_id': task.order.id,
-                #     'branch_id': task.order.branch.id,
-                #     'user_id': user.id
-                # })
-                return Response({'task_id': task.id}, status=200)
-            await claim_task()
-        except Exception as e:
-            logger.error(f"Task claim failed: {str(e)}")
-            return Response({'error': 'Task claim failed'}, status=500)
+            # Determine order status based on task type
+            new_order_status = 'preparing' if task.task_type == 'prepare' else 'delivered' if task.task_type == 'serve' else task.order.status
+            print("new_order_status: ", new_order_status)
+            update_staff_availability.delay(task.id, user.id)
+            update_order_status.delay(task.order.id, new_order_status, task.order.version)
+            # await publish_event('task.claimed', {
+            #     'task_id': task.id,
+            #     'order_id': task.order.id,
+            #     'branch_id': task.order.branch.id,
+            #     'user_id': user.id
+            # })
+            return Response({'task_id': task.id}, status=200)
+            # except Exception as e:
+            #     logger.error(f"Task claim failed: {str(e)}")
+            #     return Response({'error': 'Task claim failed'}, status=500)
+        response = await claim_task()
+        return response
 
 from .tasks import create_serve_task      
 class TaskCompleteView(APIView):
-    permission_classes = [IsAssignedCookAndBranch]
+    permission_classes = [IsCookAndBranch]
 
     async def post(self, request):
         user = request.user

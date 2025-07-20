@@ -290,11 +290,11 @@ def send_to_kds(order_id, details=None):
     
 @shared_task
 def send_to_pos(order_id):
-    order = Order.objects.select_related('branch').get(pk=order_id)
+    order = Order.objects.get(pk=order_id)
     async_to_sync(channel_layer.group_send)(
-            f"kitchen_{order.branch_id}_cook",
+            f"kitchen_{order.branch_id}_food_runner",
             {
                 'type': 'order.notification',
-                'message': f"New Order | {order.order_number}"
+                'message': f"Order Processing | {order.order_number}"
             }
         )

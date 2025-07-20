@@ -1,5 +1,5 @@
 import asyncio
-import redis.asyncio as redis
+from redis import Redis
 from asgiref.sync import async_to_sync
 from celery import shared_task
 from channels.layers import get_channel_layer
@@ -17,7 +17,7 @@ from zMisc.utils import get_user_data, render_notification_template, get_stakeho
 import logging
 logger = logging.getLogger(__name__)
 
-cache = redis.from_url(settings.REDIS_URL)
+cache = Redis.from_url(settings.REDIS_URL)
 
 @shared_task
 def monitor_task_timeouts():
@@ -453,30 +453,50 @@ def create_initial_task(order_id):
     # publish_event('order.created', {'order_id': order_id, 'task_id': task.id})
     # notify_staff(order.branch_id, 'kitchen', f"New task {task.id} for order {order_id}")
 
-
+import json
+from CRE.models import StaffAvailability
+from CRE.tasks import log_activity
 @shared_task
-def update_staff_availability(task_id):
-    task = Task.objects.get(id=task_id)
-    if task.claimed_by and hasattr(task.claimed_by, 'availability'):
-        availability = task.claimed_by.availability
-        if task.status in ('pending', 'claimed'):
-            availability.status = 'busy'
-            availability.current_task = task
-        else:
-            availability.status = 'available'
-            availability.current_task = None
+def update_staff_availability(task_id, user_id):
+    # try:
+    with transaction.atomic():
+        task = Task.objects.select_related('order').get(id=task_id) 
+        availability = StaffAvailability.objects.get(user=task.claimed_by)
+        old_status = availability.status
+        cache_key = f"staff_availability:{task.claimed_by.id}"
+        
+        # Invalidate cache
+        cache.delete(cache_key)
+        
+        # Update availability
+        availability.status = 'busy'
+        availability.current_task = task
         availability.save()
-        BranchActivity.objects.create(
-            branch=task.order.branch,
-            activity_type=f"task_{task.status}",
-            user=task.claimed_by,
-            details={'task_id': task.id, 'order_id': task.order.id}
-        )
+        
+        # Rebuild cache
+        cache_data = {
+            'status': availability.status,
+            'current_task_id': availability.current_task_id,
+            'last_update': availability.last_update.isoformat()
+        }
+        cache.set(cache_key, json.dumps(cache_data), ex=60)
+        
+        # Log activity
+        details={'task_id': task.id, 'order_id': task.order.id, 'claimed_by':task.claimed_by_id}
+        log_activity.delay(user_id , 'task_claim', details, task.order.branch_id, 'branch')
+        
+        # # Update Channels group membership
+        # await update_group_membership(
+        #     task.claimed_by, task.order.branch.id, task.claimed_by.role,
+        #     old_status, 'busy'
+        # )
+    # except Exception as e:
+    #     logger.error(f"Staff availability update failed for task {task_id}: {str(e)}")
 
 from django.db import transaction
-
+from CRE.tasks import send_to_pos
 @shared_task
-async def update_order_status(order_id, new_status, expected_version):
+def update_order_status(order_id, new_status, expected_version):
     try:
         with transaction.atomic():
             order = Order.objects.filter(
@@ -487,6 +507,7 @@ async def update_order_status(order_id, new_status, expected_version):
             order.status = new_status
             order.version += 1
             order.save()
+            send_to_pos.delay(order.id)
             # await publish_event('order.status_updated', {
             #     'order_id': order_id,
             #     'status': new_status
@@ -495,14 +516,14 @@ async def update_order_status(order_id, new_status, expected_version):
         logger.error(f"Order status update failed for order {order_id}: {str(e)}")
 
 @shared_task
-async def create_serve_task(order_id):
+def create_serve_task(order_id):
     try:
-        order = await Order.objects.aget(id=order_id)
-        task = await Task.objects.acreate(
+        order = Order.objects.get(id=order_id)
+        task = Task.objects.create(
             order=order,
             task_type='serve',
             status='pending',
-            timeout_at=timezone.now() + timezone.timedelta(minutes=10),
+            timeout_at=timezone.now() + timezone.timedelta(minutes=5),
             version=1
         )
         # await publish_event('task.created', {
@@ -512,11 +533,11 @@ async def create_serve_task(order_id):
         # })
         # Notify available food runners
         channel_layer = get_channel_layer()
-        await channel_layer.group_send(
-            f"{order.branch.id}_runner_available",
+        channel_layer.group_send(
+            f"{order.branch.id}_food_runner_available",
             {
                 'type': 'task.notification',
-                'message': f"New serve task {task.id} for order {order.id}"
+                'message': f"New serve task     for order {order.order_number}"
             }
         )
     except Exception as e:

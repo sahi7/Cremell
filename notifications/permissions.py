@@ -1,4 +1,7 @@
 from rest_framework.permissions import BasePermission
+from rest_framework.exceptions import PermissionDenied
+from django.utils.translation import gettext_lazy as _
+
 
 from .models import Task
 from zMisc.utils import get_scopes_and_groups
@@ -25,10 +28,10 @@ class IsCookAndBranch(BasePermission):
         try:
             # Fetch task with related order and branch
             task = await Task.objects.select_related('order').filter(
-                id=task_id, status='pending', version=version
+                id=task_id, version=version
             ).afirst()
             if not task:
-                return False
+                raise PermissionDenied(_("Task unavailable or modified."))
             
             # Check if task's branch is in user's branches
             if task.order.branch_id not in _branches:
