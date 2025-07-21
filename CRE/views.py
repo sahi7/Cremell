@@ -540,7 +540,7 @@ class OrderViewSet(ModelViewSet):
     def get_permissions(self):
         role_value = async_to_sync(self.request.user.get_role_value)()
         self._access_policy = (ScopeAccessPolicy if role_value <= 4 else StaffAccessPolicy)()
-        return [ OrderPermission(),]
+        return [self._access_policy, OrderPermission(),]
     
     def get_queryset(self):
         user = self.request.user
@@ -564,11 +564,14 @@ class OrderViewSet(ModelViewSet):
         """
 
         # Initial Validation
-        data = request.data.copy()
-        data['branch'] = int(request.data['branches'][0])
-        serializer = OrderSerializer(data=data)
-        await sync_to_async(serializer.is_valid)(raise_exception=True)
-        validated_data = serializer.validated_data
+        try:
+            data = request.data.copy()
+            data['branch'] = int(request.data['branches'][0])
+            serializer = OrderSerializer(data=data)
+            await sync_to_async(serializer.is_valid)(raise_exception=True)
+            validated_data = serializer.validated_data
+        except KeyError as e:
+            raise ValidationError(f'Error on the field {e}')
 
         # @aatomic()
         async def create_order():

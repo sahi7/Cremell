@@ -657,3 +657,265 @@ class LowRoleQsFilter:
     }
 
 
+from CRE.models import OrderItem, MenuItem, MenuCategory, Menu
+class HighRoleQsFilter:
+
+    @staticmethod
+    async def ca_scopes(user):
+        """Compute scopes for CompanyAdmin."""
+        # Get company IDs (async list comprehension)
+        company_ids = [
+            id async for id in 
+            user.companies.filter(is_active=True).values_list('id', flat=True)
+        ]
+        companies_set = set(company_ids)
+        
+        # Get country IDs (async list comprehension)
+        country_ids = [
+            id async for id in
+            user.countries.values_list('id', flat=True)
+        ]
+        
+        # Get restaurant IDs (async list comprehension)
+        restaurant_ids = [
+            id async for id in
+            Restaurant.objects.filter(
+                company_id__in=companies_set,
+                status='active'
+            ).values_list('id', flat=True)
+        ]
+        
+        # Get branch IDs (async list comprehension)
+        branch_ids = [
+            id async for id in
+            Branch.objects.filter(
+                company_id__in=companies_set,
+                is_active=True
+            ).values_list('id', flat=True)
+        ]
+        
+        return {
+            'companies': companies_set,
+            'countries': set(country_ids),
+            'restaurants': set(restaurant_ids),
+            'branches': set(branch_ids)
+        }
+
+    @staticmethod
+    async def ca_queryset_filter(user, model, scopes):
+        """Filter querysets for CompanyAdmin."""
+        companies = scopes['companies']
+        return {
+            OrderItem: Q(order__branch__company__in=companies),
+            Order: Q(branch__company__in=companies),
+            MenuItem: Q(category__menu__branch__company__in=companies),
+            MenuCategory: Q(menu__branch__company__in=companies),
+            Menu: Q(branch__company__in=companies),
+            OvertimeRequest: Q(staff_shift__branch__company__in=companies),
+            StaffShift: Q(branch__company__in=companies),
+            ShiftPattern: Q(branch__company__in=companies),
+            Shift: Q(branch__restaurant__company__in=companies),
+            Branch: Q(company__in=companies, is_active=True),
+            Restaurant: Q(company__in=companies, status='active'),
+            EmployeeTransfer: Q(from_branch__restaurant__company__in=companies) | Q(from_restaurant__company__in=companies),
+            CustomUser: Q(companies__in=companies)
+        }.get(model, Q(pk__in=[]))
+
+    @staticmethod
+    async def cm_scopes(user):
+        """Compute scopes for CountryManager."""
+        # Get company IDs
+        company_ids = [
+            id async for id in 
+            user.companies.filter(is_active=True).values_list('id', flat=True)
+        ]
+        companies_set = set(company_ids)
+        
+        # Get country IDs
+        country_ids = [
+            id async for id in
+            user.countries.values_list('id', flat=True)
+        ]
+        countries_set = set(country_ids)
+        
+        # Get restaurant IDs
+        restaurant_ids = [
+            id async for id in
+            Restaurant.objects.filter(
+                company_id__in=companies_set,
+                country_id__in=countries_set,
+                status='active'
+            ).values_list('id', flat=True)
+        ]
+        
+        # Get branch IDs
+        branch_ids = [
+            id async for id in
+            Branch.objects.filter(
+                company_id__in=companies_set,
+                country_id__in=countries_set,
+                is_active=True
+            ).values_list('id', flat=True)
+        ]
+        
+        return {
+            'companies': companies_set,
+            'countries': countries_set,
+            'restaurants': set(restaurant_ids),
+            'branches': set(branch_ids)
+        }
+
+    @staticmethod
+    async def cm_queryset_filter(user, model, scopes):
+        """Filter querysets for CountryManager."""
+        companies = scopes['companies']
+        countries = scopes['countries']
+        return {
+            OrderItem: Q(order__branch__company__in=companies) & Q(order__branch__country__in=countries),
+            Order: Q(branch__company__in=companies) & Q(branch__country__in=countries),
+            MenuItem: Q(category__menu__branch__company__in=companies) & Q(category__menu__branch__country__in=countries),
+            MenuCategory: Q(menu__branch__company__in=companies) & Q(menu__branch__country__in=countries),
+            Menu: Q(branch__company__in=companies) & Q(branch__country__in=countries),
+            OvertimeRequest: Q(staff_shift__branch__company__in=companies) & Q(staff_shift__branch__country__in=countries),
+            StaffShift: Q(branch__company__in=companies) & Q(branch__country__in=countries),
+            ShiftPattern: Q(branch__company__in=companies) & Q(branch__country__in=countries),
+            Shift: Q(branch__restaurant__company__in=companies) & Q(branch__restaurant__country__in=countries),
+            Branch: Q(company_id__in=companies, country_id__in=countries, is_active=True),
+            Restaurant: Q(company_id__in=companies, country_id__in=countries, status='active'),
+            EmployeeTransfer: Q(from_branch__restaurant__country__in=countries) | Q(from_restaurant__country__in=countries) | Q(to_branch__restaurant__country__in=countries) | Q(to_restaurant__country__in=countries),
+            CustomUser: Q(countries__in=countries)
+        }.get(model, Q(pk__in=[]))
+
+    @staticmethod
+    async def ro_scopes(user):
+        """Compute scopes for RestaurantOwner."""
+        # _scopes = await get_scopes_and_groups(user.id)
+        # return _scopes
+        restaurant_ids = [
+            id async for id in 
+            user.restaurants.filter(status='active').values_list('id', flat=True)
+        ]
+
+        # Combine restaurant IDs
+        restaurants_set = set(restaurant_ids) 
+        branch_ids = [
+            id async for id in
+            Branch.objects.filter(restaurant_id__in=restaurants_set, is_active=True)
+            .values_list('id', flat=True)
+        ]
+        
+        return {
+            'restaurants': restaurants_set,
+            'branches': set(branch_ids)
+        }
+
+    @staticmethod
+    async def ro_queryset_filter(user, model, scopes):
+        """Filter querysets for RestaurantOwner."""
+        restaurants = scopes['restaurants']
+        return {
+            OrderItem: Q(order__branch__restaurant__in=restaurants),
+            Order: Q(branch__restaurant__in=restaurants),
+            MenuItem: Q(category__menu__branch__restaurant__in=restaurants),
+            MenuCategory: Q(menu__branch__restaurant__in=restaurants),
+            Menu: Q(branch__restaurant__in=restaurants),
+            OvertimeRequest: Q(staff_shift__branch__restaurant__in=restaurants),
+            StaffShift: Q(branch__restaurant__in=restaurants),
+            ShiftPattern: Q(branch__restaurant__in=restaurants),
+            Shift: Q(branch__restaurant__in=restaurants),
+            Branch: Q(restaurant__in=restaurants, is_active=True),
+            Restaurant: Q(id__in=restaurants, status='active'),
+            EmployeeTransfer: Q(from_branch__restaurant__in=restaurants) | Q(initiated_by=user),
+            CustomUser: Q(restaurants__in=restaurants)
+        }.get(model, Q(pk__in=[]))
+
+    @staticmethod
+    async def rm_scopes(user):
+        """Compute scopes for RestaurantManager."""
+        # Get base restaurant IDs (user.restaurants.all())
+        user_restaurant_ids = [
+            id async for id in 
+            user.restaurants.filter(status='active').values_list('id', flat=True)
+        ]
+        
+        # Get managed restaurant IDs
+        managed_restaurant_ids = [
+            id async for id in
+            Restaurant.objects.filter(manager=user, status='active')
+            .values_list('id', flat=True)
+        ]
+        
+        # Combine restaurant IDs
+        restaurants_set = set(user_restaurant_ids) | set(managed_restaurant_ids)
+        
+        # Get branch IDs
+        branch_ids = [
+            id async for id in
+            Branch.objects.filter(
+                restaurant_id__in=restaurants_set,
+                is_active=True
+            ).values_list('id', flat=True)
+        ]
+        
+        return {
+            'restaurants': restaurants_set,
+            'branches': set(branch_ids)
+        }
+
+    @staticmethod
+    async def rm_queryset_filter(user, model, scopes):
+        """Filter querysets for RestaurantManager."""
+        restaurants = scopes['restaurants']
+        return {
+            OrderItem: Q(order__branch__restaurant__in=restaurants),
+            Order: Q(branch__restaurant__in=restaurants),
+            MenuItem: Q(category__menu__branch__restaurant__in=restaurants),
+            MenuCategory: Q(menu__branch__restaurant_id__in=restaurants),
+            Menu: Q(branch__restaurant__in=restaurants),
+            OvertimeRequest: Q(staff_shift__branch__restaurant__in=restaurants),
+            StaffShift: Q(branch__restaurant__in=restaurants),
+            ShiftPattern: Q(branch__restaurant__in=restaurants),
+            Shift: Q(branch__restaurant__in=restaurants),
+            Branch: Q(restaurant__in=restaurants, is_active=True),
+            Restaurant: Q(id__in=restaurants, status='active'),
+            EmployeeTransfer: Q(from_branch__restaurant__in=restaurants) | Q(from_restaurant__in=restaurants)
+        }.get(model, Q(pk__in=[]))
+
+    @staticmethod
+    async def bm_scopes(user):
+        """Compute scopes for BranchManager."""
+        branches = [
+            id async for id in 
+            user.branches.filter(is_active=True).values_list('id', flat=True)
+        ]
+        return {'branches': set(branches)}
+
+    @staticmethod
+    async def bm_queryset_filter(user, model, scopes):
+        """Filter querysets for BranchManager."""
+        branches = scopes['branches']
+        return {
+            OrderItem: Q(order__branch_id__in=branches),
+            Order: Q(branch_id__in=branches),
+            MenuItem: Q(category__menu__branch__in=branches),
+            MenuCategory: Q(menu__branch_id__in=branches),
+            Menu: Q(branch_id__in=branches),
+            OvertimeRequest: Q(staff_shift__branch_id__in=branches),
+            StaffShift: Q(branch_id__in=branches),
+            ShiftPattern: Q(branch_id__in=branches),
+            Shift: Q(branch_id__in=branches),
+            Branch: Q(id__in=branches, is_active=True),
+            Restaurant: Q(branches__in=branches, status='active'),
+            EmployeeTransfer: Q(from_branch__in=branches) | Q(manager=user)
+        }.get(model, Q(pk__in=[]))
+
+    @staticmethod
+    async def default_scopes(user):
+        """Default empty scopes."""
+        return {'companies': set(), 'countries': set(), 'restaurants': set(), 'branches': set()}
+
+    @staticmethod
+    async def default_queryset_filter(user, model, scopes):
+        """Default empty queryset filter."""
+        return Q(pk__in=[])
+    
