@@ -19,7 +19,7 @@ from CRE.tasks import log_activity
 from CRE.models import *
 from notifications.models import RoleAssignment, EmployeeTransfer
 from zMisc.policies import ScopeAccessPolicy
-from zMisc.utils import AttributeChecker, compare_role_values, validate_role, get_scopes_and_groups
+from zMisc.utils import AttributeChecker, LowRoleQsFilter, compare_role_values, validate_role, get_scopes_and_groups
 
 CustomUser = get_user_model()
 
@@ -386,18 +386,29 @@ class StaffAccessPolicy(BasePermission):
         CustomUser: lambda obj, user, branch_ids: obj.branches.filter(id__in=branch_ids).aexists(),
     }
 
-    # Map models to queryset filters
-    QUERYSET_FILTERS = {
-        Order: lambda user, branch_ids: Q(created_by=user, branch_id__in=branch_ids),
-        OvertimeRequest: lambda user, branch_ids: Q(staff_shift__user=user, staff_shift__branch_id__in=branch_ids),
-        StaffShift: lambda user, branch_ids: Q(user=user, branch_id__in=branch_ids),
-        ShiftPattern: lambda user, branch_ids: Q(branch_id__in=branch_ids),
-        Shift: lambda user, branch_ids: Q(branch_id__in=branch_ids),
-        Branch: lambda user, branch_ids: Q(id__in=branch_ids),
-        Restaurant: lambda user, branch_ids: Q(branches__id__in=branch_ids),
-        EmployeeTransfer: lambda user, branch_ids: Q(from_branch_id__in=branch_ids) | Q(manager=user),
-        CustomUser: lambda user, branch_ids: Q(branches__id__in=branch_ids),
-    }
+    @staticmethod
+    async def cook_order_filter(user, branch_ids):
+        """Filter orders for cooks based on claimed prepare tasks."""
+        return Q(task__task_type='prepare', task__claimed_by=user, task__status__in=['claimed', 'completed'])
+
+    @staticmethod
+    async def shift_leader_order_filter(user, branch_ids):
+        """Filter orders for shift leaders in their branches."""
+        return Q(branch_id__in=branch_ids)
+    
+    # # Map models to queryset filters
+    # QUERYSET_FILTERS = {
+    #     Order: lambda user, branch_ids: Q(created_by=user, branch_id__in=branch_ids),
+    #     OvertimeRequest: lambda user, branch_ids: Q(staff_shift__user=user, staff_shift__branch_id__in=branch_ids),
+    #     StaffShift: lambda user, branch_ids: Q(user=user, branch_id__in=branch_ids),
+    #     ShiftPattern: lambda user, branch_ids: Q(branch_id__in=branch_ids),
+    #     Shift: lambda user, branch_ids: Q(branch_id__in=branch_ids),
+    #     Branch: lambda user, branch_ids: Q(id__in=branch_ids),
+    #     Restaurant: lambda user, branch_ids: Q(branches__id__in=branch_ids),
+    #     EmployeeTransfer: lambda user, branch_ids: Q(from_branch_id__in=branch_ids) | Q(manager=user),
+    #     CustomUser: lambda user, branch_ids: Q(branches__id__in=branch_ids),
+    # }
+    
     async def has_permission(self, request, view):
         user = request.user
         if not validate_role(user.role):
@@ -426,12 +437,16 @@ class StaffAccessPolicy(BasePermission):
         return await check(obj, user, branch_ids)
 
     async def get_queryset_scope(self, user, view=None):
+        model = view.queryset.model
         scopes = await get_scopes_and_groups(user.id)
         branch_ids = scopes['branch']
-        model = view.queryset.model
+        role = scopes['role']
+        filters = LowRoleQsFilter.FILTER_TEMPLATES.get(model, {})
+        filter_func = filters.get(role, filters.get('default', LowRoleQsFilter.default_empty_filter))
+        return await filter_func(user, branch_ids)
         
-        filter_func = self.QUERYSET_FILTERS.get(model, lambda u, b: Q(pk__in=[]))
-        return filter_func(user, branch_ids)
+        # filter_func = self.QUERYSET_FILTERS.get(model, lambda u, b: Q(pk__in=[]))
+        # return filter_func(user, branch_ids)
     
 
 class TransferPermission(BasePermission):

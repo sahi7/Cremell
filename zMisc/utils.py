@@ -5,7 +5,7 @@ from typing import Any
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
 from redis.asyncio import Redis
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from typing import List, Dict, Optional
 from django.utils.translation import gettext as _
 from django.db.models import Q
@@ -553,4 +553,107 @@ class AttributeChecker:
         else:
             if await manager.companies.aexists():
                 raise PermissionDenied(_("The manager cannot belong to any company."))
+
+from CRE.models import Order, OvertimeRequest, ShiftPattern, StaffShift, Shift
+from notifications.models import Task, EmployeeTransfer          
+class LowRoleQsFilter:
+    @staticmethod
+    async def cook_order_filter(user, branch_ids):
+        """Filter orders for cooks based on claimed prepare tasks."""
+        task_order_ids = [
+            order_id async for order_id in 
+            Task.objects.filter(
+                claimed_by=user,
+            ).values_list('order_id', flat=True)
+        ]
+        return Q(id__in=task_order_ids, branch_id__in=branch_ids)
+
+    @staticmethod
+    async def shift_leader_order_filter(user, branch_ids):
+        """Filter orders for shift leaders in their branches."""
+        return Q(branch_id__in=branch_ids)
+
+    @staticmethod
+    async def food_runner_order_filter(user, branch_ids):
+        """Filter orders for food runners based on orders they created."""
+        return Q(created_by=user, branch_id__in=branch_ids)
+
+    @staticmethod
+    async def overtime_request_filter(user, branch_ids):
+        """Filter overtime requests for user's shifts in branches."""
+        return Q(staff_shift__user=user, staff_shift__branch_id__in=branch_ids)
+
+    @staticmethod
+    async def staff_shift_filter(user, branch_ids):
+        """Filter staff shifts for user in branches."""
+        return Q(user=user, branch_id__in=branch_ids)
+
+    @staticmethod
+    async def shift_pattern_filter(user, branch_ids):
+        """Filter shift patterns in branches."""
+        return Q(branch_id__in=branch_ids)
+
+    @staticmethod
+    async def shift_filter(user, branch_ids):
+        """Filter shifts in branches."""
+        return Q(branch_id__in=branch_ids)
+
+    @staticmethod
+    async def branch_filter(user, branch_ids):
+        """Filter branches by IDs."""
+        return Q(id__in=branch_ids)
+
+    @staticmethod
+    async def restaurant_filter(user, branch_ids):
+        """Filter restaurants by branch IDs."""
+        return Q(branches__id__in=branch_ids)
+
+    @staticmethod
+    async def employee_transfer_filter(user, branch_ids):
+        """Filter employee transfers by branch or manager."""
+        return Q(from_branch_id__in=branch_ids) | Q(manager=user)
+
+    @staticmethod
+    async def custom_user_filter(user, branch_ids):
+        """Filter users by branch membership."""
+        return Q(branches__id__in=branch_ids)
+
+    @staticmethod
+    async def default_empty_filter(user, branch_ids):
+        """Default empty filter for invalid models or roles."""
+        return Q(pk__in=[])
+
+    FILTER_TEMPLATES = {
+        Order: {
+            'cook': cook_order_filter,
+            'shift_leader': shift_leader_order_filter,
+            'food_runner': food_runner_order_filter,
+            'default': default_empty_filter  # Food runners use same filter as default
+        },
+        OvertimeRequest: {
+            'default': overtime_request_filter
+        },
+        StaffShift: {
+            'default': staff_shift_filter
+        },
+        ShiftPattern: {
+            'default': shift_pattern_filter
+        },
+        Shift: {
+            'default': shift_filter
+        },
+        Branch: {
+            'default': branch_filter
+        },
+        Restaurant: {
+            'default': restaurant_filter
+        },
+        EmployeeTransfer: {
+            'default': employee_transfer_filter
+        },
+        CustomUser: {
+            'default': custom_user_filter
+        }
+    }
+
 
