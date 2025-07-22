@@ -214,12 +214,11 @@ class ScopeAccessPolicy(AccessPolicy):
         user = request.user
         user_scopes = async_to_sync(get_scopes_and_groups)(user.id)
         config = self.get_role_config(user_scopes['groups'])
-        print("config: ", config)
         if not config:
             return False
 
         allowed_scopes = async_to_sync(config["scopes"])(user)
-        print("allowed_scopes: ", allowed_scopes)
+        # print("allowed_scopes: ", allowed_scopes)
         requested = {
             'companies': set(request.data.get("companies", [])),
             'countries': set(request.data.get("countries", [])),

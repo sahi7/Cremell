@@ -663,6 +663,14 @@ class HighRoleQsFilter:
     @staticmethod
     async def ca_scopes(user):
         """Compute scopes for CompanyAdmin."""
+        # Check Redis cache for scopes
+        cache_key = f"scopes:{user.role}:{user.id}"
+        client = Redis.from_url(settings.REDIS_URL)
+        cached_scopes = await client.get(cache_key)
+        if cached_scopes:
+            await client.close()
+            return json.loads(cached_scopes)
+        
         # Get company IDs (async list comprehension)
         company_ids = [
             id async for id in 
@@ -694,12 +702,15 @@ class HighRoleQsFilter:
             ).values_list('id', flat=True)
         ]
         
-        return {
+        scopes = {
             'companies': companies_set,
             'countries': set(country_ids),
             'restaurants': set(restaurant_ids),
             'branches': set(branch_ids)
         }
+        print("real scopes: ", scopes)
+        await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
+        return scopes
 
     @staticmethod
     async def ca_queryset_filter(user, model, scopes):
@@ -724,6 +735,14 @@ class HighRoleQsFilter:
     @staticmethod
     async def cm_scopes(user):
         """Compute scopes for CountryManager."""
+        # Check Redis cache for scopes
+        cache_key = f"scopes:{user.role}:{user.id}"
+        client = Redis.from_url(settings.REDIS_URL)
+        cached_scopes = await client.get(cache_key)
+        if cached_scopes:
+            await client.close()
+            return json.loads(cached_scopes)
+        
         # Get company IDs
         company_ids = [
             id async for id in 
@@ -758,12 +777,14 @@ class HighRoleQsFilter:
             ).values_list('id', flat=True)
         ]
         
-        return {
+        scopes = {
             'companies': companies_set,
             'countries': countries_set,
             'restaurants': set(restaurant_ids),
             'branches': set(branch_ids)
         }
+        await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
+        return scopes
 
     @staticmethod
     async def cm_queryset_filter(user, model, scopes):
@@ -789,8 +810,14 @@ class HighRoleQsFilter:
     @staticmethod
     async def ro_scopes(user):
         """Compute scopes for RestaurantOwner."""
-        # _scopes = await get_scopes_and_groups(user.id)
-        # return _scopes
+        # Check Redis cache for scopes
+        cache_key = f"scopes:{user.role}:{user.id}"
+        client = Redis.from_url(settings.REDIS_URL)
+        cached_scopes = await client.get(cache_key)
+        if cached_scopes:
+            await client.close()
+            return json.loads(cached_scopes)
+        
         restaurant_ids = [
             id async for id in 
             user.restaurants.filter(status='active').values_list('id', flat=True)
@@ -804,10 +831,12 @@ class HighRoleQsFilter:
             .values_list('id', flat=True)
         ]
         
-        return {
+        scopes = {
             'restaurants': restaurants_set,
             'branches': set(branch_ids)
         }
+        await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
+        return scopes
 
     @staticmethod
     async def ro_queryset_filter(user, model, scopes):
@@ -832,6 +861,14 @@ class HighRoleQsFilter:
     @staticmethod
     async def rm_scopes(user):
         """Compute scopes for RestaurantManager."""
+        # Check Redis cache for scopes
+        cache_key = f"scopes:{user.role}:{user.id}"
+        client = Redis.from_url(settings.REDIS_URL)
+        cached_scopes = await client.get(cache_key)
+        if cached_scopes:
+            await client.close()
+            return json.loads(cached_scopes)
+        
         # Get base restaurant IDs (user.restaurants.all())
         user_restaurant_ids = [
             id async for id in 
@@ -857,10 +894,12 @@ class HighRoleQsFilter:
             ).values_list('id', flat=True)
         ]
         
-        return {
+        scopes = {
             'restaurants': restaurants_set,
             'branches': set(branch_ids)
         }
+        await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
+        return scopes
 
     @staticmethod
     async def rm_queryset_filter(user, model, scopes):
@@ -884,11 +923,21 @@ class HighRoleQsFilter:
     @staticmethod
     async def bm_scopes(user):
         """Compute scopes for BranchManager."""
+        # Check Redis cache for scopes
+        cache_key = f"scopes:{user.role}:{user.id}"
+        client = Redis.from_url(settings.REDIS_URL)
+        cached_scopes = await client.get(cache_key)
+        if cached_scopes:
+            await client.close()
+            return json.loads(cached_scopes)
+        
         branches = [
             id async for id in 
             user.branches.filter(is_active=True).values_list('id', flat=True)
         ]
-        return {'branches': set(branches)}
+        scopes = {'branches': set(branches)}
+        await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
+        return scopes
 
     @staticmethod
     async def bm_queryset_filter(user, model, scopes):

@@ -1224,7 +1224,6 @@ class OrderPermission(BasePermission):
         
         user = request.user
         r_val = await user.get_role_value()
-        print("view act: ", view.action)
 
         if r_val < 1 or (r_val > 5 and r_val not in [6, 9]):
             return False
