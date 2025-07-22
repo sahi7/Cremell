@@ -225,12 +225,6 @@ class ScopeAccessPolicy(AccessPolicy):
             'restaurants': set(request.data.get("restaurants", [])),
             'branches': set(request.data.get("branches", [])),
         }
-        SCOPE_MAPPING = {
-            'companies': 'company',
-            'countries': 'country',
-            'restaurants': 'restaurant',
-            'branches': 'branch'
-        }
 
         if request.method.lower() in ['post', 'put', 'patch']:
             # Check required fields from statement
@@ -244,12 +238,10 @@ class ScopeAccessPolicy(AccessPolicy):
             for field, requested_ids in requested.items():
                 if not requested_ids:
                     continue
-                # scope_key = SCOPE_MAPPING.get(field, field)
-                # allowed = allowed_scopes.get(scope_key, set())
                 allowed = allowed_scopes.get(field, set())
                 is_valid = requested_ids.issubset(allowed)
                 
-                print(f"Checking {field}: {requested_ids} ⊆ {allowed} -> {is_valid}")
+                # print(f"Checking {field}: {requested_ids} ⊆ {allowed} -> {is_valid}")
 
                 if not is_valid:
                     return False
