@@ -10,10 +10,10 @@ from CRE.models import CustomUser, StaffAvailability
 from .models import Task, BranchActivity, EmployeeTransfer
 
 
-@receiver(post_save, sender=Task)
-def update_staff_availability(sender, instance, **kwargs):
-    from notifications.tasks import update_staff_availability
-    update_staff_availability.delay(instance.id, instance.claimed_by_id)
+# @receiver(post_save, sender=Task)
+# def update_staff_availability(sender, instance, **kwargs):
+#     from notifications.tasks import update_staff_availability
+#     update_staff_availability.delay(instance.id, instance.claimed_by_id)
 #     if instance.status == 'claimed':
 #         StaffAvailability.objects.filter(user=instance.claimed_by).update(
 #             status='busy',

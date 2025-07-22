@@ -330,7 +330,9 @@ class AssignmentView(APIView):
             'object_id': obj.id,
         }
         from .tasks import log_activity
+        from notifications.tasks import invalidate_cache_keys
         log_activity.delay(self.request.user.id, 'bulk_user_assign', details, obj.id, object_type)
+        invalidate_cache_keys.delay(['user_scopes:{id}'], user_ids)
 
         # Send notifications in bulk
         notification_tasks = [

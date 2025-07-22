@@ -764,9 +764,16 @@ class HighRoleQsFilter:
                 company_id__in=companies_set,
                 country_id__in=countries_set,
                 status='active'
-            ).values_list('id', flat=True)
+            ).only('id')
         ]
-        
+        # restaurant_ids = [
+        #     id async for id in
+        #     Restaurant.objects.filter(
+        #         company_id__in=companies_set,
+        #         country_id__in=countries_set,
+        #         status='active'
+        #     ).values_list('id', flat=True)
+        # ]
         # Get branch IDs
         branch_ids = [
             id async for id in

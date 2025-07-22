@@ -710,7 +710,7 @@ class EntityUpdatePermission(BasePermission):
         if not config:
             return False
 
-        allowed_scopes = await sync_to_async(config["scopes"])(requester)
+        allowed_scopes = await config["scopes"](requester)
         obj_scope_ids = await self._get_object_scope_ids(obj, model)
         print("allowed_scopes: ", allowed_scopes)
         print("obj_scope_ids: ", obj_scope_ids)
@@ -721,12 +721,12 @@ class EntityUpdatePermission(BasePermission):
     async def _get_object_scope_ids(self, obj, model):
         """Extract scope-relevant IDs from the object (reused from EntityUpdateViewSet)."""
         if model == CustomUser:
-            if await obj.branches.aexists():
-                return {branch.id async for branch in obj.branches.all()}
+            if await obj.companies.aexists():
+                return {company.id async for company in obj.companies.all()}
             elif await obj.restaurants.aexists():
                 return {restaurant.id async for restaurant in obj.restaurants.all()}
-            elif await obj.companies.aexists():
-                return {company.id async for company in obj.companies.all()}
+            elif await obj.branches.aexists():
+                return {branch.id async for branch in obj.branches.all()}
         elif model == Branch:
             if obj.id:  # Always true if object exists, but explicit for clarity
                 return {obj.id}

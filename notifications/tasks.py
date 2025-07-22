@@ -458,40 +458,44 @@ from CRE.models import StaffAvailability
 from CRE.tasks import log_activity
 @shared_task
 def update_staff_availability(task_id, user_id):
-    # try:
-    with transaction.atomic():
-        task = Task.objects.select_related('order').get(id=task_id) 
-        availability = StaffAvailability.objects.get(user=task.claimed_by)
-        old_status = availability.status
-        cache_key = f"staff_availability:{task.claimed_by.id}"
-        
-        # Invalidate cache
-        cache.delete(cache_key)
-        
-        # Update availability
-        availability.status = 'busy'
-        availability.current_task = task
-        availability.save()
-        
-        # Rebuild cache
-        cache_data = {
-            'status': availability.status,
-            'current_task_id': availability.current_task_id,
-            'last_update': availability.last_update.isoformat()
-        }
-        cache.set(cache_key, json.dumps(cache_data), ex=60)
-        
-        # Log activity
-        details={'task_id': task.id, 'order_id': task.order.id, 'claimed_by':task.claimed_by_id}
-        log_activity.delay(user_id , 'task_claim', details, task.order.branch_id, 'branch')
-        
-        # # Update Channels group membership
-        # await update_group_membership(
-        #     task.claimed_by, task.order.branch.id, task.claimed_by.role,
-        #     old_status, 'busy'
-        # )
-    # except Exception as e:
-    #     logger.error(f"Staff availability update failed for task {task_id}: {str(e)}")
+    try:
+        with transaction.atomic():
+            task = Task.objects.select_related('order').get(id=task_id) 
+            availability = StaffAvailability.objects.get(user_id=task.claimed_by_id)
+            cache_key = f"staff_availability:{task.claimed_by.id}"
+            
+            # Invalidate cache
+            cache.delete(cache_key)
+            
+            # Update availability
+            task_stat = task.status
+            if task_stat in ['completed', 'escalated']:
+                availability.status = 'available'
+                availability.current_task = None
+            else:
+                availability.status = 'busy'
+                availability.current_task = task
+            availability.save()
+            
+            # Rebuild cache
+            cache_data = {
+                'status': availability.status,
+                'current_task_id': availability.current_task_id,
+                'last_update': availability.last_update.isoformat()
+            }
+            cache.set(cache_key, json.dumps(cache_data), ex=60)
+            
+            # Log activity
+            details={'task_id': task.id, 'order_id': task.order.id, 'claimed_by':task.claimed_by_id}
+            # log_activity.delay(user_id , 'task_claim', details, task.order.branch_id, 'branch')
+            
+            # # Update Channels group membership
+            # await update_group_membership(
+            #     task.claimed_by, task.order.branch.id, task.claimed_by.role,
+            #     old_status, 'busy'
+            # )
+    except Exception as e:
+        logger.error(f"Staff availability update failed for task {task_id}: {str(e)}")
 
 from django.db import transaction
 from CRE.tasks import send_to_pos
@@ -533,8 +537,8 @@ def create_serve_task(order_id):
         # })
         # Notify available food runners
         channel_layer = get_channel_layer()
-        channel_layer.group_send(
-            f"{order.branch.id}_food_runner",
+        async_to_sync(channel_layer.group_send)(
+            f"kitchen_{order.branch.id}_food_runner",
             {
                 'type': 'task.notification',
                 'message': f"New serve task for order {order.order_number}"
@@ -542,3 +546,92 @@ def create_serve_task(order_id):
         )
     except Exception as e:
         logger.error(f"Serve task creation failed for order {order_id}: {str(e)}")
+
+@shared_task
+def create_task(order_id, task_type):
+    """Create a serve or payment task for the given order, avoiding duplicates."""
+    if task_type not in ['serve', 'payment']:
+        logger.error(f"Invalid task_type {task_type} for order {order_id}")
+        return
+
+    # Redis lock to prevent duplicate tasks
+    client = Redis.from_url(settings.REDIS_URL)
+    lock_key = f"task:order:{order_id}:{task_type}"
+    lock = client.lock(lock_key, timeout=30)  # 10s lock timeout
+
+    try:
+        if not lock.acquire(blocking=False):  # Non-blocking lock attempt
+            logger.info(f"Task already exists for order {order_id}, type {task_type}")
+            return
+
+        # Fetch order
+        order = Order.objects.get(id=order_id)
+        
+        # Set timeout based on task_type
+        timeout_duration = timezone.timedelta(hours=1) if task_type == 'payment' else timezone.timedelta(minutes=5)
+        
+        # Create task
+        task = Task.objects.create(
+            order=order,
+            task_type=task_type,
+            status='pending',
+            timeout_at=timezone.now() + timeout_duration,
+            version=1
+        )
+
+        # Determine WebSocket group based on task_type
+        group_name = f"kitchen_{order.branch.id}_{'cashier' if task_type == 'payment' else 'food_runner'}"
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            group_name,
+            {
+                'type': 'order.notification',
+                'message': f"New {task_type} task for order {order.order_number}"
+            }
+        )
+
+        # # Publish task creation event
+        # async_to_sync(publish_event)(
+        #     'task.created',
+        #     {
+        #         'task_id': task.id,
+        #         'order_id': order_id,
+        #         'branch_id': order.branch.id,
+        #         'task_type': task_type
+        #     }
+        # )
+
+    except Order.DoesNotExist:
+        logger.error(f"Order {order_id} not found for task creation")
+    except Exception as e:
+        logger.error(f"Task creation failed for order {order_id}, type {task_type}: {str(e)}")
+    finally:
+        if lock.locked():
+            lock.release()
+        client.close()
+
+@shared_task
+def invalidate_cache_keys(cache_patterns, object_ids):
+    """
+    Bulk invalidate Redis cache keys using patterns and IDs
+    Args:
+        cache_patterns: List of cache key patterns (e.g. ['user_scopes:{id}', 'user_perms:{id}'])
+        object_ids: List of IDs to invalidate
+    Usage examples:
+    # invalidate_cache_keys.delay(['user_scopes:{id}'], [96, 97, 98])
+    # invalidate_cache_keys.delay(['user_{id}_profile', 'org_{id}_settings'], [101, 102])
+    """
+    if not cache_patterns or not object_ids:
+        return
+    
+    # redis = Redis.from_url(settings.REDIS_URL)
+    
+    with cache.pipeline() as pipe:
+        for obj_id in object_ids:
+            for pattern in cache_patterns:
+                key = pattern.format(id=obj_id)
+                pipe.delete(key)
+        try:
+            pipe.execute()
+        except cache.RedisError as e:
+            logger.error(f"Cache invalidation failed: {str(e)}")

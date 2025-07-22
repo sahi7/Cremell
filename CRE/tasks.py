@@ -257,7 +257,6 @@ def send_to_kds(order_id, details=None):
 
             if task and task.claimed_by:
                 # Send to specific cook
-                channel_layer = get_channel_layer()
                 async_to_sync(channel_layer.group_send)(
                     f"user_{task.claimed_by.id}",
                     {
@@ -272,7 +271,6 @@ def send_to_kds(order_id, details=None):
                 logger.warning(f"No claimed prepare task found for order {order_id}")
         else:
             # Fallback to kitchen group
-            channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
                 f"kitchen_{order.branch.id}_cook",
                 {
@@ -295,6 +293,6 @@ def send_to_pos(order_id):
             f"kitchen_{order.branch_id}_food_runner",
             {
                 'type': 'order.notification',
-                'message': f"Order Processing | {order.order_number}"
+                'message': f"Order {order.status} | {order.order_number}"
             }
         )

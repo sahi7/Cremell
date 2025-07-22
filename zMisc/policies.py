@@ -204,16 +204,17 @@ class ScopeAccessPolicy(AccessPolicy):
         }
     }
 
-    def get_role_config(self, user_groups):
+    def get_role_config(self, user):
         """Get config for the user's role."""
+        user_scopes = async_to_sync(get_scopes_and_groups)(user.id)
+        user_groups = user_scopes['groups']
         group = next((g for g in user_groups if g in self.SCOPE_CONFIG), None)
         return self.SCOPE_CONFIG.get(group, {}) if group else {}
 
     def is_within_scope(self, request, view, action):
         """Unified scope check for all roles."""
         user = request.user
-        user_scopes = async_to_sync(get_scopes_and_groups)(user.id)
-        config = self.get_role_config(user_scopes['groups'])
+        config = self.get_role_config(user)
         if not config:
             return False
 
@@ -250,9 +251,7 @@ class ScopeAccessPolicy(AccessPolicy):
 
     async def get_queryset_scope(self, user, view=None):
         """Returns Q filter for queryset scoping."""
-        user_scopes = await get_scopes_and_groups(user.id)
-        print("user_scopes: ", user_scopes)
-        config = await sync_to_async(self.get_role_config)(user_scopes['groups'])
+        config = await sync_to_async(self.get_role_config)(user)
         model = view.queryset.model
         scopes = await config.get("scopes", HighRoleQsFilter.default_scopes)(user)
         print("scopes: ", scopes)

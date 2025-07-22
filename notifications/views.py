@@ -406,7 +406,8 @@ class TaskClaimView(APIView):
             new_order_status = 'preparing' if task.task_type == 'prepare' else 'delivered' if task.task_type == 'serve' else task.order.status
             print("new_order_status: ", new_order_status)
             update_staff_availability.delay(task.id, user.id)
-            update_order_status.delay(task.order.id, new_order_status, task.order.version)
+            if new_order_status != 'delivered':
+                update_order_status.delay(task.order.id, new_order_status, task.order.version)
             # await publish_event('task.claimed', {
             #     'task_id': task.id,
             #     'order_id': task.order.id,
@@ -420,7 +421,7 @@ class TaskClaimView(APIView):
         response = await claim_task()
         return response
 
-from .tasks import create_serve_task      
+from .tasks import create_task      
 class TaskCompleteView(APIView):
     permission_classes = [IsCookAndBranch]
 
@@ -429,10 +430,11 @@ class TaskCompleteView(APIView):
         try:
             async def complete_task():
                 task = request.task
+                print("task: ", task)
                 if not task:
                     return Response({'error': 'Task unavailable or modified'}, status=400)
                 if not await validate_order_role(user, task.task_type):
-                    return Response({'error': _("Invalid role, can't claim task")}, status=403)
+                    return Response({'error': _("Invalid role, can't complete task")}, status=403)
                 # Update task to completed
                 task.status = 'completed'
                 task.completed_at = timezone.now()
@@ -442,11 +444,17 @@ class TaskCompleteView(APIView):
                 
                 # Update order status and create serve task if prepare task
                 if task.task_type == 'prepare':
-                    await update_order_status.delay(task.order.id, 'ready', task.order.version)
-                    await create_serve_task.delay(task.order.id)
+                    update_order_status.delay(task.order.id, 'ready', task.order.version)
+                    create_task.delay(task.order.id, 'serve')
+                if task.task_type == 'serve':
+                    update_order_status.delay(task.order.id, 'delivered', task.order.version)
+                    create_task.delay(task.order.id, 'payment')
+                if task.task_type == 'payment':
+                    update_order_status.delay(task.order.id, 'completed', task.order.version)
+
                 
                 # Update staff availability and log activity
-                await update_staff_availability.delay(task.id)
+                update_staff_availability.delay(task.id, user.id)
                 # await publish_event('task.completed', {
                 #     'task_id': task.id,
                 #     'order_id': task.order.id,
