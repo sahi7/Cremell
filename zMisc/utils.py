@@ -563,6 +563,7 @@ class LowRoleQsFilter:
         task_order_ids = [
             order_id async for order_id in 
             Task.objects.filter(
+                status__in=['completed', 'claimed'],
                 claimed_by=user,
             ).values_list('order_id', flat=True)
         ]
@@ -710,6 +711,7 @@ class HighRoleQsFilter:
         }
         print("real scopes: ", scopes)
         await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
+        await client.close()
         return scopes
 
     @staticmethod
@@ -764,16 +766,9 @@ class HighRoleQsFilter:
                 company_id__in=companies_set,
                 country_id__in=countries_set,
                 status='active'
-            ).only('id')
+            ).values_list('id', flat=True)
         ]
-        # restaurant_ids = [
-        #     id async for id in
-        #     Restaurant.objects.filter(
-        #         company_id__in=companies_set,
-        #         country_id__in=countries_set,
-        #         status='active'
-        #     ).values_list('id', flat=True)
-        # ]
+        
         # Get branch IDs
         branch_ids = [
             id async for id in
@@ -791,6 +786,7 @@ class HighRoleQsFilter:
             'branches': set(branch_ids)
         }
         await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
+        await client.close()
         return scopes
 
     @staticmethod
@@ -843,6 +839,7 @@ class HighRoleQsFilter:
             'branches': set(branch_ids)
         }
         await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
+        await client.close()
         return scopes
 
     @staticmethod
@@ -906,6 +903,7 @@ class HighRoleQsFilter:
             'branches': set(branch_ids)
         }
         await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
+        await client.close()
         return scopes
 
     @staticmethod
@@ -944,6 +942,7 @@ class HighRoleQsFilter:
         ]
         scopes = {'branches': set(branches)}
         await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
+        await client.close()
         return scopes
 
     @staticmethod

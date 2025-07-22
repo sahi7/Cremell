@@ -684,7 +684,7 @@ class EntityUpdatePermission(BasePermission):
         # Handle bulk user assignment
         if action == "assign_users" and user_ids:
             # Fetch users in bulk and validate existence
-            users = [user.id async for user in CustomUser.objects.filter(id__in=user_ids).only('id')]
+            users = [user.id async for user in CustomUser.objects.filter(id__in=user_ids).values_list('id', flat=True)]
             user_ids_found = set(users)
             if len(user_ids_found) != len(user_ids):
                 missing_ids = set(user_ids) - user_ids_found

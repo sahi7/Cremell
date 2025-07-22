@@ -487,7 +487,7 @@ def update_staff_availability(task_id, user_id):
             
             # Log activity
             details={'task_id': task.id, 'order_id': task.order.id, 'claimed_by':task.claimed_by_id}
-            # log_activity.delay(user_id , 'task_claim', details, task.order.branch_id, 'branch')
+            log_activity.delay(user_id , 'task_claim', details, task.order.branch_id, 'branch')
             
             # # Update Channels group membership
             # await update_group_membership(
@@ -518,34 +518,6 @@ def update_order_status(order_id, new_status, expected_version):
             # })
     except Exception as e:
         logger.error(f"Order status update failed for order {order_id}: {str(e)}")
-
-@shared_task
-def create_serve_task(order_id):
-    try:
-        order = Order.objects.get(id=order_id)
-        task = Task.objects.create(
-            order=order,
-            task_type='serve',
-            status='pending',
-            timeout_at=timezone.now() + timezone.timedelta(minutes=5),
-            version=1
-        )
-        # await publish_event('task.created', {
-        #     'task_id': task.id,
-        #     'order_id': order_id,
-        #     'branch_id': order.branch.id
-        # })
-        # Notify available food runners
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"kitchen_{order.branch.id}_food_runner",
-            {
-                'type': 'task.notification',
-                'message': f"New serve task for order {order.order_number}"
-            }
-        )
-    except Exception as e:
-        logger.error(f"Serve task creation failed for order {order_id}: {str(e)}")
 
 @shared_task
 def create_task(order_id, task_type):

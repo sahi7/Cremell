@@ -288,11 +288,31 @@ def send_to_kds(order_id, details=None):
     
 @shared_task
 def send_to_pos(order_id):
-    order = Order.objects.get(pk=order_id)
-    async_to_sync(channel_layer.group_send)(
-            f"kitchen_{order.branch_id}_food_runner",
-            {
-                'type': 'order.notification',
-                'message': f"Order {order.status} | {order.order_number}"
-            }
-        )
+    try:
+        order = Order.objects.get(pk=order_id)     
+        if order.status == 'completed':
+            groups = [
+                f"kitchen_{order.branch.id}_food_runner",
+                f"kitchen_{order.branch.id}_cashier",
+                f"kitchen_{order.branch.id}_shift_leader"
+            ]
+            for group_name in groups:
+                async_to_sync(channel_layer.group_send)(
+                    group_name,
+                    {
+                        'type': 'order.notification',
+                        'message': f"Order {order.status} | {order.order_number}"
+                    }
+                )
+        else:
+            async_to_sync(channel_layer.group_send)(
+                f"kitchen_{order.branch_id}_food_runner",
+                {
+                    'type': 'order.notification',
+                    'message': f"Order {order.status} | {order.order_number}"
+                }
+            )
+    except Order.DoesNotExist:
+        logger.error(f"Order {order_id} not found for POS notification")
+    except Exception as e:
+        logger.error(f"POS notification failed for order {order_id}: {str(e)}")

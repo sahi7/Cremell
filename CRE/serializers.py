@@ -416,7 +416,7 @@ class OrderSerializer(ModelSerializer):
     
     class Meta:
         model = Order
-        fields = ['id', 'branch', 'order_type', 'source', 'table_number', 'special_instructions', 'version', 'total_price', 'items']
+        fields = ['id', 'status', 'branch', 'order_type', 'source', 'table_number', 'special_instructions', 'version', 'total_price', 'items']
         read_only_fields = ('created_by', 'deleted_by', 'is_active', 'total_price')
 
     def validate(self, data):

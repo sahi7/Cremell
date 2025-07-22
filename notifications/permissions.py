@@ -18,7 +18,7 @@ class IsCookAndBranch(BasePermission):
             return False
         
         # Check if user is authenticated and has 'cook' role
-        if r_val < 1 or (r_val > 6 and r_val not in [8, 9]):
+        if r_val < 1 or (r_val > 6 and r_val not in [7, 8, 9]):
             return False
 
         # Check if task's branch is in user's branches

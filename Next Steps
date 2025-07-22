@@ -59,6 +59,7 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
 - Complete order process
   Cache order items for branch daily (update cache on edit)
   CK getqueryset:: see order.status=received and claimed_by=user
+  1. Ensure a task cannot be claimed when already claimed
 - Print receipts
 - Improve get_stakeholders when r_val has been corrected
 - views_helper does not change user.status when they are assigned
