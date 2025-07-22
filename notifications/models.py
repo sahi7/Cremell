@@ -2,6 +2,7 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
+from rest_framework.exceptions import ValidationError
 
 CustomUser = get_user_model()
 
@@ -27,6 +28,23 @@ class Task(models.Model):
     claimed_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    STATUS_TRANSITIONS = {
+        'pending': {'claimed'},
+        'claimed': {'completed', 'escalated'},
+        'completed': set(),
+        'escalated': set()
+    }
+    async def clean(self):
+        if not self._state.adding:  # Only validate on updates
+            original = await Task.objects.aget(pk=self.pk)
+            allowed_transitions = self.STATUS_TRANSITIONS.get(original.status, set())
+            if self.status != original.status and self.status not in allowed_transitions:
+                raise ValidationError(
+                    f"Cannot change status from {original.status} to {self.status}. "
+                    f"Allowed transitions: {', '.join(allowed_transitions) or 'none'}"
+                )
+        await super().clean()
 
     async def asave(self, *args, **kwargs):
         # Auto-calculate timings
@@ -35,7 +53,7 @@ class Task(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=['status', 'task_type']),
-            models.Index(fields=['timeout_at']),
+            models.Index(fields=['claimed_by', 'order_id']),
         ]
 
     def __str__(self):

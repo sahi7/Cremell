@@ -431,7 +431,8 @@ class TaskCompleteView(APIView):
                 task = request.task
                 if not task:
                     return Response({'error': 'Task unavailable or modified'}, status=400)
-                
+                if not await validate_order_role(user, task.task_type):
+                    return Response({'error': _("Invalid role, can't claim task")}, status=403)
                 # Update task to completed
                 task.status = 'completed'
                 task.completed_at = timezone.now()
@@ -453,7 +454,8 @@ class TaskCompleteView(APIView):
                 #     'user_id': user.id
                 # })
                 return Response({'task_id': task.id}, status=200)
-            await complete_task()
+            response = await complete_task()
+            return response
         except Exception as e:
             logger.error(f"Task completion failed: {str(e)}")
             return Response({'error': 'Task completion failed'}, status=500)

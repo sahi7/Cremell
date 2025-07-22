@@ -534,10 +534,10 @@ def create_serve_task(order_id):
         # Notify available food runners
         channel_layer = get_channel_layer()
         channel_layer.group_send(
-            f"{order.branch.id}_food_runner_available",
+            f"{order.branch.id}_food_runner",
             {
                 'type': 'task.notification',
-                'message': f"New serve task     for order {order.order_number}"
+                'message': f"New serve task for order {order.order_number}"
             }
         )
     except Exception as e:
