@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from adrf.serializers import Serializer, ModelSerializer
 from django.utils.translation import gettext as _
 from .models import Rule, RuleTarget, Period, Override, Record, Component
 from CRE.models import Company, Restaurant, Branch, CustomUser
@@ -32,7 +33,7 @@ class RuleTargetSerializer(serializers.ModelSerializer):
             )
         return data
 
-class RuleSerializer(serializers.ModelSerializer):
+class RuleSerializer(ModelSerializer):
     """
     Serializes Rule model for creating and updating payroll rules.
     Supports scoping to company, restaurant, branch, or user.
@@ -46,11 +47,11 @@ class RuleSerializer(serializers.ModelSerializer):
             'company', 'restaurant', 'branch', 'priority', 'effective_from',
             'is_active', 'created_by', 'targets'
         ]
+        read_only_fields = ('created_by', 'is_active', )
         extra_kwargs = {
             'company': {'required': False},
             'restaurant': {'required': False},
-            'branch': {'required': False},
-            'created_by': {'read_only': True}
+            'branch': {'required': False}
         }
 
     def validate(self, data):
@@ -59,9 +60,9 @@ class RuleSerializer(serializers.ModelSerializer):
         Ensures amount or percentage is provided based on rule_type.
         """
         scope = data.get('scope')
-        company = data.get('companies')[0]
-        restaurant = data.get('restaurants')[0]
-        branch = data.get('branches')[0]
+        company = data.get('company')
+        restaurant = data.get('restaurant')
+        branch = data.get('branch')
 
         if scope == 'company' and not company:
             raise serializers.ValidationError(_("Company is required for company-scoped rules"))
@@ -77,16 +78,21 @@ class RuleSerializer(serializers.ModelSerializer):
 
         return data
 
-    async def acreate(self, validated_data):
-        """
-        Creates a rule with associated targets in a transaction.
-        Sets created_by to the requesting user.
-        """
-        targets_data = validated_data.pop('targets', [])
-        rule = await Rule.objects.acreate(created_by=self.context['request'].user, **validated_data)
-        for target_data in targets_data:
-            await RuleTarget.objects.acreate(rule=rule, **target_data)
-        return rule
+    # async def acreate(self, validated_data):
+    #     """
+    #     Creates a rule with associated targets in a transaction.
+    #     Sets created_by to the requesting user.
+    #     """
+    #     targets_data = validated_data.pop('targets', [])
+    #     rule = await Rule.objects.acreate(created_by=self.context['request'].user, **validated_data)
+    #     if targets_data:
+    #             targets = [
+    #                 RuleTarget(rule=rule, **target_data)
+    #                 for target_data in targets_data
+    #             ]
+    #             await RuleTarget.objects.abulk_create(targets)
+            
+    #     return rule
 
     async def aupdate(self, validated_data):
         """
@@ -100,7 +106,7 @@ class RuleSerializer(serializers.ModelSerializer):
                 await RuleTarget.objects.acreate(rule=rule, **target_data)
         return rule
 
-class PeriodSerializer(serializers.ModelSerializer):
+class PeriodSerializer(ModelSerializer):
     """
     Serializes Period model for payroll period grouping.
     """
@@ -118,7 +124,7 @@ class PeriodSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(_("Year must be 2000 or later"))
         return data
 
-class OverrideSerializer(serializers.ModelSerializer):
+class OverrideSerializer(ModelSerializer):
     """
     Serializes Override model for special-case adjustments.
     Supports add, override, and remove actions with audit notes.
@@ -162,7 +168,7 @@ class OverrideSerializer(serializers.ModelSerializer):
         override = await Override.objects.acreate(created_by=self.context['request'].user, **validated_data)
         return override
 
-class ComponentSerializer(serializers.ModelSerializer):
+class ComponentSerializer(ModelSerializer):
     """
     Serializes Component model for individual rule contributions in a payslip.
     """
@@ -172,7 +178,7 @@ class ComponentSerializer(serializers.ModelSerializer):
         model = Component
         fields = ['rule_name', 'amount']
 
-class RecordSerializer(serializers.ModelSerializer):
+class RecordSerializer(ModelSerializer):
     """
     Serializes Record model for payslip data.
     Includes components for detailed breakdown.

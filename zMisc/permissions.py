@@ -17,6 +17,7 @@ from django.db.models import ForeignKey
 from CRE.tasks import log_activity
 # from CRE.models import Branch, Restaurant, Country, Company, Shift, StaffShift, ShiftPattern
 from CRE.models import *
+from payroll.models import Rule
 from notifications.models import RoleAssignment, EmployeeTransfer
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.utils import AttributeChecker, LowRoleQsFilter, compare_role_values, validate_role, get_scopes_and_groups
@@ -631,6 +632,7 @@ class EntityUpdatePermission(BasePermission):
         'user': CustomUser,
         'branch': Branch,
         'restaurant': Restaurant,
+        'rule': Rule,
     }
 
     ROLE_FIELD_MAP = {
@@ -706,7 +708,7 @@ class EntityUpdatePermission(BasePermission):
     async def _is_object_in_scope(self, request, obj, model):
         """Check if object aligns with requester's scope."""
         requester = request.user
-        config = await sync_to_async(ScopeAccessPolicy().get_role_config)(requester)
+        config = await ScopeAccessPolicy().get_role_config(requester)
         if not config:
             return False
 
@@ -755,6 +757,13 @@ class EntityUpdatePermission(BasePermission):
                 return {obj.menu.branch.restaurant_id}
             elif obj.menu.branch.company_id:
                 return {obj.menu.branch.company_id}
+        elif model == Rule:
+            if obj.branch_id:
+                return {obj.id}
+            elif obj.restaurant_id:
+                return {obj.restaurant_id}
+            elif obj.company_id:
+                return {obj.company_id}
         return set()
 
 class     RoleAssignmentPermission(BasePermission):

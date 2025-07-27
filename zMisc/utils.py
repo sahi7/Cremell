@@ -159,8 +159,12 @@ async def compare_role_values(user, role_to_create):
         bool: True if the role to create has a lower or equal value than the user's role, False otherwise.
     """
     user_role_value = await user.get_role_value()
+    # print("user_role_value: ", user_role_value)
     role_to_create_value = await user.get_role_value(role_to_create)
-    return role_to_create_value <= user_role_value
+    # print("calc: ", role_to_create_value, " <= ", user_role_value)
+    result = role_to_create_value <= user_role_value
+    # print("result: ", result)
+    return result
 
 
 async def get_scopes_and_groups(user, get_instance=False):

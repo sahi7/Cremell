@@ -522,8 +522,8 @@ class Branch(models.Model):
         if batch:
             yield batch
         
-        def __str__(self):
-            return f"{self.name} - Restau#{self.restaurant_id}"
+    def __str__(self):
+        return f"{self.name} - Restau#{self.restaurant_id}"
         
     # models.Index(fields=['manager']), 
 

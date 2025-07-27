@@ -1,6 +1,5 @@
 from rest_framework import serializers
-from adrf.serializers import Serializer
-from adrf.serializers import ModelSerializer
+from adrf.serializers import Serializer, ModelSerializer
 from allauth.account.adapter import get_adapter
 from allauth.account.utils import setup_user_email
 from asgiref.sync import sync_to_async 
@@ -621,7 +620,7 @@ class StaffAvailabilitySerializer(ModelSerializer):
 
 
 class AssignmentSerializer(Serializer):
-    object_type = serializers.ChoiceField(choices=['user', 'branch', 'restaurant'])
+    object_type = serializers.ChoiceField(choices=['user', 'branch', 'restaurant', 'rule'])
     object_id = serializers.IntegerField()
     field_name = serializers.CharField()
     user_id = serializers.IntegerField(required=False)

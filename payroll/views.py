@@ -8,10 +8,14 @@ from asgiref.sync import sync_to_async
 from aiokafka import AIOKafkaProducer
 from django.conf import settings
 from django.utils.translation import gettext as _
-from .models import Rule, Override, Record, Period
+from .models import Rule, RuleTarget, Override, Record, Period
 from .serializers import RuleSerializer, OverrideSerializer, RecordSerializer, PeriodSerializer
 from .permissions import RulePermission
 from zMisc.policies import ScopeAccessPolicy
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Kafka configuration
 KAFKA_RULES_TOPIC = 'payroll.rules.updated'
@@ -24,9 +28,48 @@ class RuleCreateView(APIView):
     """
     permission_classes = (ScopeAccessPolicy, RulePermission, )
     async def post(self, request):
-        serializer = RuleSerializer(data=request.data, context={'request': request})
-        if await sync_to_async(serializer.is_valid)():
-            rule = await serializer.asave()  # Asynchronous save using serializer
+        data = request.data.copy()
+        data['company'] = request.data.get('companies', [None])[0]
+        data['restaurant'] = request.data.get('restaurants', [None])[0]
+        data['branch'] = request.data.get('branches', [None])[0]
+        serializer = RuleSerializer(data=data, context={'request': request})
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        validated_data = serializer.validated_data
+        targets_data = validated_data.pop('targets', [])
+        async def create_rule():
+            # try:
+            # rule = await serializer.save()
+            # Create main rule
+            rule = await Rule.objects.acreate(
+                created_by=request.user,
+                **validated_data
+            )
+
+            # Bulk create targets if they exist
+            # if targets_data:
+            #     targets = [
+            #         RuleTarget(rule=rule, **target_data)
+            #         for target_data in targets_data
+            #     ]
+            #     await RuleTarget.objects.abulk_create(targets)
+            # Process targets and categorize them for the Kafka event
+            target_roles = []
+            target_users = []
+            
+            if targets_data:
+                targets_to_create = []
+                for target_data in targets_data:
+                    # Prepare for bulk create
+                    targets_to_create.append(RuleTarget(rule=rule, **target_data))
+                    
+                    # Categorize for Kafka event
+                    if target_data.get('target_type') == 'role':
+                        target_roles.append(target_data['target_value'])
+                    elif target_data.get('target_type') == 'user':
+                        target_users.append(target_data['target_value'])
+                
+                await RuleTarget.objects.abulk_create(targets_to_create)
+
             # Publish Kafka event for rule update
             producer = AIOKafkaProducer(bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS)
             await producer.start()
@@ -37,12 +80,14 @@ class RuleCreateView(APIView):
                     'company_id': rule.company_id,
                     'restaurant_id': rule.restaurant_id,
                     'branch_id': rule.branch_id,
-                    'target_roles': [
-                        target.target_value for target in rule.targets.filter(target_type='role')
-                    ],
-                    'target_users': [
-                        target.target_value for target in rule.targets.filter(target_type='user')
-                    ],
+                    # 'target_roles': [
+                    #     target.target_value async for target in rule.targets.filter(target_type='role')
+                    # ],
+                    # 'target_users': [
+                    #     target.target_value async for target in rule.targets.filter(target_type='user')
+                    # ],
+                    'target_roles': target_roles,
+                    'target_users': target_users,
                     'periods': [p.id async for p in Period.objects.filter(
                         year__gte=rule.effective_from.year,
                         month__gte=rule.effective_from.month
@@ -55,8 +100,15 @@ class RuleCreateView(APIView):
                 )
             finally:
                 await producer.stop()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            serialized_data = await sync_to_async(lambda: serializer.data)()
+            return Response(serialized_data, status=status.HTTP_201_CREATED)
+            # except Exception as e:
+            #     logger.error(f"Rule creation failed: {str(e)}")
+            #     return Response({"detail": "Failed to create rule"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        response = await create_rule()
+        return response
+
+        # return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class OverrideCreateView(APIView):
     """
