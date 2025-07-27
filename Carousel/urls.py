@@ -69,4 +69,5 @@ urlpatterns = [
     api_path('assignments/', AssignmentView.as_view(), name='assignment-update'),
     path('api/', include(router.urls)),
     path('api/', include('notifications.urls')),
+    path('api/', include('payroll.urls')),
 ]

@@ -126,7 +126,7 @@ class CustomUser(AbstractUser):
         # Use provided role or instance's role
         # print("DB HIT?", getattr(self, "_prefetched_objects_cache", False))
         target_role = role if role is not None else getattr(self, 'role', None) 
-        cache_key = f"role_id:user_{self.id}:{target_role}"
+        cache_key = f"role_id:{target_role}:{self.id}"
         cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
         cached = await cache.get(cache_key)
         if cached is not None:

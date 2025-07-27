@@ -176,7 +176,7 @@ class UserCreationPermission(BasePermission):
         user_role = user.role
         user_role_value = await user.get_role_value()
         role_value_to_create = await user.get_role_value(role_to_create)
-        scopes = await get_scopes_and_groups(user.id)
+        scopes = await get_scopes_and_groups(user)
 
         # Basic role validation
         if not user_role or user_role not in self.SCOPE_RULES or user_role_value > 5 or user_role_value >= role_value_to_create:
@@ -310,7 +310,7 @@ class StaffAccessPolicy(BasePermission):
             return False
 
         # Check if user has a role but no SCOPE_CONFIG groups
-        scopes = await get_scopes_and_groups(user.id)
+        scopes = await get_scopes_and_groups(user)
 
         # Check required branches in request body
         requested_branches = set(request.data.get("branches", []))
@@ -322,7 +322,7 @@ class StaffAccessPolicy(BasePermission):
 
     async def has_object_permission(self, request, view, obj):
         user = request.user
-        scopes = await get_scopes_and_groups(user.id)
+        scopes = await get_scopes_and_groups(user)
         branch_ids = scopes['branch']
         
         # Use dictionary dispatch to avoid if/elif
@@ -333,7 +333,7 @@ class StaffAccessPolicy(BasePermission):
 
     async def get_queryset_scope(self, user, view=None):
         model = view.queryset.model
-        scopes = await get_scopes_and_groups(user.id)
+        scopes = await get_scopes_and_groups(user)
         branch_ids = scopes['branch']
         role = scopes['role']
         filters = LowRoleQsFilter.FILTER_TEMPLATES.get(model, {})
@@ -485,7 +485,7 @@ class RestaurantPermission(BasePermission):
         manager_id = request.data.get('manager')
         company_id = request.data.get('company')
         country_id = request.data.get('country')
-        scopes_and_groups = await get_scopes_and_groups(user.id)
+        scopes_and_groups = await get_scopes_and_groups(user)
         
         # Attach to request for reuse in view
         request.user_scope = scopes_and_groups
@@ -521,7 +521,7 @@ class BranchPermission(BasePermission):
         manager_id = request.data.get('manager')
         company_id = request.data.get('company')
         country_id = request.data.get('country')
-        scopes_and_groups = await get_scopes_and_groups(request.user.id)
+        scopes_and_groups = await get_scopes_and_groups(request.user)
 
         # Attach to request for reuse in view
         request.user_scope = scopes_and_groups
@@ -597,7 +597,7 @@ class ObjectStatusPermission(BasePermission):
                 raise PermissionDenied(_("Object does not exist"))
             allowed_fields = {'status', 'manager'}
             modified_fields = set(request.data.keys())
-            user_groups = await get_scopes_and_groups(request.user.id)
+            user_groups = await get_scopes_and_groups(request.user)
 
             if not modified_fields.issubset(allowed_fields):
                 raise PermissionDenied(_("Modification status unknown: status | manager"))
@@ -933,7 +933,7 @@ class ShiftPermission(BasePermission):
         
         end_time = request.data.get('end_time')
         start_time = request.data.get('start_time')
-        scopes_and_groups = await get_scopes_and_groups(user.id)
+        scopes_and_groups = await get_scopes_and_groups(user)
         user_groups = scopes_and_groups['groups']
         action = view.action
         has_permission = False
@@ -1152,7 +1152,7 @@ class OvertimeRequestPermission(BasePermission):
         user = request.user
         policy = StaffAccessPolicy()
 
-        scopes = await get_scopes_and_groups(user.id)
+        scopes = await get_scopes_and_groups(user)
         branch_ids = scopes.get('branch', set())
         check = policy.OBJECT_CHECKS.get(obj.__class__)
         print("check: ", check)
@@ -1236,7 +1236,7 @@ class OrderPermission(BasePermission):
         user = request.user
         policy = StaffAccessPolicy()
 
-        scopes = await get_scopes_and_groups(user.id)
+        scopes = await get_scopes_and_groups(user)
         branch_ids = scopes.get('branch', set())
         check = policy.OBJECT_CHECKS.get(obj.__class__)
         print("check: ", check)

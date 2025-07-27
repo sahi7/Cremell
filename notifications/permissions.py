@@ -22,7 +22,7 @@ class IsCookAndBranch(BasePermission):
             return False
 
         # Check if task's branch is in user's branches
-        scopes = await get_scopes_and_groups(user.id)
+        scopes = await get_scopes_and_groups(user)
         _branches = scopes['branch']
 
         try:

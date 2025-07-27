@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'subscriptions.apps.SubscriptionsConfig',
     'payments.apps.PaymentsConfig',
     'archive.apps.ArchiveConfig',
+    'payroll.apps.PayrollConfig',
 
     # django-allauth
     'allauth',
@@ -174,6 +175,10 @@ CHANNEL_LAYERS = {
     },
 }
 
+# Kafka Configuration 
+KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'
+
+
 # Celery configuration
 REDIS_URL = os.getenv('REDIS_URL')  
 CELERY_BROKER_URL = REDIS_URL   # Redis as broker
@@ -222,8 +227,6 @@ LANGUAGES = [
     ('fr', _('French')),
     # Add more languages as needed
 ]
-
-LANGUAGE_CODE = 'en'
 
 LOCALE_PATHS = [
     os.path.join(BASE_DIR, 'locale'),
@@ -318,9 +321,3 @@ LOGGING = {
         'level': 'INFO',
     },
 }
-
-LANGUAGES = [
-    ('en', _('English')),
-    ('fr', _('French')),
-    # Add more as needed
-]

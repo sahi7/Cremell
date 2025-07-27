@@ -20,8 +20,7 @@ from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 
 from channels.layers import get_channel_layer
-from asgiref.sync import async_to_sync
-from asgiref.sync import sync_to_async 
+from asgiref.sync import async_to_sync, sync_to_async 
 from adrf.views import APIView
 from adrf.viewsets import ModelViewSet
 
@@ -137,7 +136,7 @@ class UserViewSet(ModelViewSet):
         }
         
         # Fetch user groups asynchronously with a single query
-        _scopes = await get_scopes_and_groups(user.id)
+        _scopes = await get_scopes_and_groups(user)
         user_groups = _scopes['groups']
         
         # Check restrictions

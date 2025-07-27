@@ -54,15 +54,36 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   3. When creating pattern check that the shift is of the branch & users[] is of branch
   4. Create action and modify handle_emergency overide
   5. Create StaffAvailability On First Shift Assignment
+  6. ❌Enable shift swapping by employees -- No manager approval
+  7. ❌Add a `shift_leader` field to shift Model, they get notified when users swap shifts 
+  8. ❌Add currency field on branch
+  9. ❌Add 2 fields on Menu Model; front and in-branch
+  10. Add 'Department' field to customuser; we will send celery to _kitchen, _kiosk
 - Overtime management
   1. Bulk overtime confirmation for multiple users
 - Complete order process
   Cache order items for branch daily (update cache on edit)
   CK getqueryset:: see order.status=received and claimed_by=user
   1. Ensure a task cannot be claimed when already claimed
+  2. Add logic to cancel an order
+  3. Add a `priority` field to Order Model (add priority details in order notes)
 - Print receipts
+  1. Save Printer configuration per branch 
 - Improve get_stakeholders when r_val has been corrected
 - views_helper does not change user.status when they are assigned
+
+- Next
+  A. Third-Party Integration: Connect with delivery platforms
+  B. Profitability Dashboards: Show per-dish profit margins, linked to recipes
+  C. Historical Comparison: Compare performance across periods/locations
+  D. Custom Reports: Allow managers to build reports for specific metrics
+  E. Data Security: Encrypt reports with single sign-on (SSO) for access control
+  F. Generate reports in Celery tasks
+  G. Delivery Analytics: Track third-party delivery performance
+  H. Labor Cost Reports: Break down labor costs by shift/employee
+  I. Export Options: Export reports as CSV/PDF for offline analysis
+  J. Alert System: Notify managers of anomalies (e.g., sales drops) via Channels
+  K. Real-Time Sales Analytics: Track sales by hour/branch, cached in Redis
 
 
 # REDUCE DB REQUESTS WITH CACHING #

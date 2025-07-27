@@ -45,7 +45,7 @@ class TokenAuthMiddleware:
                 user = await get_user_from_token(token, TokenAuthentication)
 
         scope['user'] = user
-        _scopes = await get_scopes_and_groups(user.id)
+        _scopes = await get_scopes_and_groups(user)
         scope['branches'] = _scopes.get('branch', [])
         scope['role'] = _scopes.get('role', [])
         return await self.inner(scope, receive, send)

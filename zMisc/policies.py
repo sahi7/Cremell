@@ -1,56 +1,57 @@
 from rest_access_policy import AccessPolicy
+from rest_framework.permissions import BasePermission
 from django.db.models import Q
-from asgiref.sync import sync_to_async, async_to_sync
+from asgiref.sync import sync_to_async
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from CRE.models import *
-from zMisc.utils import HighRoleQsFilter, get_scopes_and_groups
-from notifications.models import EmployeeTransfer
+from zMisc.utils import HighRoleQsFilter
 
 CustomUser = get_user_model()
-class ScopeAccessPolicy(AccessPolicy):
+# class ScopeAccessPolicy(AccessPolicy):
+class ScopeAccessPolicy(BasePermission):
     """
     Swift access policy to validate user scope based on group role.
     Ensures actions stay within role-specific boundaries.
     """
-    statements = [
-        {
-            "principal": ["group:CompanyAdmin"],
-            "action": ["*", "review"],
-            "effect": "allow",
-            "condition": "is_within_scope",
-            "requires": ["companies"],
-        },
-        {
-            "principal": ["group:CountryManager"],
-            "action": ["*"],
-            "effect": "allow",
-            "condition": "is_within_scope",
-            "requires": ["countries", "companies"],
-        },
-        {
-            "principal": ["group:RestaurantOwner"],
-            "action": ["*", "review"],
-            "effect": "allow",
-            "condition": "is_within_scope",
-            "requires": ["restaurants"],
-        },
-        {
-            "principal": ["group:RestaurantManager"],
-            "action": ["*", "review"],
-            "effect": "allow",
-            "condition": "is_within_scope",
-            "requires": ["restaurants"],
-        },
-        {
-            "principal": ["group:BranchManager"],
-            "action": ["*"],
-            "effect": "allow",
-            "condition": "is_within_scope",
-            "requires": ["branches"],
-        },
+    # statements = [
+    #     {
+    #         "principal": ["group:CompanyAdmin"],
+    #         "action": ["*", "review"],
+    #         "effect": "allow",
+    #         "condition": "is_within_scope",
+    #         "requires": ["companies"],
+    #     },
+    #     {
+    #         "principal": ["group:CountryManager"],
+    #         "action": ["*"],
+    #         "effect": "allow",
+    #         "condition": "is_within_scope",
+    #         "requires": ["countries", "companies"],
+    #     },
+    #     {
+    #         "principal": ["group:RestaurantOwner"],
+    #         "action": ["*", "review"],
+    #         "effect": "allow",
+    #         "condition": "is_within_scope",
+    #         "requires": ["restaurants"],
+    #     },
+    #     {
+    #         "principal": ["group:RestaurantManager"],
+    #         "action": ["*", "review"],
+    #         "effect": "allow",
+    #         "condition": "is_within_scope",
+    #         "requires": ["restaurants"],
+    #     },
+    #     {
+    #         "principal": ["group:BranchManager"],
+    #         "action": ["*"],
+    #         "effect": "allow",
+    #         "condition": "is_within_scope",
+    #         "requires": ["branches"],
+    #     },
 
-    ]
+    # ]
 
     # SCOPE_CONFIG = {
     #     # TOD0: Filter status=active or is_active=true for companies, restaurants and branches checks 
@@ -184,41 +185,78 @@ class ScopeAccessPolicy(AccessPolicy):
     SCOPE_CONFIG = {
         "CompanyAdmin": {
             "scopes": HighRoleQsFilter.ca_scopes,
-            "queryset_filter": HighRoleQsFilter.ca_queryset_filter
+            "queryset_filter": HighRoleQsFilter.ca_queryset_filter,
+            "actions": ["*", "review"],
+            "requires": ["companies"]
         },
         "CountryManager": {
             "scopes": HighRoleQsFilter.cm_scopes,
-            "queryset_filter": HighRoleQsFilter.cm_queryset_filter
+            "queryset_filter": HighRoleQsFilter.cm_queryset_filter,
+            "actions": ["*"],
+            "requires": ["countries", "companies"]
         },
         "RestaurantOwner": {
             "scopes": HighRoleQsFilter.ro_scopes,
-            "queryset_filter": HighRoleQsFilter.ro_queryset_filter
+            "queryset_filter": HighRoleQsFilter.ro_queryset_filter,
+            "actions": ["*", "review"],
+            "requires": ["restaurants"]
         },
         "RestaurantManager": {
             "scopes": HighRoleQsFilter.rm_scopes,
-            "queryset_filter": HighRoleQsFilter.rm_queryset_filter
+            "queryset_filter": HighRoleQsFilter.rm_queryset_filter,
+            "actions": ["*", "review"],
+            "requires": ["restaurants"]
         },
         "BranchManager": {
             "scopes": HighRoleQsFilter.bm_scopes,
-            "queryset_filter": HighRoleQsFilter.bm_queryset_filter
+            "queryset_filter": HighRoleQsFilter.bm_queryset_filter,
+            "actions": ["*"],
+            "requires": ["branches"]
         }
     }
 
-    def get_role_config(self, user):
-        """Get config for the user's role."""
-        user_scopes = async_to_sync(get_scopes_and_groups)(user.id)
-        user_groups = user_scopes['groups']
-        group = next((g for g in user_groups if g in self.SCOPE_CONFIG), None)
-        return self.SCOPE_CONFIG.get(group, {}) if group else {}
-
-    def is_within_scope(self, request, view, action):
-        """Unified scope check for all roles."""
+    async def has_permission(self, request, view):
+        """
+        Check if the user has permission for the requested action and scope.
+        """
         user = request.user
-        config = self.get_role_config(user)
+        config = await self.get_role_config(user)
         if not config:
             return False
+        
+        # Check if action is allowed for this role
+        if not hasattr(view, 'action'):
+            action = request.method.lower()
+        else:
+            action = view.action
+        allowed_actions = config.get("actions", [])
+        if action and "*" not in allowed_actions and action not in allowed_actions:
+            return False
+        
+        allowed_scopes = await config["scopes"](user)
+        request.allowed_scopes = allowed_scopes
+        request.requires = config.get('requires')
+        
+        # Perform scope validation
+        return await self.is_within_scope(request)
 
-        allowed_scopes = async_to_sync(config["scopes"])(user)
+    async def get_role_config(self, user):
+        """Get config for the user's role."""
+        group = await user.groups.filter(name__in=self.SCOPE_CONFIG).afirst()
+        group = group.name if group else None
+        config = self.SCOPE_CONFIG.get(group, {})
+        return config if group else {}
+
+    async def is_within_scope(self, request):
+        """Unified scope check for all roles."""
+        # user = request.user
+        # config = self.get_role_config(user, view)
+        # if not config:
+        #     return False
+
+        # allowed_scopes = async_to_sync(config["scopes"])(user)
+        # print("allowed_scopes: ", allowed_scopes)
+        allowed_scopes = request.allowed_scopes
         # print("allowed_scopes: ", allowed_scopes)
         requested = {
             'companies': set(request.data.get("companies", [])),
@@ -229,7 +267,9 @@ class ScopeAccessPolicy(AccessPolicy):
 
         if request.method.lower() in ['post', 'put', 'patch']:
             # Check required fields from statement
-            requires = next((s.get("requires", []) for s in self.statements if "group:" + user.groups.first().name in s["principal"]), [])
+            # requires = next((s.get("requires", []) for s in self.statements if "group:" + user.groups.first().name in s["principal"]), [])
+            requires = request.requires
+            # print("requires: ", requires)
 
             for field in requires:
                 if not requested.get(field, set()):
@@ -251,14 +291,12 @@ class ScopeAccessPolicy(AccessPolicy):
 
     async def get_queryset_scope(self, user, view=None):
         """Returns Q filter for queryset scoping."""
-        config = await sync_to_async(self.get_role_config)(user)
+        config = await self.get_role_config(user)
         model = view.queryset.model
         scopes = await config.get("scopes", HighRoleQsFilter.default_scopes)(user)
         print("scopes: ", scopes)
         filter_func = config.get("queryset_filter", HighRoleQsFilter.default_queryset_filter)
         return await filter_func(user, model, scopes)
-        # filter_func = config.get("queryset_filter", lambda u, m: Q(pk__in=[]))
-        # return filter_func(user, model)
 
 
 class RestaurantAccessPolicy(AccessPolicy):

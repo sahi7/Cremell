@@ -316,3 +316,12 @@ def send_to_pos(order_id):
         logger.error(f"Order {order_id} not found for POS notification")
     except Exception as e:
         logger.error(f"POS notification failed for order {order_id}: {str(e)}")
+
+from services.printer import ReceiptPrinter
+@shared_task
+def print_receipt_task(order_id):
+    printer = ReceiptPrinter(connection_type='usb', vendor_id=0x04b8, product_id=0x0202)
+    try:
+        asyncio.run(printer.print_receipt(order_id))
+    finally:
+        asyncio.run(printer.close())

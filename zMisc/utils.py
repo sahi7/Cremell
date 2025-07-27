@@ -163,15 +163,21 @@ async def compare_role_values(user, role_to_create):
     return role_to_create_value <= user_role_value
 
 
-async def get_scopes_and_groups(user_id, get_instance=False):
+async def get_scopes_and_groups(user, get_instance=False):
     # Prefetch companies, countries, and groups in one query
+    if isinstance(user, (int, str)):
+        user_id = user
+    else:
+        user_id = user.id
     cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
-    cache_key = f"user_scopes:{user_id}"
+    role_cache_key, user_cache_key = f"scopes:{user.role}:{user_id}", f"user_scopes:{user_id}"
     if not get_instance:
-        cached = await cache.get(cache_key)
-        if cached:
+        cached_data = await cache.mget(role_cache_key, user_cache_key)
+        if cached_data[0]:  # Role cache hit
             # return {k: set(v) for k,v in json.loads(cached).items()}
-            return json.loads(cached)
+            return json.loads(cached_data[0])
+        if cached_data[1]:  # User cache hit
+            return json.loads(cached_data[1])
 
     user = await CustomUser.objects.prefetch_related('companies', 'countries', 'branches', 'restaurants', 'groups').aget(id=user_id)
     if get_instance:
@@ -194,7 +200,7 @@ async def get_scopes_and_groups(user_id, get_instance=False):
 
     # Cache filtered data
     print("filtered_result: ", filtered_result)
-    await cache.set(cache_key, json.dumps(filtered_result), ex=3600)
+    await cache.set(user_cache_key, json.dumps(filtered_result), ex=3600)
     return filtered_result
 
 # async def get_scopes_and_groups(user_id, get_instance=False, prefetch: list[str] | str = 'all'):
@@ -702,12 +708,15 @@ class HighRoleQsFilter:
                 is_active=True
             ).values_list('id', flat=True)
         ]
+
+        groups = [g.name for g in user.groups.all()]
         
         scopes = {
             'companies': companies_set,
             'countries': set(country_ids),
             'restaurants': set(restaurant_ids),
-            'branches': set(branch_ids)
+            'branches': set(branch_ids),
+            'groups': set(groups)
         }
         print("real scopes: ", scopes)
         await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
@@ -778,12 +787,15 @@ class HighRoleQsFilter:
                 is_active=True
             ).values_list('id', flat=True)
         ]
+
+        groups = [g.name async for g in user.groups.all()]
         
         scopes = {
             'companies': companies_set,
             'countries': countries_set,
             'restaurants': set(restaurant_ids),
-            'branches': set(branch_ids)
+            'branches': set(branch_ids),
+            'groups': set(groups)
         }
         await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
         await client.close()
@@ -833,11 +845,15 @@ class HighRoleQsFilter:
             Branch.objects.filter(restaurant_id__in=restaurants_set, is_active=True)
             .values_list('id', flat=True)
         ]
+
+        groups = [g.name async for g in user.groups.all()]
         
         scopes = {
             'restaurants': restaurants_set,
-            'branches': set(branch_ids)
+            'branches': set(branch_ids),
+            'groups': set(groups)
         }
+        print("rm scopes: ", scopes)
         await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
         await client.close()
         return scopes
@@ -897,10 +913,13 @@ class HighRoleQsFilter:
                 is_active=True
             ).values_list('id', flat=True)
         ]
+
+        groups = [g.name async for g in user.groups.all()]
         
         scopes = {
             'restaurants': restaurants_set,
-            'branches': set(branch_ids)
+            'branches': set(branch_ids),
+            'groups': set(groups)
         }
         await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
         await client.close()
