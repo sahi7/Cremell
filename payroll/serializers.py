@@ -4,7 +4,7 @@ from django.utils.translation import gettext as _
 from .models import Rule, RuleTarget, Period, Override, Record, Component
 from CRE.models import Company, Restaurant, Branch, CustomUser
 
-class RuleTargetSerializer(serializers.ModelSerializer):
+class RuleTargetSerializer(ModelSerializer):
     """
     Serializes RuleTarget model for mapping rules to roles or users.
     Validates target_type and target_value for role/user assignments.
@@ -59,6 +59,7 @@ class RuleSerializer(ModelSerializer):
         Validates scope and related fields (company, restaurant, branch).
         Ensures amount or percentage is provided based on rule_type.
         """
+        print("data: ", data)
         scope = data.get('scope')
         company = data.get('company')
         restaurant = data.get('restaurant')
@@ -78,33 +79,17 @@ class RuleSerializer(ModelSerializer):
 
         return data
 
-    # async def acreate(self, validated_data):
+    # async def aupdate(self, validated_data):
     #     """
-    #     Creates a rule with associated targets in a transaction.
-    #     Sets created_by to the requesting user.
+    #     Updates a rule and its targets, preserving existing fields if not provided.
     #     """
-    #     targets_data = validated_data.pop('targets', [])
-    #     rule = await Rule.objects.acreate(created_by=self.context['request'].user, **validated_data)
-    #     if targets_data:
-    #             targets = [
-    #                 RuleTarget(rule=rule, **target_data)
-    #                 for target_data in targets_data
-    #             ]
-    #             await RuleTarget.objects.abulk_create(targets)
-            
+    #     targets_data = validated_data.pop('targets', None)
+    #     rule = super().aupdate(validated_data)
+    #     if targets_data is not None:
+    #         await rule.targets.all().adelete()
+    #         for target_data in targets_data:
+    #             await RuleTarget.objects.acreate(rule=rule, **target_data)
     #     return rule
-
-    async def aupdate(self, validated_data):
-        """
-        Updates a rule and its targets, preserving existing fields if not provided.
-        """
-        targets_data = validated_data.pop('targets', None)
-        rule = super().aupdate(validated_data)
-        if targets_data is not None:
-            await rule.targets.all().adelete()
-            for target_data in targets_data:
-                await RuleTarget.objects.acreate(rule=rule, **target_data)
-        return rule
 
 class PeriodSerializer(ModelSerializer):
     """
@@ -133,8 +118,7 @@ class OverrideSerializer(ModelSerializer):
         model = Override
         fields = [
             'id', 'rule', 'period', 'user', 'override_type', 'amount',
-            'percentage', 'notes', 'effective_from', 'expires_at', 'branch',
-            'created_by'
+            'percentage', 'notes', 'effective_from', 'expires_at', 'branch'
         ]
         extra_kwargs = {
             'amount': {'required': False},

@@ -33,4 +33,6 @@ class RulePermission(BasePermission):
         if targets:
             for target in targets:
                 return await self.check_target_permission(request, target)
+        view_name = view.__class__.__name__
+        print("action: ", view_name)
         return True

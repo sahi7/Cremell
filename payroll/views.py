@@ -2,6 +2,7 @@ import json
 import asyncio
 
 from adrf.views import APIView
+from adrf.viewsets import ModelViewSet
 from rest_framework.response import Response
 from rest_framework import status
 from asgiref.sync import sync_to_async
@@ -12,6 +13,7 @@ from .models import Rule, RuleTarget, Override, Record, Period
 from .serializers import RuleSerializer, OverrideSerializer, RecordSerializer, PeriodSerializer
 from .permissions import RulePermission
 from zMisc.policies import ScopeAccessPolicy
+from zMisc.atransactions import aatomic
 
 import logging
 
@@ -22,20 +24,25 @@ KAFKA_RULES_TOPIC = 'payroll.rules.updated'
 KAFKA_OVERRIDES_TOPIC = 'payroll.overrides.updated'
 KAFKA_PAYROLL_TOPIC = 'payroll.generate'
 
-class RuleCreateView(APIView):
+class RuleViewSet(ModelViewSet):
     """
     Handles POST /rules to create or update payroll rules asynchronously.
     """
+    queryset = Rule.objects.filter(is_active=True)
+    serializer_class = RuleSerializer
     permission_classes = (ScopeAccessPolicy, RulePermission, )
-    async def post(self, request):
+    
+    async def create(self, request):
         data = request.data.copy()
         data['company'] = request.data.get('companies', [None])[0]
         data['restaurant'] = request.data.get('restaurants', [None])[0]
         data['branch'] = request.data.get('branches', [None])[0]
-        serializer = RuleSerializer(data=data, context={'request': request})
+        serializer = self.serializer_class(data=data, context={'request': request})
         await sync_to_async(serializer.is_valid)(raise_exception=True)
         validated_data = serializer.validated_data
         targets_data = validated_data.pop('targets', [])
+        
+        # @aatomic()
         async def create_rule():
             # try:
             # rule = await serializer.save()
@@ -114,11 +121,13 @@ class OverrideCreateView(APIView):
     """
     Handles POST /overrides to create special-case overrides asynchronously.
     """
-    permission_classes = (ScopeAccessPolicy,)
+    permission_classes = (ScopeAccessPolicy, RulePermission, )
     async def post(self, request):
-        serializer = OverrideSerializer(data=request.data, context={'request': request})
+        data = request.data.copy()
+        data['branch'] = request.data.get('branches', [None])[0]
+        serializer = OverrideSerializer(data=data, context={'request': request})
         if await sync_to_async(serializer.is_valid)():
-            override = await serializer.asave()
+            override = await serializer.save()
             # Publish Kafka event for override update
             producer = AIOKafkaProducer(bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS)
             await producer.start()

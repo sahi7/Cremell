@@ -14,7 +14,8 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone, translation
 from django.template.loader import render_to_string
 from notifications.models import BranchActivity, RestaurantActivity
-from CRE.models import Branch, Restaurant, Company, Country, StaffAvailability
+from CRE.models import Branch, Restaurant, Company, Country
+from payroll.models import Rule
 
 logger = logging.getLogger(__name__)
 CustomUser = get_user_model()
@@ -713,7 +714,7 @@ class HighRoleQsFilter:
             ).values_list('id', flat=True)
         ]
 
-        groups = [g.name for g in user.groups.all()]
+        groups = [g.name async for g in user.groups.all()]
         
         scopes = {
             'companies': companies_set,
@@ -722,7 +723,6 @@ class HighRoleQsFilter:
             'branches': set(branch_ids),
             'groups': set(groups)
         }
-        print("real scopes: ", scopes)
         await client.set(cache_key, json.dumps(scopes, default=list), ex=3600)  # Cache for 1 hour
         await client.close()
         return scopes
@@ -732,6 +732,7 @@ class HighRoleQsFilter:
         """Filter querysets for CompanyAdmin."""
         companies = scopes['companies']
         return {
+            Rule: Q(company_id__in=companies, is_active=True),
             OrderItem: Q(order__branch__company__in=companies),
             Order: Q(branch__company__in=companies),
             MenuItem: Q(category__menu__branch__company__in=companies),
@@ -811,6 +812,7 @@ class HighRoleQsFilter:
         companies = scopes['companies']
         countries = scopes['countries']
         return {
+            Rule: Q(company_id__in=companies, is_active=True) & (Q(branch__country__in=countries, is_active=True) & Q(restaurant__country__in=countries, is_active=True)),
             OrderItem: Q(order__branch__company__in=companies) & Q(order__branch__country__in=countries),
             Order: Q(branch__company__in=companies) & Q(branch__country__in=countries),
             MenuItem: Q(category__menu__branch__company__in=companies) & Q(category__menu__branch__country__in=countries),
@@ -867,6 +869,7 @@ class HighRoleQsFilter:
         """Filter querysets for RestaurantOwner."""
         restaurants = scopes['restaurants']
         return {
+            Rule: Q(restaurant__in=restaurants, is_active=True),
             OrderItem: Q(order__branch__restaurant__in=restaurants),
             Order: Q(branch__restaurant__in=restaurants),
             MenuItem: Q(category__menu__branch__restaurant__in=restaurants),
@@ -934,6 +937,7 @@ class HighRoleQsFilter:
         """Filter querysets for RestaurantManager."""
         restaurants = scopes['restaurants']
         return {
+            Rule: Q(restaurant__in=restaurants, is_active=True),
             OrderItem: Q(order__branch__restaurant__in=restaurants),
             Order: Q(branch__restaurant__in=restaurants),
             MenuItem: Q(category__menu__branch__restaurant__in=restaurants),
@@ -973,6 +977,7 @@ class HighRoleQsFilter:
         """Filter querysets for BranchManager."""
         branches = scopes['branches']
         return {
+            Rule: Q(branch_id__in=branches, is_active=True),
             OrderItem: Q(order__branch_id__in=branches),
             Order: Q(branch_id__in=branches),
             MenuItem: Q(category__menu__branch__in=branches),

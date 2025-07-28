@@ -7,6 +7,40 @@ from CRE.models import Company, Restaurant, Branch
 
 CustomUser = get_user_model()
 
+class PeriodManager(models.Manager):
+    """
+    Custom manager for Period model to handle creation and retrieval of periods.
+    Provides methods to get or create periods and populate periods within a time frame.
+    """
+    def populate_periods(self, end_date):
+        """
+        Populates the Period table with entries for each month/year from the current server date to the given end date.
+
+        Args:
+            end_date: A datetime.date object for the end of the time frame.
+
+        Returns:
+            list: List of created or existing Period instances.
+        """
+        periods = []
+        current_date = timezone.now().date().replace(day=1)  # Start from the first day of the current month
+        while current_date <= end_date:
+            period, created = self.get_or_create(
+                month=current_date.month,
+                year=current_date.year,
+                defaults={'month': current_date.month, 'year': current_date.year}
+            )
+            if created:
+                # Optionally log creation for audit purposes
+                pass
+            periods.append(period)
+            # Move to the first day of the next month
+            if current_date.month == 12:
+                current_date = current_date.replace(year=current_date.year + 1, month=1, day=1)
+            else:
+                current_date = current_date.replace(month=current_date.month + 1, day=1)
+        return periods
+
 # Choices for rule types and scopes
 RULE_TYPES = (
     ('bonus', _('Bonus')),        # Positive adjustment to payroll (e.g., transport bonus)
@@ -28,7 +62,8 @@ class Rule(models.Model):
     """
     name = models.CharField(max_length=150, help_text=_("Descriptive name of the rule (e.g., 'Transport Bonus')"))
     rule_type = models.CharField(max_length=20, choices=RULE_TYPES, help_text=_("Type of rule: bonus or deduction"))
-    amount = models.DecimalField(max_digits=12, decimal_places=2, help_text=_("Fixed amount for the rule"))
+    amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text=_("Fixed amount for the rule"))
     percentage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True,
         help_text=_("Percentage-based amount, if applicable (e.g., 5.00 for 5%)"))
     scope = models.CharField(max_length=20, choices=SCOPE_LEVELS, default='restaurant',
@@ -124,6 +159,8 @@ class Period(models.Model):
 
     def __str__(self):
         return _("{month}/{year}").format(month=self.month, year=self.year)
+    
+    objects = PeriodManager() 
     
 
 class Override(models.Model):

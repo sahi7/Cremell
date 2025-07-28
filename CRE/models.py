@@ -599,9 +599,9 @@ class Order(models.Model):
     ]
 
     SOURCE_CHOICES = [
-        ('web', _("Website")),
-        ('app', _("Mobile App")),
-        ('pos', _("POS Terminal")),
+        ('web', _("Website")), # Orders placed through the restaurant’s website, typically via a browser
+        ('app', _("Mobile App")), # Orders placed through the restaurant’s mobile app (iOS or Android)
+        ('pos', _("POS Terminal")), # Orders placed through a POS terminal, typically by staff inside the restaurant
         ('kiosk', _("In-Store Kiosk")),
     ]
 
@@ -610,11 +610,12 @@ class Order(models.Model):
     status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='received', verbose_name=_("Status"))
     order_number = models.CharField(max_length=50, unique=True)
     order_type = models.CharField(max_length=20, choices=ORDER_TYPE_CHOICES, default='dine_in', verbose_name=_("Order Type"))
-    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='web', verbose_name=_("Source"))
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='pos', verbose_name=_("Source"))
     table_number = models.CharField(max_length=10, blank=True, null=True)  # For dine-in
     delivery_driver = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
         related_name='deliveries'
     )
+    priority = models.IntegerField(default=0, help_text=_("Set priority in cook time"))
     branch = models.ForeignKey('Branch', on_delete=models.CASCADE, related_name='orders', verbose_name=_("Branch"))
     total_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name=_("Total Price"))
     special_instructions = models.TextField(blank=True)
@@ -661,6 +662,7 @@ class Shift(models.Model):
     name = models.CharField(max_length=50)  # e.g., "Morning Shift"
     start_time = models.TimeField()  # e.g., 08:00
     end_time = models.TimeField()    # e.g., 16:00
+    shift_leader = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='lead_shifts')
 
     def __str__(self):
         return f"{self.name} at {self.branch}"

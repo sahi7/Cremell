@@ -1,9 +1,16 @@
-from django.urls import path
-from .views import RuleCreateView, OverrideCreateView, GeneratePayrollView, PayslipView
+from .views import *
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from adrf.routers import SimpleRouter
+
+router = DefaultRouter()
+arouter = SimpleRouter()
+
+router.register(r'rules', RuleViewSet, basename='rule')
 
 urlpatterns = [
-    path('rules/', RuleCreateView.as_view(), name='rule-create'),
-    path('overrides/', OverrideCreateView.as_view(), name='override-create'),
-    path('generate-payroll/', GeneratePayrollView.as_view(), name='generate-payroll'),
-    path('payslip/', PayslipView.as_view(), name='payslip'),
+    path('payroll/', include(router.urls)),
+    path('payroll/overrides/', OverrideCreateView.as_view(), name='override-create'),
+    path('payroll/generate-payroll/', GeneratePayrollView.as_view(), name='generate-payroll'),
+    path('payroll/payslip/', PayslipView.as_view(), name='payslip'),
 ]
