@@ -127,7 +127,7 @@ class OverrideCreateView(APIView):
         data['branch'] = request.data.get('branches', [None])[0]
         serializer = OverrideSerializer(data=data, context={'request': request})
         if await sync_to_async(serializer.is_valid)():
-            override = await serializer.save()
+            override = await serializer.asave()
             # Publish Kafka event for override update
             producer = AIOKafkaProducer(bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS)
             await producer.start()

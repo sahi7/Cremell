@@ -109,11 +109,18 @@ class PeriodSerializer(ModelSerializer):
             raise serializers.ValidationError(_("Year must be 2000 or later"))
         return data
 
+from django.utils import timezone
 class OverrideSerializer(ModelSerializer):
     """
     Serializes Override model for special-case adjustments.
     Supports add, override, and remove actions with audit notes.
     """
+    effective_from = serializers.DateField(
+        default=timezone.now().date,
+        input_formats=['%Y-%m-%d'],
+        help_text=_("Date from which the override is effective (YYYY-MM-DD)")
+    )
+
     class Meta:
         model = Override
         fields = [
