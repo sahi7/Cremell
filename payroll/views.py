@@ -166,17 +166,31 @@ class GeneratePayrollView(APIView):
         try:
             month, year = map(int, period_str.split('/'))
             period = await Period.objects.aget(month=month, year=year)
-        except (ValueError, Period.DoesNotExist):
-            return Response({"error": _("Invalid or non-existent period")}, status=status.HTTP_400_BAD_REQUEST)
 
-        producer = AIOKafkaProducer(bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS)
-        await producer.start()
-        try:
             event = {
                 'period_id': period.id,
                 'month': period.month,
                 'year': period.year
             }
+
+            requested = {
+                'company': set(request.data.get("companies", [])),
+                'country': set(request.data.get("countries", [])),
+                'restaurant': set(request.data.get("restaurants", [])),
+                'branch': set(request.data.get("branches", [])),
+            }
+            for field, requested_ids in requested.items():
+                if not requested_ids:
+                    continue
+                event[field] = requested_ids[0]
+        except (ValueError, Period.DoesNotExist):
+            return Response({"error": _("Invalid or non-existent period")}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch the user's scope company and country
+        producer = AIOKafkaProducer(bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS)
+        await producer.start()
+        try:
+            
             await producer.send_and_wait(
                 KAFKA_PAYROLL_TOPIC,
                 key=str(period.id).encode('utf-8'),
