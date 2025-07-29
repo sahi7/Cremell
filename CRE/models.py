@@ -14,6 +14,8 @@ from django.db import models
 from rest_framework.exceptions import ValidationError
 from redis.asyncio import Redis
 
+redis_client = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+
 class CustomUserManager(BaseUserManager):
     async def create_user(self, email=None, username=None, phone_number=None, password=None, **extra_fields):
         if not email and not username and not phone_number:
@@ -270,7 +272,7 @@ class CustomUser(AbstractUser):
     async def get_associated_restaurant(self):
         """Returns the most relevant restaurant based on role and relationships."""
         cache_key = f'user_restaurant_{self.id}'
-        redis_client = Redis.from_url('redis://localhost:6379')
+        redis_client = Redis.from_url(settings.REDIS_URL)
         restaurant_id = await redis_client.get(cache_key)
         if restaurant_id:
             return await Restaurant.objects.aget(id=int(restaurant_id))
@@ -521,6 +523,45 @@ class Branch(models.Model):
         
         if batch:
             yield batch
+
+    async def get_menus(self):
+        """
+        Fetch menus with is_pos_menu=True for this branch, caching in Redis.
+        Returns a list of menu IDs and their menu item IDs.
+        """
+        cache_key = f"pos_menu:{self.id}"
+        cached_menus = await redis_client.get(cache_key)
+        if cached_menus:
+            return json.loads(cached_menus)
+
+        # Fetch menus with is_pos_menu=True and prefetch categories and items
+        menus_qs = Menu.objects.filter(
+            branch=self, is_pos_menu=True, is_active=True
+        ).prefetch_related(
+            models.Prefetch(
+                "categories",
+                queryset=MenuCategory.objects.filter(is_active=True).prefetch_related(
+                    models.Prefetch(
+                        "items",
+                        queryset=MenuItem.objects.filter(is_active=True, is_available=True).only("id")
+                    )
+                )
+            )
+        )
+
+        # Initialize menu data
+        menu_data = {}
+        # Iterate asynchronously over the QuerySet
+        async for menu in menus_qs:
+            menu_item_ids = []
+            for category in menu.categories.all():
+                for item in category.items.all():
+                    menu_item_ids.append(item.id)
+            menu_data[menu.id] = menu_item_ids
+
+        await redis_client.set(cache_key, json.dumps(menu_data), ex=3600*24)
+        return menu_data
+
         
     def __str__(self):
         return f"{self.name} - Restau#{self.restaurant_id}"
@@ -533,6 +574,8 @@ class Menu(models.Model):
     name = models.CharField(max_length=100, verbose_name=_("Name"))
     description = models.TextField(blank=True, null=True, verbose_name=_("Description"))
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='created_menus')
+    is_web_or_app_menu = models.BooleanField(default=False)
+    is_pos_menu = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
 
     def __str__(self):

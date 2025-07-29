@@ -6,7 +6,7 @@ from django.db.models.signals import post_migrate, post_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from .models import StaffAvailability, StaffShift, Shift
-from .models import Order, OrderItem
+from .models import Order, Menu, MenuCategory, MenuItem
 from notifications.models import Task, EmployeeTransfer
 from redis.asyncio import Redis
 
@@ -160,3 +160,22 @@ async def invalidate_user_role_id(sender, instance, **kwargs):
     user_id = instance.user_id
     # cache_key = f"role_id:user_{user_id}:{instance.user.role}"
     # await cache.delete(cache_key)
+
+@receiver([post_save, post_delete], sender=Menu)
+@receiver([post_save, post_delete], sender=MenuCategory)
+@receiver([post_save, post_delete], sender=MenuItem)
+async def invalidate_menu_cache(sender, instance, **kwargs):
+    async with Redis.from_url(settings.REDIS_URL, decode_responses=True) as redis:
+        branch_id = None
+        if sender == Menu:
+            branch_id = instance.branch_id
+        elif sender == MenuCategory:
+            branch_id = instance.menu.branch_id
+        elif sender == MenuItem:
+            instance_with_relations = await MenuItem.objects.select_related(
+                'category__menu'
+            ).aget(pk=instance.pk)
+            branch_id = instance_with_relations.category.menu.branch_id
+        
+        if branch_id:
+            await redis.delete(f"pos_menu{branch_id}")

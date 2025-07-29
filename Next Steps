@@ -57,21 +57,23 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   6. ❌Enable shift swapping by employees -- No manager approval
   7. ❌Add a `shift_leader` field to shift Model, they get notified when users swap shifts 
   8. ❌Add currency field on branch
-  9. ❌Add 2 fields on Menu Model; front and in-branch
+  9. ❌Add 2 fields on Menu Model; is_pos_menu and is_web_or_app_menu
   10. ❌Add 'Extension ' field to Branch Model; branch, kiosk, food_truck
   11. ❌When a user logs in, set their staff availaility/logout
+  11. ❌Enable cooks to add orders via custom permissions
+  12. ❌Order process should validate menu items
 - Overtime management
   1. Bulk overtime confirmation for multiple users
 - Complete order process
   Cache order items for branch daily (update cache on edit)
   CK getqueryset:: see order.status=received and claimed_by=user
-  1. Ensure a task cannot be claimed when already claimed
-  2. Add logic to cancel an order
+  1. ❌Ensure a task cannot be claimed when already claimed
+  2. ❌Add logic to cancel an order
   3. Add a `priority` field to Order Model (add priority details in order notes)
 - Print receipts
   1. Save Printer configuration per branch 
-- Improve get_stakeholders when r_val has been corrected
-- views_helper does not change user.status when they are assigned
+- ❌Improve get_stakeholders when r_val has been corrected
+- ❌views_helper does not change user.status when they are assigned
 
 - Next
   A. Third-Party Integration: Connect with delivery platforms

@@ -464,6 +464,8 @@ class MenuViewSet(ModelViewSet):
         Sets branch_id to the first branch in request.data['branches'].
         """
         # Create a mutable copy of request.data
+        if 'branch' in request.data:
+            del request.data['branch'] 
         data = request.data.copy()
         # Modify branch_id to use the first branch from branches list
         if 'branches' in data and data['branches']:
@@ -545,6 +547,13 @@ class OrderViewSet(ModelViewSet):
         user = self.request.user
         scope_filter = async_to_sync(self._access_policy.get_queryset_scope)(user, view=self)
         return self.queryset.filter(scope_filter)
+    
+    async def get_valid_menu_item_ids(self, branch):
+        menu_data = await branch.get_menus()
+        valid_menu_item_ids = set()
+        for menu_id, item_ids in menu_data.items():
+            valid_menu_item_ids.update(item_ids)
+        return valid_menu_item_ids
 
     async def create(self, request, *args, **kwargs):
         """
@@ -564,6 +573,8 @@ class OrderViewSet(ModelViewSet):
 
         # Initial Validation
         try:
+            if 'branch' in request.data:
+                del request.data['branch'] 
             data = request.data.copy()
             data['branch'] = int(request.data['branches'][0])
             serializer = OrderSerializer(data=data)
@@ -575,20 +586,35 @@ class OrderViewSet(ModelViewSet):
         # @aatomic()
         async def create_order():
             try:
-                 # 1. Get Branch with lock
+                # 1. Get Branch with lock
                 # branch = await Branch.objects.select_for_update().aget(id=data['branch'])
                 branch = await Branch.objects.prefetch_related('country').aget(id=data['branch'])
                 user = request.user
+
+                # 2. Get menus and validate menu items
+                valid_menu_item_ids = await self.get_valid_menu_item_ids(branch)
+                print("valid_menu_item_ids: ", valid_menu_item_ids)
+
+                # 3. Validate menu items belong to branch
+                item_ids = [item['menu_item'].id for item in validated_data['items']]
+                invalid_items = set(item_ids) - valid_menu_item_ids
+                if invalid_items:
+                    logger.error(f"Validation failed: Menu items {invalid_items} do not belong to branch {branch.id}")
+                    return Response(
+                        {"error": f"Menu items {invalid_items} are invalid or are unavailable."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                if len(item_ids) != len(set(item_ids)):
+                    return Response(
+                        {"error": _("Duplicate menu items are not allowed in the order.")},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
                 
-                # 2. Calculate Total Price First
+                # 4. Calculate Total Price
                 total_price = Decimal('0.00')
                 menu_items = []
-                
-                # Pre-fetch all menu items at once for efficiency
-                # @TOD0: There is some duplication here, need to get a single line from these 2 lines 
-                # i.e leave the object instance on the first line and use [item_data['menu_item'].id 
-                item_ids = [item['menu_item'].id for item in validated_data['items']]
                 item_names = [(item['menu_item'].name) for item in validated_data['items']]
+                print("item_names: ", item_names)
                 # print("item_ids: ", item_ids)
                 items_map = {item.id: item async for item in MenuItem.objects.filter(id__in=item_ids)}
                 # print("items_map: ", items_map)
@@ -609,7 +635,7 @@ class OrderViewSet(ModelViewSet):
                 # print("menu_items: ", menu_items)
                 # print("validated_data: ", validated_data)
 
-                # 3. Create Order with Final Price
+                # 5. Create Order with Final Price
                 filtered_validated_data = {
                     k: v for k, v in validated_data.items()
                     if k not in ['branch', 'items']
@@ -625,7 +651,7 @@ class OrderViewSet(ModelViewSet):
                     **filtered_validated_data
                 )
 
-                # 4. Bulk Create Items
+                # 6. Bulk Create Items
                 await OrderItem.objects.abulk_create([
                     OrderItem(
                         order=order,
@@ -636,7 +662,7 @@ class OrderViewSet(ModelViewSet):
                     ) for item in menu_items
                 ])
 
-                # 6. Fire notification and forget
+                # 7. Fire notification and forget
                 details = {
                     'user_id': request.user.id,
                     'item_names': item_names,
@@ -644,17 +670,20 @@ class OrderViewSet(ModelViewSet):
                 send_to_kds.delay(order.id, details)
 
                 # serializer = OrderSerializer(order)
+                serialized_data = await sync_to_async(lambda: serializer.data)()
+                return Response(serialized_data, status=status.HTTP_201_CREATED)
 
                
             except KeyError as e:
                 logger.error(f"Missing key in order data: {str(e)}")
-                raise ValidationError({"error": f"Missing required field: {str(e)}"})
+                return Response(
+                    {"error": f"Missing required field: {str(e)}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
                 
                 # asyncio.create_task(
                 #     update_inventory_levels.delay([i.menu_item_id for i in order_items])
                 # )
-                
-                # Return Response
                 
             except ValidationError as e:
                 return Response(
@@ -667,10 +696,9 @@ class OrderViewSet(ModelViewSet):
                     {"error": _("Internal server error")},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-        await create_order()
+        response = await create_order()
+        return response
         
-        serialized_data = await sync_to_async(lambda: serializer.data)()
-        return Response(serialized_data, status=status.HTTP_201_CREATED)
 
 
     @action(detail=True, methods=['patch'], url_path='modify')
@@ -710,7 +738,7 @@ class OrderViewSet(ModelViewSet):
                     # Lock the order row to prevent concurrent modifications
                     # order = await Order.objects.select_for_update().aget(id=pk)
                 data = request.data
-                order = await Order.objects.aget(id=pk)
+                order = await Order.objects.select_related('branch').aget(id=pk)
                 order_v = order.version
                 changes = data.get('changes', [])
                 total_price = order.total_price
@@ -745,6 +773,16 @@ class OrderViewSet(ModelViewSet):
                         elif change['action'] == 'remove':
                             item_ids_to_delete.append(change['order_item'])
 
+                    valid_menu_item_ids = await self.get_valid_menu_item_ids(order.branch)
+
+                    invalid_items = menu_item_ids - valid_menu_item_ids
+                    if invalid_items:
+                        logger.error(f"Validation failed: Menu items {invalid_items} ")
+                        return Response(
+                            {"error": f"Menu items {invalid_items} are invalid or are unavailable."},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    
                     # Bulk fetch MenuItems
                     menu_items = {item.id: item async for item in MenuItem.objects.filter(id__in=menu_item_ids).all()}
                     item_names = [menu_items[menu_item_id].name for menu_item_id in menu_item_ids if menu_item_id in menu_items]
@@ -843,7 +881,8 @@ class OrderViewSet(ModelViewSet):
             
             except Exception as e:
                 # Handle unexpected errors
-                return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                logger.error(f"Order creation failed: {str(e)}", exc_info=True)
+                return Response({"error": "Order processing failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # 6. FINAL STEP: Return response
         response = await modify_order()

@@ -336,7 +336,8 @@ class BranchSerializer(ModelSerializer):
 class MenuSerializer(ModelSerializer):
     class Meta:
         model = Menu
-        fields = ['id', 'name', 'description', 'branch', 'created_by']
+        fields = ['id', 'name', 'description', 'branch', 'is_pos_menu', 'is_web_or_app_menu', 'created_by']
+        read_only_fields = ['created_by']
 
     def validate(self, data):
         """Validate that branch_id is in the user's branches from request.data['branches']."""
@@ -396,12 +397,14 @@ class MenuItemSerializer(ModelSerializer):
         return instance
 
 class BranchMenuSerializer(ModelSerializer):
-    menus = MenuSerializer(many=True, read_only=True)
+    # Extend this to include the menu category and MenuItems
+    # redis save as pos_menu
+    menus = serializers.SerializerMethodField() # select only those with is_pos_menu=True
 
     class Meta:
         model = Branch
         fields = ['id', 'name', 'menus']
-
+    
 class OrderItemSerializer(ModelSerializer):
     class Meta:
         model = OrderItem
@@ -424,7 +427,7 @@ class OrderSerializer(ModelSerializer):
         table_number = data.get('table_number')
         if order_type == 'dine_in' and not table_number:
             raise serializers.ValidationError(_("Table number is required for dine-in orders."))
-        if order_type != 'dine_in' and table_number:
+        if order_type and (order_type != 'dine_in' and table_number):
             raise serializers.ValidationError(_("Table number is only applicable for dine-in orders."))
         if not data.get('items'):
             raise serializers.ValidationError(_("At least one order item is required."))
