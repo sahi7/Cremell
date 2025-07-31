@@ -424,6 +424,11 @@ class Restaurant(models.Model):
 
 
 class Branch(models.Model):
+    EXT_CHOICES = (
+        ('branch', _('In Branch')),
+        ('kiosk', _('Station Kiosk')),
+        ('food_truck', _('Food Truck')),
+    )
     restaurant = models.ForeignKey(Restaurant, on_delete=models.CASCADE, related_name='branches')
     company = models.ForeignKey(Company, null=True, blank=True, on_delete=models.CASCADE, related_name='branches')  # Required, as branches belong to a company
     name = models.CharField(max_length=100)  # Name of the branch (e.g., "Downtown Branch")
@@ -439,6 +444,8 @@ class Branch(models.Model):
     timezone = models.CharField(max_length=50, choices=[(tz, tz) for tz in pytz.common_timezones], default='UTC')
     default_language = models.CharField(max_length=10, choices=settings.LANGUAGES, default=None, blank=True, null=True,
                                 help_text=_('Default language for the branch. Falls back to restaurant or company language.'))
+    currency = models.CharField(max_length=3, choices=settings.CURRENCIES, default='XAF')
+    extension = models.CharField(max_length=10, choices=EXT_CHOICES, default='branch') # add a kiosk
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="branch")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

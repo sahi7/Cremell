@@ -228,6 +228,20 @@ LANGUAGES = [
     # Add more languages as needed
 ]
 
+CURRENCIES = [
+    ('XAF', 'Central African CFA Franc'),  # CEMAC: Cameroon, CAR, Chad, Congo, Equatorial Guinea, Gabon
+    ('USD', 'US Dollar'),                 # Common for international transactions
+    ('EUR', 'Euro'),                      # Pegged to XAF, used in trade
+    ('ZAR', 'South African Rand'),        # Stable, widely traded
+    ('NGN', 'Nigerian Naira'),            # Major West African currency
+    ('GHS', 'Ghanaian Cedi'),             # Stable in West Africa
+    ('XOF', 'West African CFA Franc'),     # WAEMU, for regional compatibility
+    ('KES', 'Kenyan Shilling'),           # Stable East African currency
+    ('RWF', 'Rwandan Franc'),             # Strong performer in East Africa
+    ('TND', 'Tunisian Dinar'),            # Strongest in Africa (2025)
+    ('MAD', 'Moroccan Dirham'),           # Stable North African currency
+]
+
 LOCALE_PATHS = [
     os.path.join(BASE_DIR, 'locale'),
 ]
