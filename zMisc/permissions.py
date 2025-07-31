@@ -253,11 +253,23 @@ class UserCreationPermission(BasePermission):
         if not queryset_filter:
             return CustomUser.objects.none()
 
+        FIELD_MAP = {
+            'companies': 'company',
+            'countries': 'country',
+            'restaurants': 'restaurant',
+            'branches': 'branch'
+        }
+        def normalize_scope_field(field):
+            """Convert any field name to its plural form using FIELD_MAP"""
+            return FIELD_MAP.get(field, field)
         # Fetch required IDs concurrently
-        id_args = await asyncio.gather(*[self._get_ids(getattr(user, rel)) for rel in required_relations])
+        _scopes = await get_scopes_and_groups(user)
+        reqius = [_scopes.get(normalize_scope_field(rel), _scopes.get(rel)) for rel in required_relations]
+        # id_args = await asyncio.gather(*[self._get_ids(getattr(user, rel)) for rel in required_relations]) 
 
         # Apply the async filter function with role_value filtering
-        return await queryset_filter(user, user_role_value, *id_args)
+        # return await queryset_filter(user, user_role_value, *id_args)
+        return await queryset_filter(user, user_role_value, *reqius)
     
 class StaffAccessPolicy(BasePermission):
     """
