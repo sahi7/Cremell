@@ -1,18 +1,22 @@
-from django.utils.translation import gettext_lazy as _
-
+from redis.asyncio import Redis
+from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.response import Response
 from rest_framework import status
-
 from adrf.views import APIView
-from adrf.viewsets import ModelViewSet
 from channels.layers import get_channel_layer
+from allauth.account.models import EmailAddress
 from asgiref.sync import sync_to_async
+
 from django.core.exceptions import PermissionDenied
+from django.utils.translation import gettext_lazy as _
 from django.db import models
+from django.conf import settings
+from django.utils import timezone
 from django.contrib.auth import get_user_model
 
-from .models import Branch, Restaurant, Company, Country 
+from .models import StaffAvailability
 from .serializers import RestaurantSerializer, CompanySerializer, CountrySerializer, AssignmentSerializer
+from .serializers_helper import CustomTokenObtainPairSerializer
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.permissions import EntityUpdatePermission, ObjectStatusPermission
 # from zMisc.utils import log_activity
@@ -22,6 +26,44 @@ import logging
 logger = logging.getLogger(__name__)
 
 CustomUser = get_user_model()
+cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+
+class CustomTokenObtainPairView(APIView, TokenObtainPairView):  # Using adrf's APIView
+    serializer_class = CustomTokenObtainPairSerializer
+
+    async def post(self, request, *args, **kwargs):
+        try:
+            serializer = self.serializer_class(data=request.data)
+            await sync_to_async(serializer.is_valid)(raise_exception=True)
+            
+            user = serializer.user
+            cache_key = f'email_verified_{user.id}'
+            email_verified = await cache.get(cache_key)
+            if email_verified is None:
+                email_verified = await EmailAddress.objects.filter(user=user, verified=True).aexists()
+                await cache.set(cache_key, int(email_verified), ex=3600)
+            
+            # if email_verified != 1:
+            #     return Response(
+            #         {"error": _("Email unverified")},
+            #         status=status.HTTP_403_FORBIDDEN
+            #     )
+            user.last_login = timezone.now()
+            await user.asave(update_fields=['last_login'])
+            
+            await StaffAvailability.objects.aupdate_or_create(
+                user=user,
+                defaults={'status': 'available'}
+            )
+            
+            return Response(serializer.validated_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Token generation error: {str(e)}", exc_info=True)
+            return Response(
+                {"error": "Internal server error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class CheckUserExistsView(APIView):
     """

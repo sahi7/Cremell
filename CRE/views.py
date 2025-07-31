@@ -33,7 +33,7 @@ from notifications.tasks import log_shift_assignment
 from zMisc.policies import RestaurantAccessPolicy, BranchAccessPolicy, ScopeAccessPolicy
 
 from zMisc.permissions import *
-from zMisc.utils import validate_scope, validate_role
+from zMisc.utils import validate_scope, validate_role, clean_request_data
 from zMisc.shiftresolver import ShiftUpdateHandler
 from zMisc.atransactions import aatomic
 from services.sequences import generate_order_number
@@ -905,7 +905,8 @@ class ShiftViewSet(ModelViewSet):
 
     async def create(self, request, *args, **kwargs):
         """Create a shift with Redis caching."""
-        data = request.data.copy()
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
         data['branch_id'] = int(request.data['branches'][0])
         serializer = self.get_serializer(data=data)
         await sync_to_async(serializer.is_valid)(raise_exception=True)

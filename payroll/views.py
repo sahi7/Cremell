@@ -14,6 +14,7 @@ from .serializers import RuleSerializer, OverrideSerializer, RecordSerializer, P
 from .permissions import RulePermission
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.atransactions import aatomic
+from zMisc.utils import clean_request_data
 
 import logging
 
@@ -33,7 +34,8 @@ class RuleViewSet(ModelViewSet):
     permission_classes = (ScopeAccessPolicy, RulePermission, )
     
     async def create(self, request):
-        data = request.data.copy()
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
         data['company'] = request.data.get('companies', [None])[0]
         data['restaurant'] = request.data.get('restaurants', [None])[0]
         data['branch'] = request.data.get('branches', [None])[0]
@@ -123,7 +125,8 @@ class OverrideCreateView(APIView):
     """
     permission_classes = (ScopeAccessPolicy, RulePermission, )
     async def post(self, request):
-        data = request.data.copy()
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
         data['branch'] = request.data.get('branches', [None])[0]
         serializer = OverrideSerializer(data=data, context={'request': request})
         if await sync_to_async(serializer.is_valid)():
@@ -174,10 +177,10 @@ class GeneratePayrollView(APIView):
             }
 
             requested = {
-                'company': set(request.data.get("companies", [])),
-                'country': set(request.data.get("countries", [])),
-                'restaurant': set(request.data.get("restaurants", [])),
-                'branch': set(request.data.get("branches", [])),
+                'company': request.data.get("companies", []),
+                'country': request.data.get("countries", []),
+                'restaurant': request.data.get("restaurants", []),
+                'branch': request.data.get("branches", []),
             }
             for field, requested_ids in requested.items():
                 if not requested_ids:
@@ -185,7 +188,7 @@ class GeneratePayrollView(APIView):
                 event[field] = requested_ids[0]
         except (ValueError, Period.DoesNotExist):
             return Response({"error": _("Invalid or non-existent period")}, status=status.HTTP_400_BAD_REQUEST)
-
+        print("event: ", event)
         # Fetch the user's scope company and country
         producer = AIOKafkaProducer(bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS)
         await producer.start()
@@ -196,8 +199,12 @@ class GeneratePayrollView(APIView):
                 key=str(period.id).encode('utf-8'),
                 value=json.dumps(event).encode('utf-8')
             )
+        except Exception as e:
+            logger.error("Failed to send event to Kafka: %s", str(e))
+            return Response({"error": _("Failed to send payroll event to Kafka")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         finally:
             await producer.stop()
+            logger.info("Kafka producer stopped")
 
         return Response({"message": _("Payroll generation triggered for {period}").format(period=period_str)})
 

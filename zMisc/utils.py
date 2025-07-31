@@ -148,6 +148,25 @@ def  send_del_notification(
         # include_lower_roles=include_lower_roles
     )
 
+def clean_request_data(request_data, fields_to_remove=None):
+    """
+    Removes specified fields and their _id variants from request data.
+    Default removes branch, restaurant, company and their _id variants.
+    """
+    default_fields = {'branch', 'restaurant', 'company'}
+    fields = fields_to_remove or default_fields
+    
+    # Generate all field variants to remove
+    variants = set(fields)
+    for field in fields:
+        variants.update({f"{field}_id", f"{field}Id"})
+    
+    # Return cleaned dict (preserves original request.data)
+    return {
+        k: v for k, v in request_data.items()
+        if k not in variants
+    }
+
 async def compare_role_values(user, role_to_create):
     """
     Compare the role value of the user with the role value to create.

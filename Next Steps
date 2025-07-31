@@ -61,7 +61,7 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   10. ❌Add 'Extension ' field to Branch Model; branch, kiosk, food_truck
   11. ❌When a user logs in, set their staff availaility/logout
   11. ❌Enable cooks to add orders via custom permissions
-  12. ❌Order process should validate menu items
+  12. Order process should validate menu items
 - Overtime management
   1. Bulk overtime confirmation for multiple users
 - Complete order process

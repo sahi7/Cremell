@@ -1,7 +1,9 @@
 from allauth.account.auth_backends import AuthenticationBackend
+from asgiref.sync import sync_to_async
 from django.contrib.auth import get_user_model
 
 class CustomAuthBackend(AuthenticationBackend):
+    @sync_to_async
     def authenticate(self, request, username=None, password=None, **kwargs):
         UserModel = get_user_model()
         try:
@@ -18,6 +20,7 @@ class CustomAuthBackend(AuthenticationBackend):
             return user
         return None
 
+    @sync_to_async
     def get_user(self, user_id):
         UserModel = get_user_model()
         try:

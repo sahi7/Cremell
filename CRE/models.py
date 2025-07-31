@@ -283,7 +283,7 @@ class CustomUser(AbstractUser):
             if self.role == 'restaurant_owner':
                 restaurant = await Restaurant.objects.filter(owner=self).afirst()
             else:  # restaurant_manager
-                restaurant = await Restaurant.objects.filter(managers=self).afirst()
+                restaurant = await Restaurant.objects.filter(manager=self).afirst()
             if restaurant:
                 await redis_client.set(cache_key, restaurant.id, ex=3600)
                 return restaurant
@@ -309,6 +309,10 @@ class CustomUser(AbstractUser):
         verbose_name_plural = _('Users')
 
         indexes = [
+            models.Index(fields=['username']),
+            models.Index(fields=['email']),
+            models.Index(fields=['phone_number']),
+            models.Index(fields=['status']),
             models.Index(fields=['role']),
             models.Index(fields=['timezone']),
             models.Index(fields=['preferred_language']),

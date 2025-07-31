@@ -5,10 +5,9 @@ from django.contrib.auth.models import Group, Permission
 from django.db.models.signals import post_migrate, post_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
-from .models import StaffAvailability, StaffShift, Shift
+from .models import StaffShift, Shift
 from .models import Order, Menu, MenuCategory, MenuItem
-from notifications.models import Task, EmployeeTransfer
-from redis.asyncio import Redis
+from notifications.models import EmployeeTransfer
 
 CustomUser = get_user_model()
 # Define your model groupings
