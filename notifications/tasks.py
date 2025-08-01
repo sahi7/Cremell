@@ -227,11 +227,11 @@ def send_notification_task(
     """Send a notification to a single user."""
     # Run async get_user_data
     user_data = asyncio.run(get_user_data(user_id, branch_id, company_id, restaurant_id, country_id))
+    print("user_data: ", user_data)
     if reg_mail:
-        user = CustomUser.objects.get(id=user_id)
         email_address, created = EmailAddress.objects.get_or_create(
-            user=user,
-            email=user.email,
+            user_id=user_data['id'],
+            email=user_data['email'],
             defaults={'verified': False, 'primary': True}
         )
         # Generate email confirmation key using EmailConfirmationHMAC

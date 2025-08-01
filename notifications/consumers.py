@@ -45,9 +45,17 @@ class StakeholderConsumer(AsyncWebsocketConsumer):
 
 class BranchConsumer(AsyncWebsocketConsumer):
     async def connect(self):
+        user = self.scope['user']
+        if not user.is_authenticated:
+            logger.warning("WebSocket connection rejected: User not authenticated")
+            await self.close(code=4001)  # Unauthorized
+            return 0
         self.branch_id = self.scope['url_route']['kwargs']['branch_id']
-        self.channel_type = self.scope['url_route']['kwargs']['channel_type']
-        self.group_name = f"branch_{self.branch_id}_{self.channel_type}"
+        if not self.branch_id:
+            query_string = self.scope.get('query_string', b'').decode()
+            query_params = dict(q.split('=') for q in query_string.split('&') if '=' in q)
+            self.branch_id = query_params.get('branch_id')
+        self.group_name = f"branch_{self.branch_id}_{user.role}"
         
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
@@ -59,17 +67,12 @@ class BranchConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
         await self.update_connection_count(-1)
 
-    @database_sync_to_async
-    def update_connection_count(self, delta):
-        channel, _ = BroadcastChannel.objects.get_or_create(
-            branch_id=self.branch_id,
-            channel_type=self.channel_type
-        )
-        channel.active_connections += delta
-        channel.save()
-
-    async def task_update(self, event):
-        await self.send(text_data=json.dumps(event['data']))
+    async def branch_update(self, event):
+        message = event['message']
+        await self.send(text_data=json.dumps({
+            'type': 'branch.notification',
+            'message': message
+        }))
 
 
 class OrderConsumer(AsyncWebsocketConsumer):

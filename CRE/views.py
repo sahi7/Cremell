@@ -1016,6 +1016,105 @@ class StaffShiftViewSet(ModelViewSet):
         serializer = self.get_serializer(await queryset.alist(), many=True)
         return Response(serializer.data)
     
+class ShiftSwapRequestViewSet(ModelViewSet):
+    queryset = ShiftSwapRequest.objects.all()
+    serializer_class = ShiftSwapRequestSerializer
+
+    def get_permissions(self):
+        role_value = async_to_sync(self.request.user.get_role_value)()
+        self._access_policy = (ScopeAccessPolicy if role_value <= 4 else StaffAccessPolicy)()
+        return [self._access_policy, ShiftSwapPermission(),]
+    
+    def get_queryset(self):
+        user = self.request.user
+        scope_filter = async_to_sync(self._access_policy.get_queryset_scope)(user, view=self)
+        return self.queryset.filter(scope_filter)
+
+    async def create(self, request, *args, **kwargs):
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
+        data['branch'] = int(request.data['branches'][0])
+        serializer = self.get_serializer(data=data)
+
+        await serializer.is_valid(raise_exception=True)
+        swap_request = await serializer.save(initiator=request.user)
+        branch_id = swap_request.initiator_shift.branch_id
+
+        # Log activity
+        details = f"Requested swap for shift {swap_request.initiator_shift.id} on {swap_request.desired_date}"
+        log_activity.delay(request.user.id, 'shift_swap_request', details, branch_id, 'branch')
+
+        # Send WebSocket notification
+        channel_layer = get_channel_layer()
+        await channel_layer.group_send(
+            f"{branch_id}_{request.user.role}",
+            {
+                'type': 'shift_swap_request',
+                'message': {
+                    'id': swap_request.id,
+                    'initiator': request.user.username,
+                    'shift_id': swap_request.initiator_shift.id,
+                    'desired_date': swap_request.desired_date.isoformat(),
+                }
+            }
+        )
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    async def accept(self, request, pk=None):
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
+        swap_request = request.swap_request
+        if swap_request.status != 'pending':
+            return Response({'error': 'Swap request is not pending.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Update swap request
+        swap_request.counterparty = request.user
+        swap_request.counterparty_shift = request.counterparty_shift
+        swap_request.status = 'completed'
+        swap_request.accepted_at = timezone.now()
+        await swap_request.asave()
+
+        # Update shifts
+        initiator_shift = swap_request.initiator_shift
+        counterparty_shift = swap_request.counterparty_shift
+        initiator_shift.employee = swap_request.counterparty
+        counterparty_shift.employee = swap_request.initiator
+        await StaffShift.objects.abulk_update([initiator_shift, counterparty_shift], ['employee'])
+
+        # Create history record
+        branch_id = swap_request.initiator_shift.branch.id
+        details = {
+            "reason": f"Accepted swap {swap_request.id} with shift {counterparty_shift.id}",
+            "initiator": swap_request.initiator.id,
+            "counterparty": swap_request.counterparty.id,
+            "initiator_shift": initiator_shift.id,
+            "counterparty_shift": counterparty_shift.id,
+            "accepted_at": swap_request.accepted_at,
+            "branch": branch_id
+        }
+
+        # Log activity
+        log_activity.delay(request.user.id, 'shift_swap_accept', details, branch_id, 'branch')
+
+        # Notify managers via WebSocket
+        channel_layer = get_channel_layer()
+        await channel_layer.group_send(
+            f"{branch_id}_manager",
+            {
+                'type': 'shift_swap_completed',
+                'message': {
+                    'swap_id': swap_request.id,
+                    'initiator': swap_request.initiator.username,
+                    'counterparty': swap_request.counterparty.username,
+                    'accepted_at': swap_request.accepted_at.isoformat(),
+                }
+            }
+        )
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
 class ShiftPatternViewSet(ModelViewSet):
     """
     Endpoint: POST /api/shift-patterns/

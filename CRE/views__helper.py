@@ -48,6 +48,22 @@ class CustomTokenObtainPairView(APIView, TokenObtainPairView):  # Using adrf's A
             #         {"error": _("Email unverified")},
             #         status=status.HTTP_403_FORBIDDEN
             #     )
+            if not user.is_active:
+                logger.warning(f"Inactive user attempt: {user.username}")
+                return Response(
+                    {"error": _("User account is inactive.")},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+                # raise exceptions.AuthenticationFailed(_('User account is inactive.'))
+            
+            if user.status not in ['active', 'on_leave']:
+                logger.warning(f"Unauthorized user status: {user.username} - {user.status}")
+                return Response(
+                    {"error": _("User not assigned.")},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+                # raise exceptions.AuthenticationFailed(_('User not assigned.'))
+            
             user.last_login = timezone.now()
             await user.asave(update_fields=['last_login'])
             
@@ -356,6 +372,7 @@ class AssignmentView(APIView):
         # Fetch users in bulk
         user_ids = self.request.bulk_users
 
+        # run aatomic here 
         # Bulk assign users to M2M field
         m2m_manager = getattr(CustomUser, user_field).through
         # Create bulk M2M entries
@@ -364,6 +381,9 @@ class AssignmentView(APIView):
             for user_id in user_ids
         ]
         await m2m_manager.objects.abulk_create(m2m_objects, ignore_conflicts=True)
+
+        # Bulk update user status 
+        await CustomUser.objects.filter(id__in=user_ids).aupdate(status='active') 
 
         # Log activity
         details = {
@@ -387,13 +407,13 @@ class AssignmentView(APIView):
         from .tasks import send_assignment_email
         user_id = user if isinstance(user, int) else user.id
         send_assignment_email.delay(user_id, object_type, object_id, field_update)
-        # channel_layer = get_channel_layer()
-        # await channel_layer.group_send(
-        #     f"user_{user.id}",
-        #     {
-        #         'type': 'update_notification',
-        #         'message': _("Updated {object_type} ID {object_id} with {field_update}").format(
-        #             object_type=object_type, object_id=object_id, field_update=field_update
-        #         ),
-        #     }
-        # )
+        channel_layer = get_channel_layer()
+        await channel_layer.group_send(
+            f"user_{user_id}",
+            {
+                'type': 'update_notification',
+                'message': _("Updated {object_type} ID {object_id} with {field_update}").format(
+                    object_type=object_type, object_id=object_id, field_update=field_update
+                ),
+            }
+        )

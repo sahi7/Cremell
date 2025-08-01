@@ -446,6 +446,7 @@ class Branch(models.Model):
                                 help_text=_('Default language for the branch. Falls back to restaurant or company language.'))
     currency = models.CharField(max_length=3, choices=settings.CURRENCIES, default='XAF')
     extension = models.CharField(max_length=10, choices=EXT_CHOICES, default='branch') # add a kiosk
+    allow_auto_shift_swap = models.BooleanField(default=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="branch")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -784,6 +785,32 @@ class StaffShift(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.shift.name} on {self.date}"
+    
+
+class ShiftSwapRequest(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('accepted', 'Accepted'),
+        ('expired', 'Expired')
+    ]
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='shiftswaps')
+    initiator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='initiated_swaps')
+    initiator_shift = models.ForeignKey(Shift, on_delete=models.CASCADE, related_name='initiator_swaps')
+    counterparty = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='counterparty_swaps')
+    counterparty_shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, blank=True, related_name='counterparty_swaps')
+    desired_date = models.DateField()  # User-specified day for swap
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)  
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['initiator', 'status']),
+            models.Index(fields=['counterparty', 'status']),
+            models.Index(fields=['desired_date']),
+            models.Index(fields=['accepted_at']),
+        ]
     
 
 class ShiftPattern(models.Model):
