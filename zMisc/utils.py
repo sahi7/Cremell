@@ -5,7 +5,7 @@ from typing import Any
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
 from redis.asyncio import Redis
-from asgiref.sync import async_to_sync, sync_to_async
+from asgiref.sync import async_to_sync
 from typing import List, Dict, Optional
 from django.utils.translation import gettext as _
 from django.db.models import Q
@@ -321,13 +321,15 @@ async def get_user_data(
 
     # Include related data only if requested
     if include_related_data:
-        data.update({
-            'companies': [{'id': c.id, 'name': c.name} async for c in user.companies.all()] if company_id else [],
-            'countries': [{'id': c.id, 'name': c.name, 'code': c.code} async for c in user.countries.all()] if country_id else [],
-            'restaurants': [{'id': r.id, 'name': r.name} async for r in user.restaurants.all()] if restaurant_id else [],
-            'branches': [{'id': b.id, 'name': b.name} async for b in user.branches.all()] if branch_id else [],
-            'groups': {g.name async for g in user.groups.all()},
-        })
+        _scopes = await get_scopes_and_groups(user)
+        data.update(**_scopes)
+        # data.update({
+        #     'companies': [{'id': c.id, 'name': c.name} async for c in user.companies.all()] if company_id else [],
+        #     'countries': [{'id': c.id, 'name': c.name, 'code': c.code} async for c in user.countries.all()] if country_id else [],
+        #     'restaurants': [{'id': r.id, 'name': r.name} async for r in user.restaurants.all()] if restaurant_id else [],
+        #     'branches': [{'id': b.id, 'name': b.name} async for b in user.branches.all()] if branch_id else [],
+        #     'groups': {g.name async for g in user.groups.all()},
+        # })
 
     await redis_client.set(cache_key, json.dumps(data), ex=3600)  # Cache for 1 hour
     return data
@@ -531,12 +533,14 @@ async def get_stakeholders(
 
             # Include related data only if requested
             if include_related_data:
-                stakeholder.update({
-                    'companies': [{'id': c.id, 'name': c.name} async for c in user.companies.all()] if company_id else [],
-                    'countries': [{'id': c.id, 'name': c.name, 'code': c.code} async for c in user.countries.all()] if country_id else [],
-                    'restaurants': [{'id': r.id, 'name': r.name} async for r in user.restaurants.all()] if restaurant_id else [],
-                    'branches': [{'id': b.id, 'name': b.name} async for b in user.branches.all()] if branch_id else [],
-                })
+                _scopes = await get_scopes_and_groups(user)
+                stakeholder.update(**_scopes)
+                # stakeholder.update({
+                #     'companies': [{'id': c.id, 'name': c.name} async for c in user.companies.all()] if company_id else [],
+                #     'countries': [{'id': c.id, 'name': c.name, 'code': c.code} async for c in user.countries.all()] if country_id else [],
+                #     'restaurants': [{'id': r.id, 'name': r.name} async for r in user.restaurants.all()] if restaurant_id else [],
+                #     'branches': [{'id': b.id, 'name': b.name} async for b in user.branches.all()] if branch_id else [],
+                # })
 
             stakeholders.append(stakeholder)   
 
