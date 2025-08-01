@@ -68,9 +68,10 @@ class BranchConsumer(AsyncWebsocketConsumer):
         # await self.update_connection_count(-1)
 
     async def branch_update(self, event):
+        signal = event.get('signal', 'branch')
         message = event['message']
         await self.send(text_data=json.dumps({
-            'type': 'branch.notification',
+            'type': f'{signal}.notification',
             'message': message
         }))
 

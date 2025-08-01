@@ -1280,7 +1280,7 @@ class ShiftSwapPermission(BasePermission):
         branch = await Branch.objects.aget(id=branch)
         if not branch.allow_auto_shift_swap:
             raise ValidationError(_("Action not allowed, contact manager for assistance"))
-        request.branch = branch
+        request.branch = branch.id
 
         # _scopes = await get_scopes_and_groups(user)
         if view.action in ['create', 'update']:
@@ -1288,7 +1288,8 @@ class ShiftSwapPermission(BasePermission):
             #     raise ValidationError(_("Can only swap future dates"))
             try:
                 initiator = await StaffShift.objects.aget(
-                    id=initiator_shift,
+                    date=desired_date,
+                    shift_id=initiator_shift,
                     user_id=user.id,  # Critical ownership check
                     # is_swappable=True
                 )
@@ -1314,4 +1315,5 @@ class ShiftSwapPermission(BasePermission):
                 request.counterparty_shift = counterparty.id
             except StaffShift.DoesNotExist:
                 raise ValidationError(_("Invalid counterparty shift"))
+        return True
         

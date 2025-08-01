@@ -1042,13 +1042,15 @@ class ShiftSwapRequestViewSet(ModelViewSet):
         data = cleaned_data
         data['branch'] = request.branch
         serializer = self.get_serializer(data=data)
-
-        await serializer.is_valid(raise_exception=True)
-        swap_request = await serializer.save(initiator=request.user)
-        branch_id = swap_request.initiator_shift.branch_id
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        validated_data = serializer.validated_data
+        validated_data['initiator'] = request.user
+        shift_swap_request = ShiftSwapRequest(**validated_data)
+        await shift_swap_request.asave()
+        branch_id = shift_swap_request.branch_id
 
         # Log activity
-        details = f"Requested swap for shift {swap_request.initiator_shift.id} on {swap_request.desired_date}"
+        details = f"Requested swap for shift {shift_swap_request.initiator_shift_id} on {shift_swap_request.desired_date}"
         log_activity.delay(request.user.id, 'shift_swap_request', details, branch_id, 'branch')
 
         # Send WebSocket notification
@@ -1056,12 +1058,13 @@ class ShiftSwapRequestViewSet(ModelViewSet):
         await channel_layer.group_send(
             f"{branch_id}_{request.user.role}",
             {
+                'signal': 'shift_swap_request',
                 'type': 'branch.update',
                 'message': {
-                    'id': swap_request.id,
+                    'id': shift_swap_request.id,
                     'initiator': request.user.username,
-                    'shift_id': swap_request.initiator_shift.id,
-                    'desired_date': swap_request.desired_date.isoformat(),
+                    'shift_id': shift_swap_request.initiator_shift.id,
+                    'desired_date': shift_swap_request.desired_date.isoformat(),
                 }
             }
         )

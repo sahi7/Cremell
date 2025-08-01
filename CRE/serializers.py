@@ -462,30 +462,25 @@ class ShiftSwapRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShiftSwapRequest
         fields = [
-            'id', 'initiator', 'initiator_shift', 'desired_date',
+            'id', 'branch', 'initiator', 'initiator_shift', 'desired_date',
             'counterparty', 'counterparty_shift', 'status', 'accepted_at'
         ]
         read_only_fields = ['initiator', 'counterparty', 'status', 'created_at', 'updated_at', 'accepted_at']
     
-    async def validate(self, attrs):
+    def validate(self, attrs):
         from datetime import date
-        initiator = self.context['request'].user
         initiator_shift = attrs.get('initiator_shift')
         desired_date = attrs.get('desired_date')
         counterparty_shift = attrs.get('counterparty_shift', None)
 
-        if not initiator_shift or initiator:
-            raise serializers.ValidationError(_("Initiator & shift are required."))
+        if not initiator_shift or not desired_date:
+            raise serializers.ValidationError(_("Initiator & date are required."))
         if desired_date and desired_date < date.today():
             raise serializers.ValidationError("Desired date cannot be in the past.")
-        if initiator_shift and not initiator_shift:
-            raise serializers.ValidationError("Automatic shift swapping is not allowed in this branch.")
 
         if counterparty_shift:
             if self.instance and self.instance.status != 'pending':
                 raise serializers.ValidationError("Swap request is not pending.")
-            if counterparty_shift.employee != initiator:
-                raise serializers.ValidationError("Counterparty shift must belong to the accepting user.")
             if initiator_shift.role != counterparty_shift.role:
                 raise serializers.ValidationError("Shifts must be for the same role.")
             if counterparty_shift.start_time.date() != desired_date:
