@@ -474,11 +474,11 @@ class ShiftSwapRequestSerializer(serializers.ModelSerializer):
         desired_date = attrs.get('desired_date')
         counterparty_shift = attrs.get('counterparty_shift', None)
 
-        if initiator_shift and initiator_shift.employee != initiator:
-            raise serializers.ValidationError("Initiator shift must belong to the requesting user.")
+        if not initiator_shift or initiator:
+            raise serializers.ValidationError(_("Initiator & shift are required."))
         if desired_date and desired_date < date.today():
             raise serializers.ValidationError("Desired date cannot be in the past.")
-        if initiator_shift and not initiator_shift.branch.allow_auto_shift_swap:
+        if initiator_shift and not initiator_shift:
             raise serializers.ValidationError("Automatic shift swapping is not allowed in this branch.")
 
         if counterparty_shift:

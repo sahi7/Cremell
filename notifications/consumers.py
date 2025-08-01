@@ -50,22 +50,22 @@ class BranchConsumer(AsyncWebsocketConsumer):
             logger.warning("WebSocket connection rejected: User not authenticated")
             await self.close(code=4001)  # Unauthorized
             return 0
-        self.branch_id = self.scope['url_route']['kwargs']['branch_id']
+        self.branch_id = self.scope.get('url_route', {}).get('kwargs', {}).get('branch_id')
         if not self.branch_id:
             query_string = self.scope.get('query_string', b'').decode()
             query_params = dict(q.split('=') for q in query_string.split('&') if '=' in q)
             self.branch_id = query_params.get('branch_id')
-        self.group_name = f"branch_{self.branch_id}_{user.role}"
+        self.group_name = f"{self.branch_id}_{user.role}"
         
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
         
         # Update connection count
-        await self.update_connection_count(1)
+        # await self.update_connection_count(1)
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
-        await self.update_connection_count(-1)
+        # await self.update_connection_count(-1)
 
     async def branch_update(self, event):
         message = event['message']

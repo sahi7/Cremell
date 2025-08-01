@@ -383,28 +383,6 @@ class ShiftAssignmentEngine:
                 extra_context=extra_context,
             )
 
-        # Find users without availability records
-        existing_users = set(
-            await StaffAvailability.objects.filter(
-                user_id__in=user_ids
-            ).values_list('user_id', flat=True)
-        )
-        new_users = user_ids - existing_users
-
-        # Bulk create availability records
-        if new_users:
-            availability_objs = [
-                StaffAvailability(
-                    user_id=user_id,
-                    status='offline'  # Default status
-                )
-                for user_id in new_users
-            ]
-            await StaffAvailability.objects.abulk_create(
-                availability_objs,
-                ignore_conflicts=True  # Safety net
-            )
-
 import asyncio
 @shared_task(bind=True, max_retries=3)
 def regenerate_shifts(self, branch_id: int, start_date, end_date, priority: int):

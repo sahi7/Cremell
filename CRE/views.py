@@ -1017,6 +1017,13 @@ class StaffShiftViewSet(ModelViewSet):
         return Response(serializer.data)
     
 class ShiftSwapRequestViewSet(ModelViewSet):
+    """
+    Request body:
+    {
+        "initiator_shift": 123,
+        "desired_date": "2025-08-10"
+    }
+    """
     queryset = ShiftSwapRequest.objects.all()
     serializer_class = ShiftSwapRequestSerializer
 
@@ -1033,7 +1040,7 @@ class ShiftSwapRequestViewSet(ModelViewSet):
     async def create(self, request, *args, **kwargs):
         cleaned_data = clean_request_data(request.data)
         data = cleaned_data
-        data['branch'] = int(request.data['branches'][0])
+        data['branch'] = request.branch
         serializer = self.get_serializer(data=data)
 
         await serializer.is_valid(raise_exception=True)
@@ -1049,7 +1056,7 @@ class ShiftSwapRequestViewSet(ModelViewSet):
         await channel_layer.group_send(
             f"{branch_id}_{request.user.role}",
             {
-                'type': 'shift_swap_request',
+                'type': 'branch.update',
                 'message': {
                     'id': swap_request.id,
                     'initiator': request.user.username,
@@ -1112,8 +1119,7 @@ class ShiftSwapRequestViewSet(ModelViewSet):
                 }
             }
         )
-
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response({"status": _("Shift swap successful")}, status=status.HTTP_200_OK)
     
 class ShiftPatternViewSet(ModelViewSet):
     """
@@ -1127,6 +1133,19 @@ class ShiftPatternViewSet(ModelViewSet):
         user = self.request.user
         scope_filter = async_to_sync(ScopeAccessPolicy().get_queryset_scope)(user, view=self)
         return self.queryset.filter(scope_filter)
+    
+    async def create(self, request, *args, **kwargs):
+        """Create a shift with Redis caching."""
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
+        data['branch'] = int(request.data['branches'][0])
+        serializer = self.get_serializer(data=data)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        shift_pattern = ShiftPattern(**serializer.validated_data)
+        await shift_pattern.asave()
+        # Invalidate branch shifts cache
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(
         detail=True,

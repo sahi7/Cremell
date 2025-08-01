@@ -1003,7 +1003,7 @@ class ShiftPatternPermission(BasePermission):
             return True
         data = request.data
         roles = data.get('roles', [])
-        branch = data.get('branch')
+        branch = int(data['branches'][0])
         user_ids = data.get('users', [])
 
         out_of_scope = {'invalid_roles': [], 'out_of_scope_users': []}
@@ -1072,7 +1072,8 @@ class ShiftPatternPermission(BasePermission):
         config = policy.SCOPE_CONFIG[user_group]
 
         model_class = view.queryset.model
-        queryset_filter = config['queryset_filter'](user, model_class)
+        _scopes = await get_scopes_and_groups(user)
+        queryset_filter = await config['queryset_filter'](user, model_class, _scopes)
         
         allowed = await model_class.objects.filter(Q(pk=pk) & queryset_filter).aexists()
         # print("model class: ", model_class.__name__)
@@ -1271,13 +1272,20 @@ class ShiftSwapPermission(BasePermission):
     async def has_permission(self, request, view):
         if request.method == 'GET':
             return True
-        user = request.data
-        pk = view.kwargs.get('pk')
+        user = request.user
         data = request.data
         desired_date = data.get('desired_date')
         initiator_shift = data.get("initiator_shift")
-        _scopes = await get_scopes_and_groups(user)
+        branch = int(request.data['branches'][0])
+        branch = await Branch.objects.aget(id=branch)
+        if not branch.allow_auto_shift_swap:
+            raise ValidationError(_("Action not allowed, contact manager for assistance"))
+        request.branch = branch
+
+        # _scopes = await get_scopes_and_groups(user)
         if view.action in ['create', 'update']:
+            # if desired_date <= timezone.now().date():
+            #     raise ValidationError(_("Can only swap future dates"))
             try:
                 initiator = await StaffShift.objects.aget(
                     id=initiator_shift,
@@ -1288,6 +1296,7 @@ class ShiftSwapPermission(BasePermission):
                 raise ValidationError("Invalid or non-swappable shift selected")
         
         if view.action == 'accept':
+            pk = view.kwargs.get('pk')
             try:
                 shift_swap = await ShiftSwapRequest.objects.select_related('initiator').aget(id=pk, status='pending')
                 desired_date = shift_swap.desired_date
@@ -1297,7 +1306,8 @@ class ShiftSwapPermission(BasePermission):
                     date=desired_date,
                     user_id=user.id,
                     # is_swappable=True,
-                    branch_id__in=_scopes['branch'] # Same branch
+                    # branch_id__in=_scopes['branch'] # Same branch 
+                    branch_id=branch
                 )
                 
                 request.shift_swap = shift_swap
