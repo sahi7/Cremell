@@ -696,7 +696,7 @@ class EntityUpdatePermission(BasePermission):
                 raise PermissionDenied(_("Assigned user not in your scope"))
 
         # Handle bulk user assignment
-        if action == "assign_users" and user_ids:
+        if action in ["assign_users", "remove_users"] and user_ids:
             # Fetch users in bulk and validate existence
             # users = [user.id async for user in CustomUser.objects.filter(id__in=user_ids).values_list('id', flat=True)]
             # users = [user_id async for user_id in CustomUser.objects.filter(id__in=user_ids).values_list('id', flat=True)]
@@ -1272,15 +1272,23 @@ class ShiftSwapPermission(BasePermission):
     async def has_permission(self, request, view):
         if request.method == 'GET':
             return True
-        user = request.user
-        data = request.data
-        desired_date = data.get('desired_date')
-        initiator_shift = data.get("initiator_shift")
+        
         branch = int(request.data['branches'][0])
         branch = await Branch.objects.aget(id=branch)
         if not branch.allow_auto_shift_swap:
             raise ValidationError(_("Action not allowed, contact manager for assistance"))
         request.branch = branch.id
+
+        if view.action == 'accept':
+            return await self._accept_checks(request, view, branch.id)
+        else:
+            return await self._standard_checks(request, view)
+        
+    async def _standard_checks(self, request, view):
+        user = request.user
+        data = request.data
+        desired_date = data.get('desired_date')
+        initiator_shift = data.get("initiator_shift")
 
         # _scopes = await get_scopes_and_groups(user)
         if view.action in ['create', 'update']:
@@ -1294,26 +1302,40 @@ class ShiftSwapPermission(BasePermission):
                     # is_swappable=True
                 )
             except StaffShift.DoesNotExist:
-                raise ValidationError("Invalid or non-swappable shift selected")
+                raise ValidationError(_("Invalid or non-swappable shift selected"))
+            
+            return True
+    
+    async def _accept_checks(self, request, view, branch):
+        user = request.user
+        pk = view.kwargs.get('pk')
+        try:
+            shift_swap = await ShiftSwapRequest.objects.select_related('initiator', 'initiator_shift').aget(id=pk, status='pending')
+            # shift_swap = await ShiftSwapRequest.objects.select_related('initiator', 'initiator_shift').aget(id=pk)
+            if shift_swap.branch_id != branch:
+                return False
+            desired_date = shift_swap.desired_date
+            if shift_swap.initiator.role != user.role:
+                raise ValidationError(_("Invalid department"))
+            counterparty = await StaffShift.objects.select_related('shift').aget(
+                date=desired_date,
+                user_id=user.id,
+                # is_swappable=True,
+                # branch_id__in=_scopes['branch'] # Same branch 
+                branch_id=shift_swap.branch_id 
+                # branch_id=branch
+            )
+            if counterparty.date <= timezone.now().date():
+                return False, _("Counterparty shift is in the past")
+            if shift_swap.initiator_shift_id == counterparty.shift_id:
+                raise ValidationError(_("Same shift on same date"))
+            
+            request.swap_request = shift_swap
+            request.counterparty_shift = counterparty
+        except StaffShift.DoesNotExist:
+            raise ValidationError(_("Invalid counterparty shift"))
+        except ShiftSwapRequest.DoesNotExist:
+            raise ValidationError(_("Swap request is invalid or modified"))
         
-        if view.action == 'accept':
-            pk = view.kwargs.get('pk')
-            try:
-                shift_swap = await ShiftSwapRequest.objects.select_related('initiator').aget(id=pk, status='pending')
-                desired_date = shift_swap.desired_date
-                if shift_swap.initiator.role != user.role:
-                    raise ValidationError(_("Invalid department"))
-                counterparty = await StaffShift.objects.aget(
-                    date=desired_date,
-                    user_id=user.id,
-                    # is_swappable=True,
-                    # branch_id__in=_scopes['branch'] # Same branch 
-                    branch_id=branch
-                )
-                
-                request.shift_swap = shift_swap
-                request.counterparty_shift = counterparty.id
-            except StaffShift.DoesNotExist:
-                raise ValidationError(_("Invalid counterparty shift"))
         return True
         

@@ -86,7 +86,7 @@ def send_register_email(self, user_id):
 def send_assignment_email(user_id, object_type, object_id, field_name):
     user = CustomUser.objects.get(id=user_id)
     subject = f"New Assignment: {object_type.capitalize()} {field_name}"
-    message = f"Hi {user.username},\n\nYou’ve been {field_name} to {object_type} ID {object_id}.\n\nRegards,\nTeam"
+    message = f"Hi {user.username},\n\nYou’ve been {field_name} {object_type} ID {object_id}.\n\nRegards,\nTeam"
     send_mail(subject, message, 'wufxna@gmail.com', [user.email], fail_silently=False)
     return True
 

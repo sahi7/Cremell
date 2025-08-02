@@ -656,7 +656,8 @@ class LowRoleQsFilter:
     @staticmethod
     async def shift_swap_filter(user, branch_ids):
         """Filter users by branch membership."""
-        return Q(initiator=user, branch_id__in=branch_ids) | Q(counterparty=user, branch_id__in=branch_ids)
+        # return Q(initiator=user, branch_id__in=branch_ids) | Q(counterparty=user, branch_id__in=branch_ids)
+        return (Q(branch_id__in=branch_ids) & (Q(initiator=user) | Q(counterparty=user) | Q(status='pending')))
 
     @staticmethod
     async def default_empty_filter(user, branch_ids):

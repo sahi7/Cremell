@@ -1073,35 +1073,52 @@ class ShiftSwapRequestViewSet(ModelViewSet):
 
     @action(detail=True, methods=['post'])
     async def accept(self, request, pk=None):
-        cleaned_data = clean_request_data(request.data)
-        data = cleaned_data
-        swap_request = request.swap_request
-        if swap_request.status != 'pending':
-            return Response({'error': 'Swap request is not pending.'}, status=status.HTTP_400_BAD_REQUEST)
-
         # Update swap request
-        swap_request.counterparty = request.user
-        swap_request.counterparty_shift = request.counterparty_shift
+        swap_request = request.swap_request
+        swap_request.counterparty_id = request.user.id
+        if swap_request.counterparty == swap_request.initiator:
+            return Response(
+                        {"error": _("Concurrent modification detected")},
+                        status=status.HTTP_409_CONFLICT
+                    )
+        swap_request.counterparty_shift_id = request.counterparty_shift.shift_id
         swap_request.status = 'completed'
         swap_request.accepted_at = timezone.now()
-        await swap_request.asave()
+        await swap_request.asave(update_fields=['status', 'accepted_at', 'counterparty_shift_id', 'counterparty_id'])
 
         # Update shifts
+        initiator_saff_shift = await StaffShift.objects.aget(
+            user_id=swap_request.initiator_id,  # Ensures initiator owns the shift
+            date=swap_request.desired_date
+            # is_swappable=True
+        )
         initiator_shift = swap_request.initiator_shift
-        counterparty_shift = swap_request.counterparty_shift
-        initiator_shift.employee = swap_request.counterparty
-        counterparty_shift.employee = swap_request.initiator
-        await StaffShift.objects.abulk_update([initiator_shift, counterparty_shift], ['employee'])
+        counterparty_shift = request.counterparty_shift.shift
+
+        counterparty_staff_shift_id = request.counterparty_shift.shift_id
+        initiator_staff_shift_id = initiator_saff_shift.shift_id
+
+        print(f"\n=== STAFF SHIFT ID MAPPING ===")
+        print(f"Original Counterparty Staff Shift ID: {counterparty_staff_shift_id}")
+        print(f"Original Initiator Staff Shift ID: {initiator_staff_shift_id}")
+
+        counterparty_staff_shift_id_swaped = initiator_staff_shift_id
+        initiator_staff_shift_id_swaped = counterparty_staff_shift_id
+
+        print(f"\n=== AFTER SWAP ===")
+        print(f"New Counterparty Staff Shift ID: {counterparty_staff_shift_id_swaped}")
+        print(f"New Initiator Staff Shift ID: {initiator_staff_shift_id_swaped}")
+
+        await StaffShift.objects.abulk_update([counterparty_staff_shift_id_swaped, initiator_staff_shift_id_swaped], ['shift_id'])
 
         # Create history record
-        branch_id = swap_request.initiator_shift.branch.id
+        branch_id = swap_request.branch_id
         details = {
-            "reason": f"Accepted swap {swap_request.id} with shift {counterparty_shift.id}",
-            "initiator": swap_request.initiator.id,
-            "counterparty": swap_request.counterparty.id,
-            "initiator_shift": initiator_shift.id,
-            "counterparty_shift": counterparty_shift.id,
-            "accepted_at": swap_request.accepted_at,
+            "reason": _(f"Accepted swap on {swap_request.desired_date} with shift {counterparty_shift.name}"),
+            "initiator": swap_request.initiator.username,
+            "counterparty": swap_request.counterparty.username,
+            "initiator_shift": initiator_shift.name,
+            "counterparty_shift": counterparty_shift.name,
             "branch": branch_id
         }
 
@@ -1111,14 +1128,13 @@ class ShiftSwapRequestViewSet(ModelViewSet):
         # Notify managers via WebSocket
         channel_layer = get_channel_layer()
         await channel_layer.group_send(
-            f"{branch_id}_manager",
+            f"{branch_id}_{request.user.role}",
             {
-                'type': 'shift_swap_completed',
+                'type': 'branch.update',
+                'signal': 'shift_swap_completed',
                 'message': {
                     'swap_id': swap_request.id,
-                    'initiator': swap_request.initiator.username,
-                    'counterparty': swap_request.counterparty.username,
-                    'accepted_at': swap_request.accepted_at.isoformat(),
+                    'details': details,
                 }
             }
         )

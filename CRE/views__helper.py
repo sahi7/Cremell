@@ -204,7 +204,7 @@ class AssignmentView(APIView):
             )
 
         # Validate field (minimal check since permission already ensures existence)
-        if not field_value and action not in ['remove', 'assign_users']:
+        if not field_value and action not in ['remove', 'assign_users', 'remove_users']:
             try:
                 field = model._meta.get_field(field_name)
                 if not isinstance(field, models.ForeignKey):
@@ -220,8 +220,8 @@ class AssignmentView(APIView):
         # Handle update (permissions already checked)
         if action == "remove":
             await self._handle_removal(obj, field_name, model, data, old_manager)
-        elif action == "assign_users" and user_ids:
-            await self._handle_bulk_user_assignment(obj, user_ids, object_type, model)
+        elif action in ["assign_users", "remove_users"] and user_ids:
+            await self._handle_bulk_user_assignment(obj, user_ids, object_type, action)
         elif user_id is not None:
             user = await CustomUser.objects.aget(id=user_id)  # consider using user from permission to avoid extra db hit
             await self._handle_user_assignment(obj, user, field_name, model, data, old_manager)
@@ -349,7 +349,7 @@ class AssignmentView(APIView):
         object_type = model.__name__.lower()
         await self._send_notifications(old_manager, object_type, obj.id, f"removed as {field_name}")
 
-    async def _handle_bulk_user_assignment(self, obj, user_ids, object_type, model):
+    async def _handle_bulk_user_assignment(self, obj, user_ids, object_type, action):
         """Handle bulk assignment of users to an object's M2M field."""
         USER_FIELD_MAP = {
             'restaurant': 'restaurants',
@@ -375,15 +375,25 @@ class AssignmentView(APIView):
         # run aatomic here 
         # Bulk assign users to M2M field
         m2m_manager = getattr(CustomUser, user_field).through
-        # Create bulk M2M entries
-        m2m_objects = [
-            m2m_manager(customuser_id=user_id, **{f"{object_type}_id": obj.id})
-            for user_id in user_ids
-        ]
-        await m2m_manager.objects.abulk_create(m2m_objects, ignore_conflicts=True)
+        object_id_field = f"{object_type}_id"
+        if action == "assign_users":
+            # Create bulk M2M entries
+            m2m_objects = [
+                m2m_manager(customuser_id=user_id, **{object_id_field: obj.id})
+                for user_id in user_ids
+            ]
+            await m2m_manager.objects.abulk_create(m2m_objects, ignore_conflicts=True)
 
-        # Bulk update user status 
-        await CustomUser.objects.filter(id__in=user_ids).aupdate(status='active') 
+            # Bulk update user status 
+            await CustomUser.objects.filter(id__in=user_ids).aupdate(status='active') 
+
+        elif action == "remove_users":
+            # Construct the filter dynamically
+            filter_kwargs = {
+                "customuser_id__in": user_ids,
+                object_id_field: obj.id
+            }
+            await m2m_manager.objects.filter(**filter_kwargs).adelete()
 
         # Log activity
         details = {
@@ -398,7 +408,8 @@ class AssignmentView(APIView):
 
         # Send notifications in bulk
         notification_tasks = [
-            self._send_notifications(user_id, object_type, obj.id, f"assigned to {object_type}")
+            self._send_notifications(user_id, object_type, obj.id, 
+                                     f"{'assigned to' if action == 'assign_users' else 'removed from'}")
             for user_id in user_ids
         ]
         await asyncio.gather(*notification_tasks)
