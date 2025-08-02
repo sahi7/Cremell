@@ -13,6 +13,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework_simplejwt.views import TokenBlacklistView
+from rest_framework_simplejwt.tokens import RefreshToken, OutstandingToken, BlacklistedToken
 
 from dj_rest_auth.registration.views import SocialLoginView
 from dj_rest_auth.registration.views import RegisterView
@@ -65,11 +66,51 @@ class GoogleLogin(SocialLoginView):
     client_class = OAuth2Client
 
 
-class LogoutView(TokenBlacklistView):
-    def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
-        if response.status_code == 200:
-            return Response({"detail": _("Successfully logged out")}, status=status.HTTP_200_OK)
+# class LogoutView(TokenBlacklistView):
+#     def post(self, request, *args, **kwargs):
+#         response = super().post(request, *args, **kwargs)
+#         if response.status_code == 200:
+#             return Response({"detail": _("Successfully logged out")}, status=status.HTTP_200_OK)
+#         return response
+
+class LogoutView(APIView, TokenBlacklistView):
+    async def post(self, request, *args, **kwargs):
+        # Blacklist refresh token
+        try:
+            refresh_token = request.data.get('refresh') or request.COOKIES.get('refresh_token')
+            if not refresh_token:
+                return Response({"detail": _("Refresh token is required.")}, status=status.HTTP_400_BAD_REQUEST)
+            token = await sync_to_async(RefreshToken)(refresh_token)
+            await sync_to_async(token.blacklist)()
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Blacklist access token
+        access_token = request.COOKIES.get('access_token') or (
+            request.headers.get('Authorization', '').split(' ')[1] if request.headers.get('Authorization', '').startswith('Bearer ') else None
+        )
+        if access_token:
+            try:
+                jti = RefreshToken(access_token).payload['jti']
+                expires_at = timezone.now() + request.auth.lifetime if request.auth else timezone.now() + timezone.timedelta(minutes=5)
+                outstanding_token, _ = await sync_to_async(OutstandingToken.objects.get_or_create)(
+                    jti=jti,
+                    defaults={
+                        'user': request.user,
+                        'token': access_token,
+                        'expires_at': expires_at
+                    }
+                )
+                # Update StaffAvailability to offline
+                await sync_to_async(StaffAvailability.objects.update_or_create)(user=request.user,
+                    defaults={'status': 'offline'})
+                await sync_to_async(BlacklistedToken.objects.get_or_create)(
+                    token=outstanding_token
+                )
+            except Exception as e:
+                pass  # Silently ignore access token blacklisting errors
+
+        response = Response({"detail": _("Successfully logged out")}, status=status.HTTP_200_OK)
         return response
 
 class CustomRegisterView(RegisterView):
