@@ -1073,6 +1073,7 @@ class ShiftSwapRequestViewSet(ModelViewSet):
 
     @action(detail=True, methods=['post'])
     async def accept(self, request, pk=None):
+        from CRE.tasks import send_shift_notifications
         # Update swap request
         swap_request = request.swap_request
         swap_request.counterparty_id = request.user.id
@@ -1118,6 +1119,23 @@ class ShiftSwapRequestViewSet(ModelViewSet):
 
         # Log activity
         log_activity.delay(request.user.id, 'shift_swap_accept', details, branch_id, 'branch')
+        recipients = {
+            'initiator': swap_request.initiator_id,
+            'counterparty': request.user.id,
+            'initiator_leader': initiator_shift.shift_leader_id,
+            'counterparty_leader': counterparty_shift.shift_leader_id
+        }
+        # Filter out None values
+        user_ids = [uid for uid in recipients.values() if uid is not None]
+        send_shift_notifications.delay(
+            user_ids=user_ids, 
+            branch_id=branch_id, 
+            template_name = 'emails/shift_swap_notification.html',
+            subject=_("Shift Swap Notification"),
+            message='',
+            extra_context=details,
+            send_to_manager=True
+        )
 
         # Notify managers via WebSocket
         channel_layer = get_channel_layer()

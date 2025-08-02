@@ -1,0 +1,23 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{% trans "Shift Swap Notification" %}</title>
+</head>
+<body>
+    <p>{% trans "Dear" %} {{ username }},</p>
+    <p>{% blocktrans with reason=reason %}
+        A shift swap has been completed in your branch: {{ reason }}
+    {% endblocktrans %}</p>
+    <h3>{% trans "Swap Details" %}</h3>
+    <ul>
+        <li><strong>{% trans "Initiated by" %}:</strong> {{ initiator }}</li>
+        <li><strong>{% trans "Accepted by" %}:</strong> {{ counterparty }}</li>
+        <li><strong>{% trans "Initiator's Shift" %}:</strong> {{ initiator_shift }}</li>
+        <li><strong>{% trans "Counterparty's Shift" %}:</strong> {{ counterparty_shift }}</li>
+    </ul>
+    <p>{% trans "No action is required, as this swap was automatically processed." %}</p>
+    <p>{% trans "Thank you," %}<br>{{  branch_name }}</p>
+</body>
+</html>

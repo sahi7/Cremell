@@ -98,6 +98,7 @@ def send_shift_notifications(
     message: str,
     template_name: str,
     extra_context: dict | None = None,
+    send_to_manager: bool = False
 ):
     """Send shift schedule notifications to users in batches"""
     # Fetch user data (email, language, timezone)
@@ -111,6 +112,11 @@ def send_shift_notifications(
         'restaurant_name': restaurant_name,
         'company_name': company_name
     }
+
+    if send_to_manager:
+        manager_id = branch.manager_id
+        if manager_id:
+            user_ids.append(branch.manager_id)
 
     if extra_context is None:
         extra_context = additional_context
@@ -134,10 +140,14 @@ def send_shift_notifications(
                     }]
                 })
     else:
+        user_ids_set = set(user_ids) 
+        users = CustomUser.objects.filter(id__in=user_ids_set).values('id', 'email', 'username')
+        user_map = {user['id']: user for user in users}
         for user_id in user_ids:
             stakeholders.append({
                 'id': user_id,
-                'email': (CustomUser.objects.get(id=user_id)).email,
+                'email': user_map[user_id]['email'],
+                'username': user_map[user_id]['username'],
                 'language': timezones[user_id]['language'],
                 'timezone': timezones[user_id]['timezone']
             })
