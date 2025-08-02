@@ -436,13 +436,10 @@ class OrderSerializer(ModelSerializer):
 
 class ShiftSerializer(ModelSerializer):
     """Serializer for Shift model with async validation."""
-    branch_id = serializers.PrimaryKeyRelatedField(
-        queryset=Branch.objects.all(), source='branch', write_only=True
-    )
 
     class Meta:
         model = Shift
-        fields = ['id', 'branch_id', 'name', 'start_time', 'end_time']
+        fields = ['id', 'branch', 'name', 'start_time', 'end_time']
         read_only_fields = ['id']
 
     def validate(self, attrs):
