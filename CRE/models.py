@@ -644,7 +644,7 @@ class Order(models.Model):
         ('ready', _("Ready to Serve")), # Cook marks the order as completed -> foodrunner claims serve task
         ('delivered', _("Delivered")), # Foodrunner delivers food on table
         ('completed', _("Completed")), # Cashier processes payment for the order -> it is marked as completed
-        ('canceled', _("Canceled")),
+        ('cancelled', _("Cancelled")),
     ]
 
     ORDER_TYPE_CHOICES = [
@@ -678,7 +678,10 @@ class Order(models.Model):
     is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='created_orders')
+    cancelled_at = models.DateTimeField(blank=True, null=True)
+    cancelled_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='cancelled_orders')
     deleted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='deleted_orders')
+    deleted_at = models.DateTimeField(blank=True, null=True)
 
     def __str__(self):
         return f"{_('Order')} {self.id} - {self.get_status_display()}"

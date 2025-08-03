@@ -552,7 +552,7 @@ def create_task(order_id, task_type):
         )
 
         # Determine WebSocket group based on task_type
-        group_name = f"kitchen_{order.branch.id}_{'cashier' if task_type == 'payment' else 'food_runner'}"
+        group_name = f"kitchen_{order.branch_id}_{'cashier' if task_type == 'payment' else 'food_runner'}"
         channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
             group_name,

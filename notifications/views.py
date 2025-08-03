@@ -387,6 +387,8 @@ class TaskClaimView(APIView):
             task = request.task
             if not task:
                 return Response({'error': _('Task unavailable or modified')}, status=400)
+            if task.order.status == 'cancelled':
+                return Response({'error': _('Order has been cancelled')}, status=400)
             if not await validate_order_role(user, task.task_type):
                 return Response({'error': _("Invalid role, can't claim task")}, status=403)
             availability = await StaffAvailability.objects.aget(user_id=user.id)
@@ -433,6 +435,8 @@ class TaskCompleteView(APIView):
                 print("task: ", task)
                 if not task:
                     return Response({'error': 'Task unavailable or modified'}, status=400)
+                if task.order.status == 'cancelled':
+                    return Response({'error': _('Order has been cancelled')}, status=400)
                 if not await validate_order_role(user, task.task_type):
                     return Response({'error': _("Invalid role, can't complete task")}, status=403)
                 # Update task to completed

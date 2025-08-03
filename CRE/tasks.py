@@ -381,6 +381,20 @@ def send_to_pos(order_id):
                         'message': f"Order {order.status} | {order.order_number}"
                     }
                 )
+        elif order.status == 'cancelled':
+            groups = [
+                f"kitchen_{order.branch.id}_food_runner",
+                f"kitchen_{order.branch.id}_cook",
+                f"kitchen_{order.branch.id}_shift_leader"
+            ]
+            for group_name in groups:
+                async_to_sync(channel_layer.group_send)(
+                    group_name,
+                    {
+                        'type': 'order.notification',
+                        'message': f"Order {order.status} | {order.order_number}"
+                    }
+                )
         else:
             async_to_sync(channel_layer.group_send)(
                 f"kitchen_{order.branch_id}_food_runner",

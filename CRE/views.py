@@ -566,7 +566,7 @@ class MenuItemViewSet(ModelViewSet):
         instance = await serializer.save()
         return Response(serializer.to_representation(instance), status=status.HTTP_201_CREATED)
 
-
+channel_layer = get_channel_layer()
 from decimal import Decimal
 from CRE.tasks import send_to_kds
 from services.sequences import generate_order_number
@@ -581,7 +581,7 @@ class OrderViewSet(ModelViewSet):
 
     def get_permissions(self):
         role_value = async_to_sync(self.request.user.get_role_value)()
-        self._access_policy = (ScopeAccessPolicy if role_value <= 4 else StaffAccessPolicy)()
+        self._access_policy = (ScopeAccessPolicy if role_value <= 5 else StaffAccessPolicy)()
         return [self._access_policy, OrderPermission(),]
     
     def get_queryset(self):
@@ -928,6 +928,71 @@ class OrderViewSet(ModelViewSet):
         # 6. FINAL STEP: Return response
         response = await modify_order()
         return response
+    
+    @action(detail=True, methods=['post'])
+    async def cancel(self, request, *args, **kwargs):
+        from datetime import timedelta
+        from CRE.tasks import send_to_pos
+        from notifications.models import Task
+        from zMisc.utils import get_user_permissions
+        pk = kwargs['pk']
+        try:
+            order = await Order.objects.select_related('branch').aget(id=pk)
+            if order.status in ['cancelled', 'completed']:
+                return Response({"detail": _("This order has been canceled or completed.")}, status=status.HTTP_400_BAD_REQUEST)
+        except Order.DoesNotExist:
+            return Response({"detail": _("Order not found")}, status=status.HTTP_404_NOT_FOUND)
+        user = request.user
+        _user_perm = await get_user_permissions(user)
+        has_perm = 'orders.cancel_order' in _user_perm
+        is_authorized = (order.created_by_id == user.id) or has_perm
+        # print("is_authorized: ", is_authorized)
+        branch_manager_id = order.branch.manager_id
+        is_branch_manager = (branch_manager_id == user.id)
+        # print("is_branch_manager: ", is_branch_manager)
+
+        # Validate cancellation prerequisites
+        if order.status not in ['received', 'completed']:
+            if not is_branch_manager:
+                return False
+        else:
+            if not is_branch_manager:
+                if not is_authorized:
+                    return Response({"detail": _("You are not authorized to cancel this order.")}, status=status.HTTP_403_FORBIDDEN)
+                # return Response({"detail": _("Order cannot be cancelled; it is already in progress or completed.")}, status=status.HTTP_400_BAD_REQUEST)
+            # else:
+            #     if order.status == 'preparing':
+            #         current_task = await Task.objects.filter(order_id=order.id).afirst()
+            #         task_handler_id = current_task.claimed_by_id
+
+        # Check time constraint (e.g., within 24 hours of creation)
+        if order.created_at < timezone.now() - timedelta(hours=24):
+            return Response({"detail": _("Order cannot be cancelled; it is past the cancellation window.")}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Update order status
+        order.cancelled_by_id = user.id
+        order.cancelled_at = timezone.now()
+        order.status = 'cancelled'
+        await order.asave()
+
+        send_to_pos.delay(order.id)
+        if branch_manager_id:
+            await channel_layer.group_send(
+                f"user_{branch_manager_id}",
+                # f"user_{task_handler_id}",
+                {
+                    'type': 'stakeholder.notification',
+                    'message': f"Order {order.status} | {order.order_number}"
+                }
+            )
+
+        # Log cancellation
+        details = {
+            "reason": str(_(f"Order {order.id} cancelled by {request.user.username}")),
+            "order_id": order.id,
+        }
+        # log_activity.delay(request.user.id, 'order_cancelled', details, order.branch.id, 'branch')
+        return Response({"status": str(_(f"Order {order.status}"))}, status=status.HTTP_200_OK)
         
 
 class ShiftViewSet(ModelViewSet):
@@ -1035,7 +1100,6 @@ class StaffShiftViewSet(ModelViewSet):
         await run_atomic(new_shift_name)
 
 
-        channel_layer = get_channel_layer()
         await channel_layer.group_send(
             f"user_{staff_shift.user_id}",
             {

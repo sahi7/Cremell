@@ -37,7 +37,7 @@ class StakeholderConsumer(AsyncWebsocketConsumer):
         message = event['message']
         model = event['type']
         await self.send(text_data=json.dumps({
-            'type': f'{model}.notification',
+            'type': f'{model}',
             'message': message
         }))
         logger.debug(f"Sent notification to {self.user_group}: {message}")

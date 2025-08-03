@@ -74,7 +74,7 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
 - Print receipts
   1. Save Printer configuration per branch 
 - ❌Improve get_stakeholders when r_val has been corrected
-- ❌views_helper does not change user.status when they are assigned
+- views_helper does not change user.status when they are assigned
 
 - Next
   A. Third-Party Integration: Connect with delivery platforms
