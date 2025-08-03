@@ -54,8 +54,8 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   3. When creating pattern check that the shift is of the branch & users[] is of branch
   4. Create action and modify handle_emergency overide
   5. Create StaffAvailability On First Shift Assignment
-  6. ❌Enable shift swapping by employees -- No manager approval (must be enabled on branch first)
-  7. ❌Add a `shift_leader` field to shift Model, they get notified when users swap shifts 
+  6. Enable shift swapping by employees -- No manager approval (must be enabled on branch first)
+  7. Add a `shift_leader` field to shift Model, they get notified when users swap shifts 
   8. Add currency field on branch
   9. Add 2 fields on Menu Model; is_pos_menu and is_web_or_app_menu
   10. Add 'Extension ' field to Branch Model; branch, kiosk, food_truck
