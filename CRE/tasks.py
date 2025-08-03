@@ -10,12 +10,13 @@ from django.utils import timezone
 from django.http import HttpRequest
 from django.contrib.sites.models import Site
 from django.contrib.auth import get_user_model
+from django.utils.translation import gettext_lazy as _
 from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.mail import send_mail
 
-from notifications.models import Task, RestaurantActivity, BranchActivity
-from .models import StaffShift, Restaurant, Branch, Order, StaffAvailability
+from notifications.models import Task
+from .models import StaffShift, Restaurant, Branch, Order, StaffAvailability, ShiftSwapRequest
 from zMisc.utils import determine_activity_model, render_notification_template
 import logging
 
@@ -194,6 +195,72 @@ def send_shift_notifications(
     finally:
         connection.close()
 
+@shared_task
+def log_bulk_activities(activities):
+    """Bulk version of log_activity"""
+    # from django.contrib.contenttypes.models import ContentType
+    from notifications.models import BranchActivity  # Import your ActivityLog model
+
+    logs = []
+    for activity in activities:
+        logs.append(BranchActivity(
+            user_id=activity['user_id'],
+            activity_type=activity['activity_type'],
+            details=activity['details'],
+            branch_id=activity['obj_id'],
+            # content_type=ContentType.objects.get_for_model(activity['obj_type'])
+        ))
+
+    BranchActivity.objects.bulk_create(logs)
+
+    return True
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst"""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+@shared_task
+def expire_stale_shift_swap_requests():
+    from datetime import timedelta
+    # Define timeout period (e.g., 24 hours)
+    timeout_hours = 24
+    expiration_time = timezone.now() - timedelta(hours=timeout_hours)
+
+    # Find pending requests older than timeout
+    stale_requests = ShiftSwapRequest.objects.filter(
+        status='pending',
+        created_at__lt=expiration_time
+    )
+
+    # Early exit if no requests to process
+    if not stale_requests.exists():
+        return
+
+    # Prepare bulk activity data
+    activities = []
+    for request in stale_requests:
+        activities.append({
+            'user_id': request.initiator_id,
+            'activity_type': 'shift_swap_expired',
+            'details': {
+                "reason": _(f"Shift swap request {request.id} expired after {timeout_hours} hours"),
+                "initiator": request.initiator_id,
+                "swap_id": request.id,
+                "initiator_shift": request.initiator_shift_id,
+                "desired_date": request.desired_date.isoformat()
+            },
+            'obj_id': request.branch_id,
+            'obj_type': 'branch'
+        })
+    # Batch process logs in chunks of 100
+    for chunk in chunks(activities, 100):
+        log_bulk_activities.delay(chunk)
+
+    # Bulk update status
+    updated_count = stale_requests.update(status='expired')
+
+    return f"Expired {updated_count} shift swap requests"
 
 @shared_task
 def log_activity(user_id, activity_type, details=None, obj_id=None, obj_type=None):

@@ -1091,7 +1091,11 @@ class ShiftSwapRequestViewSet(ModelViewSet):
         branch_id = shift_swap_request.branch_id
 
         # Log activity
-        details = f"Requested swap for shift {shift_swap_request.initiator_shift_id} on {shift_swap_request.desired_date}"
+        details = {
+            "initiator_id": shift_swap_request.initiator_id,
+            "initiator_shift_id": shift_swap_request.initiator_shift_id,
+            "desired_date": shift_swap_request.desired_date
+        }
         log_activity.delay(request.user.id, 'shift_swap_request', details, branch_id, 'branch')
 
         # Send WebSocket notification
