@@ -314,6 +314,7 @@ class CustomUser(AbstractUser):
             models.Index(fields=['phone_number']),
             models.Index(fields=['status']),
             models.Index(fields=['role']),
+            models.Index(fields=['r_val']),
             models.Index(fields=['timezone']),
             models.Index(fields=['preferred_language']),
         ]

@@ -1050,9 +1050,6 @@ async def get_user_permissions(user) -> list:
     Returns:
         list: List of permission strings (e.g., ['orders.cancel_order', 'orders.view_order']).
     """
-    if not user.is_authenticated:
-        return []
-
     # Check Redis cache
     cache_key = f"user_permissions:{user.id}"
     cached_perms = await redis_client.get(cache_key)

@@ -69,7 +69,7 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   Cache order items for branch daily (update cache on edit)
   CK getqueryset:: see order.status=received and claimed_by=user
   1. ❌Ensure a task cannot be claimed when already claimed
-  2. ❌Add logic to cancel an order
+  2. Add logic to cancel an order
   3. Add a `priority` field to Order Model (add priority details in order notes)
 - Print receipts
   1. Save Printer configuration per branch 
@@ -88,6 +88,7 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   I. Export Options: Export reports as CSV/PDF for offline analysis
   J. Alert System: Notify managers of anomalies (e.g., sales drops) via Channels
   K. Real-Time Sales Analytics: Track sales by hour/branch, cached in Redis
+  L. Admins can add custom Role and assign permissions to their users within their scope
 
 
 # REDUCE DB REQUESTS WITH CACHING #

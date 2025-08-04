@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'payments.apps.PaymentsConfig',
     'archive.apps.ArchiveConfig',
     'payroll.apps.PayrollConfig',
+    'permissions.apps.PermissionsConfig',
 
     # django-allauth
     'allauth',
