@@ -8,6 +8,10 @@ from django.utils.translation import gettext_lazy as _
 from .models import Branch, CustomUser, BranchPermissionPool, BranchPermissionAssignment
 from .serializers import BranchPermissionAssignmentSerializer, BranchPermissionPoolSerializer
 from .tasks import create_permission_assignments, update_permission_pool
+from .permissions import BranchPermissionAss
+from CRE.tasks import log_activity
+from zMisc.utils import clean_request_data
+from zMisc.policies import ScopeAccessPolicy
 
 class BranchPermissionAssignmentView(APIView):
     # Role rank mapping for validation
@@ -25,6 +29,7 @@ class BranchPermissionAssignmentView(APIView):
         'delivery_man': 11,
         'utility_worker': 12,
     }
+    permission_classes = [ScopeAccessPolicy, BranchPermissionAss]
 
     async def post(self, request, *args, **kwargs):
         """
@@ -38,7 +43,10 @@ class BranchPermissionAssignmentView(APIView):
             "conditions": {}
         }
         """
-        serializer = BranchPermissionAssignmentSerializer(data=request.data)
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
+        data['branch_id'] = request.branch.id
+        serializer = BranchPermissionAssignmentSerializer(data=data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -52,16 +60,16 @@ class BranchPermissionAssignmentView(APIView):
         conditions = data.get('conditions', {})
         assigned_by = request.user
 
-        # Validate branch_manager role (rank 5)
-        if not assigned_by.role or self.ROLE_RANKS.get(assigned_by.role) != 5:
-            return Response(
-                {"error": _("Only branch managers can assign permissions.")},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # # Validate branch_manager role (rank 5)
+        # if not assigned_by.role or self.ROLE_RANKS.get(assigned_by.role) != 5:
+        #     return Response(
+        #         {"error": _("Only branch managers can assign permissions.")},
+        #         status=status.HTTP_403_FORBIDDEN
+        #     )
 
         try:
             # Async fetch branch and permission pool
-            branch = await sync_to_async(Branch.objects.get)(id=branch_id)
+            branch = request.branch
             permission_pool = await sync_to_async(BranchPermissionPool.objects.get)(branch=branch)
 
             # Validate permissions exist in the pool
@@ -145,7 +153,7 @@ class BranchPermissionAssignmentView(APIView):
 
         except ObjectDoesNotExist:
             return Response(
-                {"error": _("Branch or permission pool not found.")},
+                {"error": _("Permission pool not found.")},
                 status=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
@@ -163,7 +171,10 @@ class BranchPermissionAssignmentView(APIView):
             "permission_ids": [101, 102]
         }
         """
-        serializer = BranchPermissionAssignmentSerializer(data=request.data)
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
+        data['branch_id'] = int(request.data['branches'][0])
+        serializer = BranchPermissionAssignmentSerializer(data=data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -174,12 +185,12 @@ class BranchPermissionAssignmentView(APIView):
         permission_ids = data['permission_ids']
         assigned_by = request.user
 
-        # Validate branch_manager role (rank 5)
-        if not assigned_by.role or self.ROLE_RANKS.get(assigned_by.role) != 5:
-            return Response(
-                {"error": _("Only branch managers can delete permissions.")},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # # Validate branch_manager role (rank 5)
+        # if not assigned_by.role or self.ROLE_RANKS.get(assigned_by.role) != 5:
+        #     return Response(
+        #         {"error": _("Only branch managers can delete permissions.")},
+        #         status=status.HTTP_403_FORBIDDEN
+        #     )
 
         try:
             branch = await sync_to_async(Branch.objects.get)(id=branch_id)
@@ -248,6 +259,7 @@ class BranchPermissionPoolView(APIView):
         'delivery_man': 11,
         'utility_worker': 12,
     }
+    permission_classes = [ScopeAccessPolicy, BranchPermissionAss]
 
     async def post(self, request, *args, **kwargs):
         """
@@ -257,7 +269,10 @@ class BranchPermissionPoolView(APIView):
             "permission_ids": [101, 102, 103]
         }
         """
-        serializer = BranchPermissionPoolSerializer(data=request.data)
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
+        data['branch_id'] = request.branch.id
+        serializer = BranchPermissionPoolSerializer(data=data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -266,21 +281,19 @@ class BranchPermissionPoolView(APIView):
         permission_ids = data['permission_ids']
         created_by = request.user
 
-        # Validate user role (rank 1–4)
-        if not created_by.role or self.ROLE_RANKS.get(created_by.role) not in [1, 2, 3, 4]:
-            return Response(
-                {"error": _("Only company_admin, restaurant_owner, country_manager, or restaurant_manager can manage permission pools.")},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # # Validate user role (rank 1–4)
+        # if not created_by.role or self.ROLE_RANKS.get(created_by.role) not in [1, 2, 3, 4]:
+        #     return Response(
+        #         {"error": _("Only company_admin, restaurant_owner, country_manager, or restaurant_manager can manage permission pools.")},
+        #         status=status.HTTP_403_FORBIDDEN
+        #     )
 
         try:
-            # Async fetch branch
-            branch = await sync_to_async(Branch.objects.get)(id=branch_id)
-
             # Validate permissions exist
             existing_permission_ids = await sync_to_async(
                 lambda: list(Permission.objects.filter(id__in=permission_ids).values_list('id', flat=True))
             )()
+            print("existing_permission_ids: ", existing_permission_ids)
             invalid_permissions = [pid for pid in permission_ids if pid not in existing_permission_ids]
             if invalid_permissions:
                 return Response(
@@ -308,12 +321,12 @@ class BranchPermissionPoolView(APIView):
             )
 
     async def get(self, request, branch_id, *args, **kwargs):
-        # Validate user role (rank 1–4)
-        if not request.user.role or self.ROLE_RANKS.get(request.user.role) not in [1, 2, 3, 4]:
-            return Response(
-                {"error": _("Only company_admin, restaurant_owner, country_manager, or restaurant_manager can view permission pools.")},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # # Validate user role (rank 1–4)
+        # if not request.user.role or self.ROLE_RANKS.get(request.user.role) not in [1, 2, 3, 4]:
+        #     return Response(
+        #         {"error": _("Only company_admin, restaurant_owner, country_manager, or restaurant_manager can view permission pools.")},
+        #         status=status.HTTP_403_FORBIDDEN
+        #     )
 
         try:
             # Async fetch permission pool
@@ -345,7 +358,10 @@ class BranchPermissionPoolView(APIView):
             )
 
     async def delete(self, request, branch_id, *args, **kwargs):
-        serializer = BranchPermissionPoolSerializer(data=request.data)
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
+        data['branch_id'] = int(request.data['branches'][0])
+        serializer = BranchPermissionPoolSerializer(data=data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

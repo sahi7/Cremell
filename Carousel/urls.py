@@ -73,4 +73,5 @@ urlpatterns = [
     path('api/', include(router.urls)),
     path('api/', include('notifications.urls')),
     path('api/', include('payroll.urls')),
+    path('api/', include('permissions.urls')),
 ]
