@@ -26,7 +26,8 @@ class BranchPermissionAss(BasePermission):
         view_name = view.__class__.__name__
         user = request.user
         if view_name == 'BranchPermissionPoolView':
-            if not await user.get_role_value() <=4:
-                return False
+            if request.method != 'GET':
+                if not await user.get_role_value() <=4:
+                    return False
 
         return True

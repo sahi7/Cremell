@@ -1,0 +1,19 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{% trans "New Permissions Assigned" %}</title>
+</head>
+<body>
+    {% blocktrans with username=username %}
+    <p>Dear {{ username }},</p>
+    {% endblocktrans %}
+    <p>{% trans "You can now do more for your branch " %} {{ branch_name }} {% trans "you have been authorized with permissions." %}</p>
+    <h2>{% trans "Details" %}</h2>
+    <ul>
+        <li><strong>{% trans "Branch" %}</strong>: {{ branch_name }}</li>
+        <li><strong>{% trans "Permissions" %}</strong>: {{ permissions }}</li>
+    </ul>
+</body>
+</html>

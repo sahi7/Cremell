@@ -1,19 +1,24 @@
 from celery import shared_task
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 from django.db import transaction
 from .models import *
 from django.contrib.auth.models import Permission
+from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
-from CRE.tasks import log_activity
+from CRE.tasks import log_activity, send_shift_notifications
 from CRE.models import Branch
 
 CustomUser = get_user_model()
-
+channel_layer = get_channel_layer()
 @shared_task
-def create_permission_assignments(assignments, assigned_by_id, branch_id):
+def create_permission_assignments(assignments, assigned_by_id, branch_id, role_name_ids=None, log_details=None):
     with transaction.atomic():
         branch = Branch.objects.get(id=branch_id)
         assigned_by = CustomUser.objects.get(id=assigned_by_id)
         
+        user_ids = []
+        permission_ids = []
         assignment_objects = []
         for assignment in assignments:
             assignment_obj = BranchPermissionAssignment(
@@ -27,6 +32,8 @@ def create_permission_assignments(assignments, assigned_by_id, branch_id):
                 assigned_by_id=assigned_by_id
             )
             assignment_objects.append(assignment_obj)
+            user_ids.append(assignment.get('user_id'))
+            permission_ids.append(assignment.get('permission_id'))
             
             # Log each assignment
             details = {
@@ -42,9 +49,41 @@ def create_permission_assignments(assignments, assigned_by_id, branch_id):
             log_activity.delay(assigned_by_id, 'assign_permission', details, branch_id, 'branch')
         
         BranchPermissionAssignment.objects.bulk_create(assignment_objects, ignore_conflicts=True)
+        if permission_ids:
+            get_perms = Permission.objects.filter(id__in=permission_ids)
+            perm_names = [p.name for p in get_perms]
+        extra_context = {
+            "permissions": perm_names
+        }
+        if log_details:
+            extra_context.update(**log_details)
+        if user_ids:
+            user_ids = user_ids
+        elif role_name_ids:
+            user_ids = role_name_ids
+        send_shift_notifications.delay(
+            user_ids=user_ids, 
+            branch_id=branch_id,
+            subject="Permisssion assignment notification",
+            message="",
+            template_name="emails/permission_assignment_notification.html",
+            extra_context=extra_context
+            )
+        groups = [
+            f"user_{user_id}" for user_id in user_ids
+        ]
+        for group_name in groups:
+            async_to_sync(channel_layer.group_send)(
+                group_name,
+                {
+                    'type': 'stakeholder.notification',
+                    'message': str(_(f"You have been given added permission: {perm_names}"))
+                }
+            )
 
 @shared_task
 def update_permission_pool(branch_id, permission_ids, created_by_id):
+    from notifications.tasks import send_notification_task
     with transaction.atomic():
         branch = Branch.objects.get(id=branch_id)
         created_by = CustomUser.objects.get(id=created_by_id)
@@ -57,3 +96,27 @@ def update_permission_pool(branch_id, permission_ids, created_by_id):
         # Log the action
         details = {'permission_ids': permission_ids, 'created': created}
         log_activity.delay(created_by_id, 'update_pool', details, branch_id, 'branch')
+
+        get_perms = Permission.objects.filter(id__in=permission_ids)
+        perm_names = _(','.join(p.name for p in get_perms))
+        manager_id = branch.manager_id
+        if manager_id:
+            
+            async_to_sync(channel_layer.group_send)(
+                f'user_{manager_id}',
+                {
+                    'type': 'stakeholder.notification',
+                    'message': str(_(f"New custom permissions available for authorization: {perm_names}"))
+                }
+            )
+            extra_content = {
+                'perm_names': perm_names,
+            }
+            send_notification_task.delay(
+                manager_id, 
+                message='',
+                subject=str(_("Permission Pool Updated")),
+                branch_id=branch_id,
+                extra_context=extra_content,
+                template_name='emails/permission_pool_update.html',
+            )

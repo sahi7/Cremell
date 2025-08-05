@@ -1,0 +1,16 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{% trans "New Permissions Assigned" %}</title>
+</head>
+<body>
+    <p>{% trans "Permission pool for your branch " %} {{ branch_name }} {% trans "has been updated with permissions:" %} {{ perm_names }}</p>
+    <h2>{% trans "Details" %}</h2>
+    <ul>
+        <li><strong>{% trans "Branch" %}</strong>: {{ branch_name }}</li>
+        <li><strong>{% trans "Permissions" %}</strong>: {{ perm_names }}</li>
+    </ul>
+</body>
+</html>

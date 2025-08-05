@@ -88,8 +88,7 @@ class BranchPermissionAssignmentView(APIView):
             log_details = {
                 'start_time': start_time.isoformat() if start_time else None,
                 'end_time': end_time.isoformat() if end_time else None,
-                'conditions': conditions,
-                'permission_ids': permission_ids
+                'conditions': conditions
             }
 
             if user_ids:
@@ -116,13 +115,14 @@ class BranchPermissionAssignmentView(APIView):
                             'conditions': conditions,
                             'assigned_by_id': assigned_by.id
                         })
-
+            role_name_ids = []
             if role_names:
                 # Validate roles have users associated with the branch
                 role_users = await sync_to_async(
                     lambda: list(CustomUser.objects.filter(role__in=role_names, branches=branch))
                 )()
                 valid_roles = {user.role for user in role_users}
+                [role_name_ids.append(user.id) for user in users]
                 invalid_roles = [role for role in role_names if role not in valid_roles]
                 if invalid_roles:
                     return Response(
@@ -144,7 +144,7 @@ class BranchPermissionAssignmentView(APIView):
                         })
 
             # Offload to Celery
-            create_permission_assignments.delay(assignments, assigned_by.id, branch_id)
+            create_permission_assignments.delay(assignments, assigned_by.id, branch_id, role_name_ids, log_details)
 
             return Response(
                 {"message": _("Permission assignment task queued successfully.")},
@@ -221,9 +221,7 @@ class BranchPermissionAssignmentView(APIView):
                     log_details['target_user_id'] = assignment.user.id
                 else:
                     log_details['target_role'] = assignment.role
-                await sync_to_async(log_activity.delay)(
-                    assigned_by.id, 'delete_permission', log_details, branch.id, 'branch'
-                )
+                log_activity.delay(assigned_by.id, 'delete_permission', log_details, branch.id, 'branch')
 
             await sync_to_async(BranchPermissionAssignment.objects.filter(**filters).delete)()
 
@@ -293,7 +291,6 @@ class BranchPermissionPoolView(APIView):
             existing_permission_ids = await sync_to_async(
                 lambda: list(Permission.objects.filter(id__in=permission_ids).values_list('id', flat=True))
             )()
-            print("existing_permission_ids: ", existing_permission_ids)
             invalid_permissions = [pid for pid in permission_ids if pid not in existing_permission_ids]
             if invalid_permissions:
                 return Response(
@@ -330,7 +327,7 @@ class BranchPermissionPoolView(APIView):
 
         try:
             # Async fetch permission pool
-            pool = await sync_to_async(BranchPermissionPool.objects.get)(branch_id=branch_id)
+            pool = await sync_to_async(BranchPermissionPool.objects.select_related('created_by').get)(branch_id=branch_id)
             permission_ids = await sync_to_async(
                 lambda: list(pool.permissions.values_list('id', flat=True))
             )()
@@ -414,3 +411,25 @@ class BranchPermissionPoolView(APIView):
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+        
+class globalPermissionPool(APIView):
+    permission_classes = [ScopeAccessPolicy]
+    async def get(self, request, *args, **kwargs):
+        if not await request.user.get_role_value() <=4:
+                return False
+    
+        try:
+            # Async fetch permission pool
+            permissions = await sync_to_async(list)(Permission.objects.all())
+            permission_pool = {
+                perm.codename: {
+                    'id': perm.id,
+                    'name': perm.name,
+                    # 'content_type_id': perm.content_type_id
+                } 
+                for perm in permissions
+            }
+            return Response(permission_pool, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)},status=status.HTTP_500_INTERNAL_SERVER_ERROR)

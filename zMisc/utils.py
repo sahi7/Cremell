@@ -188,13 +188,27 @@ async def compare_role_values(user, role_to_create):
 
 
 async def get_scopes_and_groups(user, get_instance=False):
-    # Prefetch companies, countries, and groups in one query
-    if isinstance(user, (int, str)):
-        user_id = user
-    else:
-        user_id = user.id
+    # # Prefetch companies, countries, and groups in one query
+    # if isinstance(user, (int, str)):
+    #     user_id = user
+    # else:
+    #     user_id = user.id
+    # Determine user_id
+    user_id = user.id if not isinstance(user, (int, str)) else user
+    try:
+        # Construct cache keys
+        role_cache_key = f"scopes:{user.role}:{user_id}"
+    except AttributeError:
+        logger.info(f"AttributeError on user {user_id}: Fetching user instance")
+        user = await CustomUser.objects.prefetch_related(
+                'companies', 'countries', 'branches', 'restaurants'
+            ).aget(id=user)
+        if get_instance:
+            return user
+        role_cache_key = f"scopes:{user.role}:{user_id}"
+    
+    user_cache_key = f"user_scopes:{user_id}" 
     cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
-    role_cache_key, user_cache_key = f"scopes:{user.role}:{user_id}", f"user_scopes:{user_id}"
     if not get_instance:
         cached_data = await cache.mget(role_cache_key, user_cache_key)
         if cached_data[0]:  # Role cache hit
@@ -215,7 +229,6 @@ async def get_scopes_and_groups(user, get_instance=False):
         'groups': [g.name async for g in user.groups.all()],
         'role': user.role
     }
-    print("result: ", result)
     # await cache.set(cache_key, json.dumps({k: list(v) for k,v in result.items()}), ex=3600)
     filtered_result = {
         k: v for k, v in result.items() 
@@ -283,7 +296,7 @@ async def get_user_data(
     cache_key = f'user_data_{user_id}_{branch_id or "none"}_{company_id or "none"}_{restaurant_id or "none"}'
     data = await redis_client.get(cache_key)
     if data:
-        return data.decode() if isinstance(data, bytes) else data
+        return json.loads(data.decode() if isinstance(data, bytes) else data)
 
     # Prefetch all related objects to minimize database hits
     user = await get_scopes_and_groups(user_id, get_instance=True)
