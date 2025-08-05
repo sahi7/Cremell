@@ -120,3 +120,84 @@ def update_permission_pool(branch_id, permission_ids, created_by_id):
                 extra_context=extra_content,
                 template_name='emails/permission_pool_update.html',
             )
+
+from django.utils import timezone
+@shared_task
+def revoke_permission_assignments(assignment_ids, deleted_by_id, branch_id):
+    with transaction.atomic():
+        
+        assignments = BranchPermissionAssignment.objects.filter(id__in=assignment_ids, status='active')
+        for assignment in assignments:
+            assignment.status = 'revoked'
+            assignment.revoked_by_id = deleted_by_id
+            assignment.revoked_at = timezone.now()
+            assignment.save()
+            
+            # Log each revocation
+            details = {
+                'permission_id': assignment.permission_id,
+                'status': 'revoked'
+            }
+            if assignment.user:
+                details['target_user_id'] = assignment.user_id
+                user_group = f"user_{assignment.user_id}"
+                async_to_sync(channel_layer.group_send)(
+                    user_group,
+                    {
+                        'type': 'stakeholder.notification',
+                        'message': f"Your permission {assignment.permission_id} has been revoked."
+                    }
+                )
+            else:
+                details['target_role'] = assignment.role
+                group_name = f"{branch_id}_{assignment.role}"
+                async_to_sync(channel_layer.group_send)(
+                    group_name,
+                    {
+                        'signal': 'revoke_permission',
+                        'type': 'branch.update',
+                        'message': f"Your permission {assignment.permission_id} has been revoked"
+                    }
+                )
+            log_activity.delay(deleted_by_id, 'revoke_permission', details, branch_id, 'branch')
+
+@shared_task
+def expire_permissions():
+    with transaction.atomic():
+        now = timezone.now()
+        assignments = BranchPermissionAssignment.objects.filter(
+            status='active',
+            end_time__lte=now
+        )
+        for assignment in assignments:
+            assignment.status = 'expired'
+            assignment.revoked_at = now
+            assignment.save()
+            
+            # Log each expiration
+            details = {
+                'permission_id': assignment.permission_id,
+                'status': 'expired'
+            }
+            if assignment.user:
+                details['target_user_id'] = assignment.user_id
+                user_group = f"user_{assignment.user_id}"
+                async_to_sync(channel_layer.group_send)(
+                    user_group,
+                    {
+                        'type': 'stakeholder.notification',
+                        'message': f"Your permission {assignment.permission_id} has been revoked."
+                    }
+                )
+            else:
+                details['target_role'] = assignment.role
+                group_name = f"{assignment.branch_id}_{assignment.role}"
+                async_to_sync(channel_layer.group_send)(
+                    group_name,
+                    {
+                        'signal': 'revoke_permission',
+                        'type': 'branch.update',
+                        'message': f"Your permission {assignment.permission_id} has been revoked"
+                    }
+                )
+            log_activity.delay(None, 'expire_permission', details, assignment.branch_id, 'branch')

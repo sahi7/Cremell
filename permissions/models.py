@@ -27,6 +27,11 @@ class BranchPermissionPool(models.Model):
     
 # BranchPermissionAssignment model for assigning permissions to users or roles
 class BranchPermissionAssignment(models.Model):
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('expired', 'Expired'), # reached end_time - stopped automatically by system
+        ('revoked', 'Revoked'), # stoped by user
+    ]
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, null=True, blank=True, related_name="permission_assignments")
     role = models.CharField(max_length=30, choices=CustomUser.ROLE_CHOICES, blank=True, null=True)
     # role = models.ForeignKey(Role, on_delete=models.CASCADE, null=True, blank=True, related_name="permission_assignments")
@@ -37,6 +42,9 @@ class BranchPermissionAssignment(models.Model):
     conditions = models.JSONField(default=dict, blank=True)
     assigned_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="assigned_permissions")
     assigned_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='active')
+    revoked_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name="revoked_permissions")
+    revoked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -64,4 +72,5 @@ class BranchPermissionAssignment(models.Model):
             models.Index(fields=['role', 'branch', 'permission']),
             models.Index(fields=['start_time']),
             models.Index(fields=['end_time']),
+            models.Index(fields=['status']),
         ]

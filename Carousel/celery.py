@@ -21,6 +21,10 @@ app.conf.beat_schedule = {
         # 'schedule': crontab(minute='*/1'),  # Run every minute
         'schedule': crontab(hour='*/24', minute=0),  # Run every 24 hours 
     },
+    'expire-permission-assignments': {
+        'task': 'permissions.tasks.expire_permissions',
+        'schedule': crontab(hour='*/24'), 
+    },
 }
 
 @app.task(bind=True, ignore_result=True)

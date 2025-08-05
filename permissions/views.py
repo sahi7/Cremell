@@ -7,7 +7,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.utils.translation import gettext_lazy as _
 from .models import Branch, CustomUser, BranchPermissionPool, BranchPermissionAssignment
 from .serializers import BranchPermissionAssignmentSerializer, BranchPermissionPoolSerializer
-from .tasks import create_permission_assignments, update_permission_pool
+from .tasks import *
 from .permissions import BranchPermissionAss
 from CRE.tasks import log_activity
 from zMisc.utils import clean_request_data
@@ -183,18 +183,11 @@ class BranchPermissionAssignmentView(APIView):
         role_names = data.get('role_names', [])
         branch_id = data['branch_id']
         permission_ids = data['permission_ids']
-        assigned_by = request.user
-
-        # # Validate branch_manager role (rank 5)
-        # if not assigned_by.role or self.ROLE_RANKS.get(assigned_by.role) != 5:
-        #     return Response(
-        #         {"error": _("Only branch managers can delete permissions.")},
-        #         status=status.HTTP_403_FORBIDDEN
-        #     )
+        user = request.user
 
         try:
             branch = await sync_to_async(Branch.objects.get)(id=branch_id)
-            filters = {'branch': branch, 'permission_id__in': permission_ids}
+            filters = {'branch': branch, 'permission_id__in': permission_ids, 'status': 'active'}
             if user_ids:
                 filters['user_id__in'] = user_ids
             elif role_names:
@@ -215,19 +208,13 @@ class BranchPermissionAssignmentView(APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
 
-            log_details = {'permission_ids': permission_ids}
-            for assignment in assignments:
-                if assignment.user:
-                    log_details['target_user_id'] = assignment.user.id
-                else:
-                    log_details['target_role'] = assignment.role
-                log_activity.delay(assigned_by.id, 'delete_permission', log_details, branch.id, 'branch')
-
-            await sync_to_async(BranchPermissionAssignment.objects.filter(**filters).delete)()
+            # Prepare data for Celery task
+            assignment_ids = [assignment.id for assignment in assignments]
+            revoke_permission_assignments.delay(assignment_ids, user.id, branch_id)
 
             return Response(
-                {"message": _("Permissions deleted successfully.")},
-                status=status.HTTP_200_OK
+                {"message": _("Permission revocation task queued successfully.")},
+                status=status.HTTP_202_ACCEPTED
             )
 
         except ObjectDoesNotExist:
@@ -433,3 +420,70 @@ class globalPermissionPool(APIView):
 
         except Exception as e:
             return Response({"error": str(e)},status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+class UserPermissionView(APIView):
+    async def get(self, request, branch_id=None, *args, **kwargs):
+        from zMisc.utils import get_scopes_and_groups
+        user = request.user
+
+        try:
+            # Build filters for active permissions assigned to the user
+            filters = {'user': user, 'status': 'active'}
+            if branch_id:
+                _scopes = await get_scopes_and_groups(user)
+                print("_scopes: ", _scopes)
+                try:
+                    branches = _scopes['branch']
+                except KeyError:
+                    return Response(
+                        {"error": _("This set is not available to you.") },
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+                if not branch_id in branches :
+                    return Response(
+                        {"error": _("User is not associated with branch %s.") % branch_id},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+                filters['branch_id'] = branch_id
+
+            # Fetch active permissions
+            assignments = await sync_to_async(
+                lambda: list(BranchPermissionAssignment.objects.filter(**filters).select_related('branch', 'assigned_by', 'permission'))
+            )()
+
+            # Serialize permissions
+            permissions_data = [
+                {
+                    "branch": assignment.branch.name,
+                    "permission": assignment.permission.name,
+                    "start_time": assignment.start_time,
+                    "end_time": assignment.end_time,
+                    "conditions": assignment.conditions,
+                    "status": assignment.status,
+                    "assigned_by": assignment.assigned_by.username if assignment.assigned_by else None,
+                    "assigned_at": assignment.assigned_at
+                }
+                for assignment in assignments
+            ]
+
+            # Log the view action
+            log_details = {
+                'user_id': user.id,
+                'branch_id': branch_id if branch_id else 'all',
+                'permissions_viewed': [p['permission'] for p in permissions_data]
+            }
+            log_activity.delay(user.id, 'view_permissions', log_details, branch_id if branch_id else None, 'branch')
+
+            return Response(
+                {
+                    "user_id": user.id,
+                    "permissions": permissions_data
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

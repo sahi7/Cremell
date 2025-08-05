@@ -1052,39 +1052,45 @@ class HighRoleQsFilter:
         """Default empty queryset filter."""
         return Q(pk__in=[])
     
-from django.contrib.auth.models import Permission
+from permissions.models import BranchPermissionAssignment
 from asgiref.sync import sync_to_async
 redis_client = Redis.from_url(settings.REDIS_URL, decode_responses=True)
 async def get_user_permissions(user) -> list:
-    """
-    Asynchronously retrieve all permissions for a user, caching in Redis.
-    Args:
-        user: CustomUser instance.
-    Returns:
-        list: List of permission strings (e.g., ['orders.cancel_order', 'orders.view_order']).
-    """
-    # Check Redis cache
     cache_key = f"user_permissions:{user.id}"
     cached_perms = await redis_client.get(cache_key)
+    
     if cached_perms:
         return json.loads(cached_perms)
-
-    # Get user-specific permissions
-    user_perms = await sync_to_async(
-        lambda: list(user.user_permissions.values_list('content_type__app_label', 'codename'))
-    )()
-    user_perm_strings = [f"{app_label}.{codename}" for app_label, codename in user_perms]
-
-    # Get group permissions
-    group_perms = await sync_to_async(
-        lambda: list(Permission.objects.filter(group__user=user).values_list('content_type__app_label', 'codename'))
-    )()
-    group_perm_strings = [f"{app_label}.{codename}" for app_label, codename in group_perms]
-
-    # Combine and deduplicate
-    permissions = list(set(user_perm_strings + group_perm_strings))
-
-    # Cache in Redis (expire after 1 hour)
-    await redis_client.set(cache_key, json.dumps(permissions), ex=3600)
-
-    return permissions
+    
+    try:
+        # Fetch active permissions for the user (direct or role-based) in a single query
+        assignments = await sync_to_async(
+            BranchPermissionAssignment.objects.filter(
+                Q(user=user) | Q(role=user.role),
+                status='active',
+                end_time__gte=timezone.now()
+            ).select_related('permission', 'branch').values(
+                'permission_id',
+                'permission__codename',
+                'branch_id'
+            ).all
+        )()
+        
+        # Format permissions for caching and validation
+        permissions = [
+            {
+                'permission_id': assignment['permission_id'],
+                'codename': assignment['permission__codename'],
+                'branch_id': assignment['branch_id']
+            }
+            for assignment in assignments
+        ]
+        
+        # Cache permissions with 1-hour TTL
+        await redis_client.set(cache_key, json.dumps(permissions), ex=3600)
+        
+        return permissions
+    
+    except Exception as e:
+        logger.info(f"Error fetching permissions for user {user.id}")
+        return []
