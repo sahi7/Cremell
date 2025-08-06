@@ -1064,18 +1064,17 @@ async def get_user_permissions(user) -> list:
     
     try:
         # Fetch active permissions for the user (direct or role-based) in a single query
-        assignments = await sync_to_async(
+        assignments = await sync_to_async(list)(
             BranchPermissionAssignment.objects.filter(
                 Q(user=user) | Q(role=user.role),
+                Q(end_time__gte=timezone.now()) | Q(end_time__isnull=True),
                 status='active',
-                end_time__gte=timezone.now()
-            ).select_related('permission', 'branch').values(
+            ).select_related('permission').values(
                 'permission_id',
                 'permission__codename',
                 'branch_id'
-            ).all
-        )()
-        
+            ).iterator()
+        )
         # Format permissions for caching and validation
         permissions = [
             {

@@ -20,7 +20,7 @@ from CRE.models import *
 from payroll.models import Rule
 from notifications.models import RoleAssignment, EmployeeTransfer
 from zMisc.policies import ScopeAccessPolicy
-from zMisc.utils import AttributeChecker, LowRoleQsFilter, compare_role_values, validate_role, get_scopes_and_groups
+from zMisc.utils import AttributeChecker, LowRoleQsFilter, compare_role_values, validate_role, get_scopes_and_groups, get_user_permissions
 
 CustomUser = get_user_model()
 
@@ -1248,12 +1248,16 @@ class OrderPermission(BasePermission):
         
         user = request.user
         r_val = await user.get_role_value()
+        permissions = await get_user_permissions(user)
+        has_permission = any(
+            perm['codename'] == 'add_order'
+            for perm in permissions
+        )
+        # print("permissions: , ", permissions, has_permission)
 
-        if r_val < 1 or (r_val > 5 and r_val not in [6, 9]):
-            return False
-        
-        
-        return True
+        if has_permission or (r_val >= 1 and (r_val <= 5 or r_val in [6, 9])):
+            return True
+        return False
     
     async def has_object_permission(self, request, view, obj):
         # print("in has_object_permission")

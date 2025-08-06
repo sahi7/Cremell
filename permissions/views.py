@@ -43,6 +43,7 @@ class BranchPermissionAssignmentView(APIView):
             "conditions": {}
         }
         """
+        from notifications.tasks import invalidate_cache_keys
         cleaned_data = clean_request_data(request.data)
         data = cleaned_data
         data['branch_id'] = request.branch.id
@@ -90,7 +91,7 @@ class BranchPermissionAssignmentView(APIView):
                 'end_time': end_time.isoformat() if end_time else None,
                 'conditions': conditions
             }
-
+            cache_ids = []
             if user_ids:
                 # Validate users are associated with the branch
                 users = await sync_to_async(
@@ -115,6 +116,7 @@ class BranchPermissionAssignmentView(APIView):
                             'conditions': conditions,
                             'assigned_by_id': assigned_by.id
                         })
+                    cache_ids.append(user.id)
             role_name_ids = []
             if role_names:
                 # Validate roles have users associated with the branch
@@ -122,7 +124,8 @@ class BranchPermissionAssignmentView(APIView):
                     lambda: list(CustomUser.objects.filter(role__in=role_names, branches=branch))
                 )()
                 valid_roles = {user.role for user in role_users}
-                [role_name_ids.append(user.id) for user in users]
+                role_name_ids.extend(user['id'] for user in role_users)
+                cache_ids.extend(user['id'] for user in role_users)
                 invalid_roles = [role for role in role_names if role not in valid_roles]
                 if invalid_roles:
                     return Response(
@@ -142,9 +145,10 @@ class BranchPermissionAssignmentView(APIView):
                             'conditions': conditions,
                             'assigned_by_id': assigned_by.id
                         })
-
+            # print("all ids: ", role_name_ids, cache_ids)
             # Offload to Celery
             create_permission_assignments.delay(assignments, assigned_by.id, branch_id, role_name_ids, log_details)
+            invalidate_cache_keys.delay(['user_permissions:{id}'], cache_ids)
 
             return Response(
                 {"message": _("Permission assignment task queued successfully.")},
