@@ -30,6 +30,7 @@ class IsCookAndBranch(BasePermission):
             task = await Task.objects.select_related('order').filter(
                 id=task_id, version=version
             ).afirst()
+            print("task: ",task)
             if not task:
                 raise PermissionDenied(_("Task unavailable or modified."))
             

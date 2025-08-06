@@ -343,7 +343,7 @@ def send_to_kds(order_id, details=None):
                     }
                 )
                 log_activity.delay(details['user_id'] , 'order_modify', dets, order.branch_id, 'branch')
-                logger.debug(f"Sent notification to user_{task.claimed_by.id} for order {order_id}")
+                logger.info(f"Sent notification to user_{task.claimed_by.id} for order {order_id}")
             else:
                 logger.warning(f"No claimed prepare task found for order {order_id}")
         else:
@@ -356,7 +356,7 @@ def send_to_kds(order_id, details=None):
                 }
             )
             log_activity.delay(details['user_id'] , 'order_create', dets, order.branch_id, 'branch')
-            logger.debug(f"Sent notification to kitchen_{order.branch.id}_cook for order {order_id}")
+            logger.info(f"Sent notification to kitchen_{order.branch.id}_cook for order {order_id}")
 
     except Order.DoesNotExist:
         logger.error(f"Order {order_id} not found")

@@ -558,7 +558,7 @@ def create_task(order_id, task_type):
             group_name,
             {
                 'type': 'order.notification',
-                'message': f"New {task_type} task for order {order.order_number}"
+                'message': f"New {task_type} task for order {order.order_number} | task_id: {task.id}, version: {task.version}"
             }
         )
 

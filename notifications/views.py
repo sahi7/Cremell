@@ -371,15 +371,20 @@ class RoleAssignmentViewSet(ViewSet):
         except RoleAssignment.DoesNotExist:
             return Response({"error": _("Invalid assignment.")}, status=status.HTTP_404_NOT_FOUND)
 
-from zMisc.utils import validate_order_role
+from zMisc.utils import validate_order_role, get_user_permissions
 from .permissions import IsCookAndBranch    
 from .tasks import update_staff_availability, update_order_status
 class TaskClaimView(APIView):
     permission_classes = [IsCookAndBranch]
 
     async def post(self, request):
-        task_id = request.data['task_id']
         user = request.user
+        task_id = request.data['task_id']
+        permissions = await get_user_permissions(user)
+        has_permission = any(
+            perm['codename'] == 'add_order'
+            for perm in permissions
+        )
         
         # @aatomic()
         async def claim_task():
@@ -389,7 +394,7 @@ class TaskClaimView(APIView):
                 return Response({'error': _('Task unavailable or modified')}, status=400)
             if task.order.status == 'cancelled':
                 return Response({'error': _('Order has been cancelled')}, status=400)
-            if not await validate_order_role(user, task.task_type):
+            if not (has_permission or await validate_order_role(user, task.task_type)):
                 return Response({'error': _("Invalid role, can't claim task")}, status=403)
             availability = await StaffAvailability.objects.aget(user_id=user.id)
             # print("availability: ", availability.status)
@@ -429,6 +434,11 @@ class TaskCompleteView(APIView):
 
     async def post(self, request):
         user = request.user
+        permissions = await get_user_permissions(user)
+        has_permission = any(
+            perm['codename'] == 'add_order'
+            for perm in permissions
+        )
         try:
             async def complete_task():
                 task = request.task
@@ -437,7 +447,7 @@ class TaskCompleteView(APIView):
                     return Response({'error': 'Task unavailable or modified'}, status=400)
                 if task.order.status == 'cancelled':
                     return Response({'error': _('Order has been cancelled')}, status=400)
-                if not await validate_order_role(user, task.task_type):
+                if not (has_permission or await validate_order_role(user, task.task_type)):
                     return Response({'error': _("Invalid role, can't complete task")}, status=403)
                 # Update task to completed
                 task.status = 'completed'

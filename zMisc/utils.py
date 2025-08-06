@@ -565,7 +565,7 @@ async def get_stakeholders(
 async def validate_order_role(user, task_type):
     role_mapping = {
         'prepare': ['cook', 'head_cook', 'sous_chef'],
-        'serve': ['food_runner', 'cook', 'waiter'],
+        'serve': ['food_runner', 'server', 'waiter'],
         'payment': ['cashier', 'branch_manager']
     }
     valid_roles = role_mapping.get(task_type, [])

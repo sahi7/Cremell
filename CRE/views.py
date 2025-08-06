@@ -684,7 +684,7 @@ class OrderViewSet(ModelViewSet):
                 order = await Order.objects.acreate(
                     branch=branch,
                     order_number=await generate_order_number(branch),
-                    source=validated_data.get('source', 'web'),
+                    source=validated_data.get('source', 'pos'),
                     total_price=total_price,  # Now has the correct calculated value
                     created_by=user,
                     special_instructions=data.get('notes', ''),
