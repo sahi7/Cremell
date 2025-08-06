@@ -614,7 +614,7 @@ class LowRoleQsFilter:
                 claimed_by=user,
             ).values_list('order_id', flat=True)
         ]
-        return Q(id__in=task_order_ids, branch_id__in=branch_ids)
+        return (Q(id__in=task_order_ids) | Q(created_by_id=user.id)) & Q(branch_id__in=branch_ids)
 
     @staticmethod
     async def shift_leader_order_filter(user, branch_ids):
