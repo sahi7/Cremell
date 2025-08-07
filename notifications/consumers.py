@@ -1,9 +1,11 @@
 import json
 import logging
 
+from redis.asyncio import Redis
 from channels.generic.websocket import AsyncWebsocketConsumer
-from channels.db import database_sync_to_async
 from django.utils.translation import gettext_lazy as _
+from django.utils import timezone
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,16 +30,16 @@ class StakeholderConsumer(AsyncWebsocketConsumer):
         """
         if hasattr(self, 'user_group'):
             await self.channel_layer.group_discard(self.user_group, self.channel_name)
-            logger.info(f"WebSocket disconnected for user group {self.user_group}, code: {close_code}")
+            logger.info(f"WebSocket disconnected for group {self.user_group}, code: {close_code}")
 
     async def stakeholder_notification(self, event):
         """
         Handle stakeholder notification, sending message to client.
         """
         message = event['message']
-        model = event['type']
+        signal = event.get('signal', 'stakeholder')
         await self.send(text_data=json.dumps({
-            'type': f'{model}',
+            'type': f'{signal}.notification',
             'message': message
         }))
         logger.debug(f"Sent notification to {self.user_group}: {message}")
@@ -46,6 +48,8 @@ class StakeholderConsumer(AsyncWebsocketConsumer):
 class BranchConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.group_name = None 
+        self.last_ping = None
+        self.current_status = ""
         user = self.scope['user']
         if not user.is_authenticated:
             logger.warning("WebSocket connection rejected: User not authenticated")
@@ -62,17 +66,89 @@ class BranchConsumer(AsyncWebsocketConsumer):
             logger.warning(f"WebSocket connection rejected: Invalid or unauthorized branch_id {self.branch_id} for user {user.id}")
             await self.close(code=4003)  # Forbidden
             return
+        self.group_branch = f"{self.branch_id}"
         self.group_name = f"{self.branch_id}_{user.role}"
+        self.group_available = f"{self.branch_id}_{user.role}_available"
+        self.group_busy = f"{self.branch_id}_{user.role}_busy"
+        self.group_offline = f"{self.branch_id}_{user.role}_offline"
+        self.group_break = f"{self.branch_id}_{user.role}_break"
+        self.group_overtime = f"{self.branch_id}_{user.role}_overtime"
         
         await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.channel_layer.group_add(self.group_branch, self.channel_name)
+        await self.channel_layer.group_add(self.group_available, self.channel_name)
+        self.current_status = "available"
+
         await self.accept()
         
         # Update connection count
         # await self.update_connection_count(1)
+    async def _switch_status_group(self, new_status):
+        user_id = self.scope['user'].id
+        role = self.scope['user'].role
+        print(f"self.current_status: {self.current_status}")
+        redis = Redis.from_url(settings.REDIS_URL)
+
+        # Remove from old group
+        await self.channel_layer.group_discard(f"{self.group_name}_{self.current_status}", self.channel_name)
+
+        # Add to new group 
+        await self.channel_layer.group_add(f"{self.group_name}_{new_status}", self.channel_name)
+
+        # Update Redis 
+        await redis.set(f"{self.branch_id}_{user_id}:status", new_status, ex=86400)
+        await redis.srem(f"{self.branch_id}_{role}_{self.current_status}", user_id)
+        await redis.sadd(f"{self.branch_id}_{role}_{new_status}", user_id)
+
+        # pipe = redis.pipeline()
+        # pipe.set(f"{self.branch_id}_{user_id}:status", new_status)  # Individual user status
+        # pipe.srem(f"{self.branch_id}_{role}_{self.current_status}", user_id)  # Remove from old status set
+        # pipe.sadd(f"{self.branch_id}_{role}_{new_status}", user_id)  # Add to new status set
+        # await pipe.execute()  # Atomic operation
+
+        self.current_status = new_status
+        # self.last_ping = datetime.utcnow()
+        self.last_ping = timezone.now()
+        online_users = await redis.scard(f"{self.branch_id}") # Set cardinality
+
+        # pipe.scard(f"{self.branch_id}")  # Total online users in branch
+        # pipe.scard(f"{self.branch_id}_cook_available")  # Available cooks
+        # results = await pipe.execute()
+
+        online_users_count = {
+            # "total": results[0],
+            # "cook": results[1],
+            "total": online_users,
+            "cook": await redis.scard(f"{self.branch_id}_cook_available"),
+            "runner": await redis.scard(f"{self.branch_id}_food_runner_available")
+        }
+        logger.info(f"online_users_count: {online_users_count}")
+
+        # Send notifications 
+        await self.channel_layer.group_send(f"{self.group_available}", {
+            "type": "status.update",
+            "user_id": user_id,
+            "status": new_status,
+            "role": role,
+            # "last_seen": self.last_ping,
+            "online": json.dumps(online_users_count)
+        })
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        print(f"Received: {data}")
+
+        if data.get('type') == 'heartbeat':
+            self.last_ping = datetime.utcnow()
+        if data.get('type') == 'status_update':
+            new_status = data.get('status') 
+            await self._switch_status_group(new_status)
 
     async def disconnect(self, close_code):
         if hasattr(self, 'group_name') and self.group_name:
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
+            await self.channel_layer.group_discard(self.group_branch, self.channel_name)
+            await self.channel_layer.group_discard(f"{self.group_name}_{self.current_status}", self.channel_name)
         # await self.update_connection_count(-1)
 
     async def branch_update(self, event):
@@ -83,6 +159,14 @@ class BranchConsumer(AsyncWebsocketConsumer):
             'message': message
         }))
 
+    async def status_update(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'user_status_update',
+            'user_id': event['user_id'],
+            'status': event['status'],
+            'role': event['role'],
+            'online': event['online']
+        }))
 
 class OrderConsumer(AsyncWebsocketConsumer):
     async def connect(self):

@@ -43,11 +43,13 @@ class TokenAuthMiddleware:
             elif auth_header.startswith('Token '):
                 token = auth_header.split(' ')[1]
                 user = await get_user_from_token(token, TokenAuthentication)
-
-        scope['user'] = user
-        _scopes = await get_scopes_and_groups(user)
-        scope['branches'] = _scopes.get('branch', [])
-        scope['role'] = _scopes.get('role', [])
+        try:
+            scope['user'] = user
+            _scopes = await get_scopes_and_groups(user)
+            scope['branches'] = _scopes.get('branch', [])
+            scope['role'] = _scopes.get('role', [])
+        except Exception:
+            return AnonymousUser()
         return await self.inner(scope, receive, send)
 
 

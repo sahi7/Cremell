@@ -3,10 +3,7 @@ import uuid
 import asyncio
 import redis.asyncio as redis
 from typing import Optional
-from django.utils import timezone
 from django.conf import settings
-from datetime import timedelta
-from CRE.models import Branch, SequenceCounter
 
 redis_client = redis.from_url(settings.REDIS_URL)
 

@@ -60,7 +60,8 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   9. Add 2 fields on Menu Model; is_pos_menu and is_web_or_app_menu
   10. Add 'Extension ' field to Branch Model; branch, kiosk, food_truck
   11. ❌When a user logs in, set their staff availaility/logout
-  11. ❌Enable cooks to add orders via custom permissions
+  11. Enable cooks to add orders via custom permissions
+        Enable websocket notification on first task creation (via signals) to kitchen and user
   12. Order process should validate menu items
   13. Add  created_at/updated_at to all Model fields
 - Overtime management

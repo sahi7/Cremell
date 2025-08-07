@@ -440,22 +440,50 @@ def log_shift_assignment(
 
     return True
 
-
+channel_layer = get_channel_layer()
 @shared_task
 def create_initial_task(order_id):
-    order = Order.objects.get(id=order_id)
+    order = Order.objects.select_related('created_by').get(id=order_id)
     task = Task.objects.create(
         order=order,
         task_type='prepare',
         status='pending',
         timeout_at=timezone.now() + timezone.timedelta(minutes=10)
     )
+    # Prepare structured JSON message
+    message_data = {
+        'event': 'new_task',
+        'task_id': task.id,
+        'task_type': task.task_type,
+        'task_version': task.version,
+        'order_number': order.order_number,
+    }
+    user_id = order.created_by_id
+    group_name = f"{order.branch_id}_cook"
+    async_to_sync(channel_layer.group_send)(
+        group_name,
+        {
+            'signal': 'task',
+            'type': 'branch.update',
+            'message': json.dumps(message_data)
+        }
+    )
+    if order.created_by.role != 'food_runner' and user_id:
+        async_to_sync(channel_layer.group_send)(
+            f"user_{user_id}",
+            {
+                'signal': 'task',
+                'type': 'stakeholder.notification',
+                'message': json.dumps(message_data)
+            }
+        )
     # publish_event('order.created', {'order_id': order_id, 'task_id': task.id})
     # notify_staff(order.branch_id, 'kitchen', f"New task {task.id} for order {order_id}")
 
 import json
 from CRE.models import StaffAvailability
 from CRE.tasks import log_activity
+from notifications.consumers import BranchConsumer
 @shared_task
 def update_staff_availability(task_id, user_id):
     try:
@@ -551,16 +579,35 @@ def create_task(order_id, task_type):
             version=1
         )
 
+        message_data = {
+            'event': 'task_update',
+            'task_id': task.id,
+            'task_type': task.task_type,
+            'task_version': task.version,
+            'order_number': order.order_number,
+        }
+
         # Determine WebSocket group based on task_type
-        group_name = f"kitchen_{order.branch_id}_{'cashier' if task_type == 'payment' else 'food_runner'}"
+        group_name = f"{order.branch_id}_{'cashier' if task_type == 'payment' else 'food_runner'}"
         channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
             group_name,
             {
-                'type': 'order.notification',
-                'message': f"New {task_type} task for order {order.order_number} | task_id: {task.id}, version: {task.version}"
+                'signal': 'task',
+                'type': 'branch.update',
+                'message': json.dumps(message_data)
             }
         )
+        user_id = order.created_by_id
+        if order.created_by.role != 'food_runner' and user_id:
+            async_to_sync(channel_layer.group_send)(
+                f"user_{user_id}",
+                {
+                    'signal': 'task',
+                    'type': 'stakeholder.notification',
+                    'message': json.dumps(message_data)
+                }
+            )
 
         # # Publish task creation event
         # async_to_sync(publish_event)(

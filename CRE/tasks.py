@@ -1,4 +1,5 @@
 import asyncio
+import json
 from celery import shared_task
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync, sync_to_async
@@ -337,9 +338,12 @@ def send_to_kds(order_id, details=None):
                 async_to_sync(channel_layer.group_send)(
                     f"user_{task.claimed_by.id}",
                     {
-                        'model': 'order',
+                        'signal': 'order',
                         'type': 'stakeholder.notification',
-                        'message': f"Order {order.order_number} Has been modified"
+                        'message': json.dumps({
+                            **dets,
+                            'event': 'order_modified',
+                        })
                     }
                 )
                 log_activity.delay(details['user_id'] , 'order_modify', dets, order.branch_id, 'branch')
@@ -349,14 +353,18 @@ def send_to_kds(order_id, details=None):
         else:
             # Fallback to kitchen group
             async_to_sync(channel_layer.group_send)(
-                f"kitchen_{order.branch.id}_cook",
+                f"{order.branch.id}_cook",
                 {
-                    'type': 'order.notification',
-                    'message': f"New Order | {order.order_number}"
+                    'signal': 'order',
+                    'type': 'branch.update',
+                    'message': json.dumps({
+                        **dets,
+                        'event': 'new_order',
+                    })
                 }
             )
             log_activity.delay(details['user_id'] , 'order_create', dets, order.branch_id, 'branch')
-            logger.info(f"Sent notification to kitchen_{order.branch.id}_cook for order {order_id}")
+            logger.info(f"Sent notification to branch consumer {order.branch.id}_cook for order {order_id}")
 
     except Order.DoesNotExist:
         logger.error(f"Order {order_id} not found")
@@ -367,40 +375,48 @@ def send_to_kds(order_id, details=None):
 def send_to_pos(order_id):
     try:
         order = Order.objects.get(pk=order_id)     
+        message_data = {
+            'event': 'order_updated',
+            'order_status': order.status,
+            'order_number': order.order_number
+        }
         if order.status == 'completed':
             groups = [
-                f"kitchen_{order.branch.id}_food_runner",
-                f"kitchen_{order.branch.id}_cashier",
-                f"kitchen_{order.branch.id}_shift_leader"
+                f"{order.branch.id}_food_runner",
+                f"{order.branch.id}_cashier",
+                f"{order.branch.id}_shift_leader"
             ]
             for group_name in groups:
                 async_to_sync(channel_layer.group_send)(
                     group_name,
                     {
-                        'type': 'order.notification',
-                        'message': f"Order {order.status} | {order.order_number}"
+                        'signal': 'order',
+                        'type': 'branch.update',
+                        'message': json.dumps(message_data)
                     }
                 )
         elif order.status == 'cancelled':
             groups = [
-                f"kitchen_{order.branch.id}_food_runner",
-                f"kitchen_{order.branch.id}_cook",
-                f"kitchen_{order.branch.id}_shift_leader"
+                f"{order.branch.id}_food_runner",
+                f"{order.branch.id}_cook",
+                f"{order.branch.id}_shift_leader"
             ]
             for group_name in groups:
                 async_to_sync(channel_layer.group_send)(
                     group_name,
                     {
-                        'type': 'order.notification',
-                        'message': f"Order {order.status} | {order.order_number}"
+                        'signal': 'order',
+                        'type': 'branch.update',
+                        'message': json.dumps(message_data)
                     }
                 )
         else:
             async_to_sync(channel_layer.group_send)(
-                f"kitchen_{order.branch_id}_food_runner",
+                f"{order.branch_id}_food_runner",
                 {
-                    'type': 'order.notification',
-                    'message': f"Order {order.status} | {order.order_number}"
+                    'signal': 'order',
+                    'type': 'branch.update',
+                    'message': json.dumps(message_data)
                 }
             )
     except Order.DoesNotExist:
