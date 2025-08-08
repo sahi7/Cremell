@@ -1,4 +1,5 @@
 import json
+import time
 import logging
 
 from redis.asyncio import Redis
@@ -6,8 +7,11 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 from django.conf import settings
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
+redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+pipe = redis.pipeline()
 
 class StakeholderConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -45,13 +49,36 @@ class StakeholderConsumer(AsyncWebsocketConsumer):
         logger.debug(f"Sent notification to {self.user_group}: {message}")
 
 
+HEARTBEAT_TIMEOUT = 60
 class BranchConsumer(AsyncWebsocketConsumer):
+    async def _set_user_status(self, branch_id: int, user_id: int, status: str, current_status: str = None):
+        ZSET_KEY = f"{branch_id}_heartbeats"
+        timestamp = int(time.time())
+        if not current_status:
+            current_status = await redis.hget(f"{branch_id}_{user_id}:status", "status")
+        await redis.hset(f"{branch_id}_{user_id}:status", mapping={
+            "status": status,
+            "last_ping": timestamp
+        })
+        print(f"current-status: {current_status}")
+        await redis.expire(f"{branch_id}_{user_id}:status", 3600)
+        if current_status:
+            await pipe.srem(f"{self.branch_id}_{self.user.role}_{current_status}", user_id)
+        if status == 'offline':
+            await pipe.srem(self.group_branch, user_id)
+            await pipe.srem(self.group_name, user_id)
+        
+        # ZRANGE {branch_id}_heartbeats 0 -1 WITHSCORES 
+        await redis.zadd(ZSET_KEY, {str(user_id): timestamp})
+        stale_users = await redis.zrangebyscore(ZSET_KEY, 0, timestamp - HEARTBEAT_TIMEOUT)
+        logger.info(f"drebeat users: {stale_users}")
+        await pipe.execute()
+
     async def connect(self):
         self.group_name = None 
-        self.last_ping = None
         self.current_status = ""
-        user = self.scope['user']
-        if not user.is_authenticated:
+        self.user = self.scope['user']
+        if not self.user.is_authenticated:
             logger.warning("WebSocket connection rejected: User not authenticated")
             await self.close(code=4001)  # Unauthorized
             return 0
@@ -67,88 +94,89 @@ class BranchConsumer(AsyncWebsocketConsumer):
             await self.close(code=4003)  # Forbidden
             return
         self.group_branch = f"{self.branch_id}"
-        self.group_name = f"{self.branch_id}_{user.role}"
-        self.group_available = f"{self.branch_id}_{user.role}_available"
-        self.group_busy = f"{self.branch_id}_{user.role}_busy"
-        self.group_offline = f"{self.branch_id}_{user.role}_offline"
-        self.group_break = f"{self.branch_id}_{user.role}_break"
-        self.group_overtime = f"{self.branch_id}_{user.role}_overtime"
+        self.group_name = f"{self.branch_id}_{self.user.role}"
+        self.group_available = f"{self.branch_id}_{self.user.role}_available"
+        # self.group_busy = f"{self.branch_id}_{self.user.role}_busy"
+        # self.group_offline = f"{self.branch_id}_{self.user.role}_offline"
+        # self.group_break = f"{self.branch_id}_{self.user.role}_break"
+        # self.group_overtime = f"{self.branch_id}_{self.user.role}_overtime"
         
+        self.current_status = "available"
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.channel_layer.group_add(self.group_branch, self.channel_name)
         await self.channel_layer.group_add(self.group_available, self.channel_name)
-        self.current_status = "available"
+        await self._set_user_status(self.branch_id, self.user.id, self.current_status)
+        await pipe.sadd(self.group_available, self.user.id)
+        await pipe.sadd(self.group_branch, self.user.id)
+        await pipe.sadd(self.group_name, self.user.id)
+        await pipe.execute()
 
         await self.accept()
         
-        # Update connection count
-        # await self.update_connection_count(1)
-    async def _switch_status_group(self, new_status):
-        user_id = self.scope['user'].id
-        role = self.scope['user'].role
-        print(f"self.current_status: {self.current_status}")
-        redis = Redis.from_url(settings.REDIS_URL)
+    async def _switch_status_group(self, branch_id: int, user_id: int, role: str, new_status: str):
+        # user_id = self.scope['user'].id
+        # role = self.scope['user'].role
+        old_status = await redis.hget(f"{branch_id}_{user_id}:status", "status")
 
-        # Remove from old group
-        await self.channel_layer.group_discard(f"{self.group_name}_{self.current_status}", self.channel_name)
+        if not new_status == old_status:
+            # Remove from old group
+            # await self.channel_layer.group_discard(f"{self.group_name}_{self.current_status}", self.channel_name)
+            await self.channel_layer.group_discard(f"{branch_id}_{role}_{old_status}", self.channel_name)
 
-        # Add to new group 
-        await self.channel_layer.group_add(f"{self.group_name}_{new_status}", self.channel_name)
+            # Add to new group 
+            # await self.channel_layer.group_add(f"{self.group_name}_{new_status}", self.channel_name)
+            await self.channel_layer.group_add(f"{branch_id}_{role}_{new_status}", self.channel_name)
 
-        # Update Redis 
-        await redis.set(f"{self.branch_id}_{user_id}:status", new_status, ex=86400)
-        await redis.srem(f"{self.branch_id}_{role}_{self.current_status}", user_id)
-        await redis.sadd(f"{self.branch_id}_{role}_{new_status}", user_id)
+            # Update Redis 
+            # await redis.set(f"{branch_id}_{user_id}:status", new_status, ex=3600)
+            await self._set_user_status(branch_id, user_id, new_status, old_status)
+            # await redis.srem(f"{branch_id}_{role}_{old_status}", user_id)
+            if new_status not in ["offline", "break"]:
+                await redis.sadd(f"{branch_id}_{role}_{new_status}", user_id)
+                await redis.sadd(f"{branch_id}", user_id)
 
-        # pipe = redis.pipeline()
-        # pipe.set(f"{self.branch_id}_{user_id}:status", new_status)  # Individual user status
-        # pipe.srem(f"{self.branch_id}_{role}_{self.current_status}", user_id)  # Remove from old status set
-        # pipe.sadd(f"{self.branch_id}_{role}_{new_status}", user_id)  # Add to new status set
-        # await pipe.execute()  # Atomic operation
+        ###############   TAB    ##########
+            status, last_ping = await redis.hmget(f"{branch_id}_{user_id}:status", "status", "last_ping")
+            # last_ping = await redis.hget(f"{branch_id}_{user_id}:status", "last_ping")
+            online_users = await redis.scard(f"{branch_id}") # Set cardinality
+            cooks = await redis.scard(f"{branch_id}_cook_available")
+            runners = await redis.scard(f"{branch_id}_food_runner_available")
+            last_ping_readable = datetime.fromtimestamp(int(last_ping)).isoformat()
 
-        self.current_status = new_status
-        # self.last_ping = datetime.utcnow()
-        self.last_ping = timezone.now()
-        online_users = await redis.scard(f"{self.branch_id}") # Set cardinality
+            online_users_count = {
+                "total": online_users,
+                "cook": cooks,
+                "runner": runners
+            }
+            logger.info(f"online_users_count: {online_users_count}")
 
-        # pipe.scard(f"{self.branch_id}")  # Total online users in branch
-        # pipe.scard(f"{self.branch_id}_cook_available")  # Available cooks
-        # results = await pipe.execute()
-
-        online_users_count = {
-            # "total": results[0],
-            # "cook": results[1],
-            "total": online_users,
-            "cook": await redis.scard(f"{self.branch_id}_cook_available"),
-            "runner": await redis.scard(f"{self.branch_id}_food_runner_available")
-        }
-        logger.info(f"online_users_count: {online_users_count}")
-
-        # Send notifications 
-        await self.channel_layer.group_send(f"{self.group_available}", {
-            "type": "status.update",
-            "user_id": user_id,
-            "status": new_status,
-            "role": role,
-            # "last_seen": self.last_ping,
-            "online": json.dumps(online_users_count)
-        })
+            # Send notifications 
+            await self.channel_layer.group_send(f"{self.group_branch}", {
+                "type": "status.update",
+                "user_id": user_id,
+                "status": status,
+                "role": role,
+                "last_seen": last_ping_readable,
+                "online": json.dumps(online_users_count)
+            })
 
     async def receive(self, text_data):
         data = json.loads(text_data)
-        print(f"Received: {data}")
 
         if data.get('type') == 'heartbeat':
             self.last_ping = datetime.utcnow()
         if data.get('type') == 'status_update':
             new_status = data.get('status') 
-            await self._switch_status_group(new_status)
+            await self._switch_status_group(self.branch_id, self.user.id, self.user.role, new_status)
 
     async def disconnect(self, close_code):
         if hasattr(self, 'group_name') and self.group_name:
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
             await self.channel_layer.group_discard(self.group_branch, self.channel_name)
             await self.channel_layer.group_discard(f"{self.group_name}_{self.current_status}", self.channel_name)
+        await self._set_user_status(self.branch_id, self.user.id, 'offline')
+        await redis.zrem(f"{self.branch_id}_heartbeats", self.user.id)
+        
         # await self.update_connection_count(-1)
 
     async def branch_update(self, event):
@@ -164,6 +192,7 @@ class BranchConsumer(AsyncWebsocketConsumer):
             'type': 'user_status_update',
             'user_id': event['user_id'],
             'status': event['status'],
+            'last_seen': event['last_seen'],
             'role': event['role'],
             'online': event['online']
         }))

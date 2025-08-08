@@ -497,11 +497,14 @@ def update_staff_availability(task_id, user_id):
             
             # Update availability
             task_stat = task.status
+            # Redis.srem(f"{task.order.branch_id}_{task.claimed_by.role}_{task_stat}", user_id)
             if task_stat in ['completed', 'escalated']:
                 availability.status = 'available'
+                # Redis.srem(f"{task.order.branch_id}_{task.claimed_by.role}_available", user_id)
                 availability.current_task = None
             else:
                 availability.status = 'busy'
+                # Redis.srem(f"{task.order.branch_id}_{task.claimed_by.role}_busy", user_id)
                 availability.current_task = task
             availability.save()
             
