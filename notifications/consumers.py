@@ -49,9 +49,9 @@ class StakeholderConsumer(AsyncWebsocketConsumer):
         logger.debug(f"Sent notification to {self.user_group}: {message}")
 
 
-HEARTBEAT_TIMEOUT = 60
 class BranchConsumer(AsyncWebsocketConsumer):
     async def _set_user_status(self, branch_id: int, user_id: int, status: str, current_status: str = None):
+        HEARTBEAT_TIMEOUT = 60
         ZSET_KEY = f"{branch_id}_heartbeats"
         timestamp = int(time.time())
         if not current_status:
@@ -177,8 +177,6 @@ class BranchConsumer(AsyncWebsocketConsumer):
         await self._set_user_status(self.branch_id, self.user.id, 'offline')
         await redis.zrem(f"{self.branch_id}_heartbeats", self.user.id)
         
-        # await self.update_connection_count(-1)
-
     async def branch_update(self, event):
         signal = event.get('signal', 'branch')
         message = event['message']
