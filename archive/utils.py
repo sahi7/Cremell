@@ -25,7 +25,7 @@ def get_object_graph(target_model, target_id):
     # Initialize the graph structure
     graph = {
         'main_object': {
-            'model': target_model,  # e.g. 'CRE.Branch'
+            'model': target_model,  # e.g. 'cre.Branch'
             'id': target_id
         },
         'dependencies': defaultdict(list)

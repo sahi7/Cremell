@@ -2,7 +2,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
-from CRE.models import Branch
+from cre.models import Branch
 
 CustomUser = get_user_model()
 

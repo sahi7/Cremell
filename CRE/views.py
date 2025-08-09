@@ -568,7 +568,7 @@ class MenuItemViewSet(ModelViewSet):
 
 channel_layer = get_channel_layer()
 from decimal import Decimal
-from CRE.tasks import send_to_kds
+from cre.tasks import send_to_kds
 from services.sequences import generate_order_number
 class OrderViewSet(ModelViewSet):
     """
@@ -932,7 +932,7 @@ class OrderViewSet(ModelViewSet):
     @action(detail=True, methods=['post'])
     async def cancel(self, request, *args, **kwargs):
         from datetime import timedelta
-        from CRE.tasks import send_to_pos
+        from cre.tasks import send_to_pos
         from notifications.models import Task
         from zMisc.utils import get_user_permissions
         pk = kwargs['pk']
@@ -1182,7 +1182,7 @@ class ShiftSwapRequestViewSet(ModelViewSet):
 
     @action(detail=True, methods=['post'])
     async def accept(self, request, pk=None):
-        from CRE.tasks import send_shift_notifications
+        from cre.tasks import send_shift_notifications
         # Update swap request
         swap_request = request.swap_request
         swap_request.counterparty_id = request.user.id

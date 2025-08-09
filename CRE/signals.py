@@ -135,7 +135,7 @@ async def update_availability_on_shift_change(sender, instance, **kwargs):
     if hasattr(instance.user, 'availability'):
         await instance.user.availability.update_status()
 
-@receiver(post_save, sender='CRE.OvertimeRequest')
+@receiver(post_save, sender='cre.OvertimeRequest')
 def notify_manager_on_overtime_request(sender, instance, created, **kwargs):
     """
     Trigger WebSocket notification when an OvertimeRequest is created.

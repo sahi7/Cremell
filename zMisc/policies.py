@@ -4,7 +4,7 @@ from django.db.models import Q
 from asgiref.sync import sync_to_async
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
-from CRE.models import *
+from cre.models import *
 from zMisc.utils import HighRoleQsFilter
 
 CustomUser = get_user_model()

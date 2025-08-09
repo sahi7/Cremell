@@ -2,7 +2,7 @@ from rest_framework import serializers
 from adrf.serializers import Serializer, ModelSerializer
 from django.utils.translation import gettext as _
 from .models import Rule, RuleTarget, Period, Override, Record, Component
-from CRE.models import Company, Restaurant, Branch, CustomUser
+from cre.models import Company, Restaurant, Branch, CustomUser
 
 class RuleTargetSerializer(ModelSerializer):
     """

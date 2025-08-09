@@ -14,7 +14,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone, translation
 from django.template.loader import render_to_string
 from notifications.models import BranchActivity, RestaurantActivity
-from CRE.models import Branch, Restaurant, Company, Country, ShiftSwapRequest
+from cre.models import Branch, Restaurant, Company, Country, ShiftSwapRequest
 from payroll.models import Rule
 
 logger = logging.getLogger(__name__)
@@ -601,7 +601,7 @@ class AttributeChecker:
             if await manager.companies.aexists():
                 raise PermissionDenied(_("The manager cannot belong to any company."))
 
-from CRE.models import Order, OvertimeRequest, ShiftPattern, StaffShift, Shift
+from cre.models import Order, OvertimeRequest, ShiftPattern, StaffShift, Shift
 from notifications.models import Task, EmployeeTransfer          
 class LowRoleQsFilter:
     @staticmethod
@@ -714,7 +714,7 @@ class LowRoleQsFilter:
     }
 
 
-from CRE.models import OrderItem, MenuItem, MenuCategory, Menu
+from cre.models import OrderItem, MenuItem, MenuCategory, Menu
 class HighRoleQsFilter:
 
     @staticmethod

@@ -16,8 +16,8 @@ from django.utils.translation import gettext_lazy as _
 from .models import Task, EmployeeTransfer, TransferHistory, RoleAssignment
 from .tasks import process_transfer, send_role_assignment_email
 from .serializers import TransferSerializer, TransferHistorySerializer, RoleAssignmentSerializer
-from CRE.tasks import log_activity
-from CRE.models import Shift, Branch, StaffAvailability
+from cre.tasks import log_activity
+from cre.models import Shift, Branch, StaffAvailability
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.permissions import TransferPermission, UserCreationPermission, RoleAssignmentPermission
 from zMisc.atransactions import aatomic

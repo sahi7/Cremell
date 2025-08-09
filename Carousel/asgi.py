@@ -17,7 +17,7 @@ import notifications.routing
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Carousel.settings')
 django.setup()
 
-from CRE.middleware.WebSocketAuthentication import TokenAuthMiddlewareStack
+from cre.middleware.WebSocketAuthentication import TokenAuthMiddlewareStack
 
 # application = ProtocolTypeRouter({
 #     'http': get_asgi_application(),

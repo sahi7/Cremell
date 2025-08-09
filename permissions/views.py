@@ -9,7 +9,7 @@ from .models import Branch, CustomUser, BranchPermissionPool, BranchPermissionAs
 from .serializers import BranchPermissionAssignmentSerializer, BranchPermissionPoolSerializer
 from .tasks import *
 from .permissions import BranchPermissionAss
-from CRE.tasks import log_activity
+from cre.tasks import log_activity
 from zMisc.utils import clean_request_data
 from zMisc.policies import ScopeAccessPolicy
 

@@ -17,7 +17,7 @@ app.autodiscover_tasks()
 
 app.conf.beat_schedule = {
     'expire-stale-shift-swaps': {
-        'task': 'CRE.tasks.expire_stale_shift_swap_requests',
+        'task': 'cre.tasks.expire_stale_shift_swap_requests',
         # 'schedule': crontab(minute='*/1'),  # Run every minute
         'schedule': crontab(hour='*/24', minute=0),  # Run every 24 hours 
     },

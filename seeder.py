@@ -4,7 +4,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "Carousel.settings")
 
 import django
 django.setup()
-from CRE.models import Country, RegionOrState, City
+from cre.models import Country, RegionOrState, City
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.utils import IntegrityError
 

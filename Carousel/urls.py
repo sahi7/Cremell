@@ -16,8 +16,8 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from CRE.views__helper import CheckUserExistsView, UserScopeView, AssignmentView
-from CRE.views import *
+from cre.views__helper import CheckUserExistsView, UserScopeView, AssignmentView
+from cre.views import *
 from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
@@ -59,13 +59,13 @@ def api_path(route, view, name=None):
     return path(f'api/{route}', view, name=name)
 
 urlpatterns = [
-    path('api/auth/', include('CRE.urls')),
+    path('api/auth/', include('cre.urls')),
     path('admin/', admin.site.urls),
 
     # allauth
     path('accounts/', include('allauth.urls')),
 
-    # CRE 
+    # cre 
     api_path('register/', RegistrationView.as_view(), name='user-register'),
     api_path('check-user/', CheckUserExistsView.as_view(), name='check-user'),
     api_path('user-scope/', UserScopeView.as_view(), name='user-scope'),

@@ -11,8 +11,8 @@ from django.utils.translation import gettext as _
 from collections import defaultdict
 from typing import Optional, Union
 from notifications.models import ShiftAssignmentLog
-from CRE.models import Branch, Shift, StaffShift, ShiftPattern, CustomUser, StaffAvailability
-from CRE.serializers import ShiftPatternSerializer
+from cre.models import Branch, Shift, StaffShift, ShiftPattern, CustomUser, StaffAvailability
+from cre.serializers import ShiftPatternSerializer
 import logging
 
 logger = logging.getLogger(__name__)
@@ -288,7 +288,7 @@ class ShiftAssignmentEngine:
         """Batch insert with conflict handling"""
         import pytz
         from datetime import datetime
-        from CRE.tasks import send_shift_notifications
+        from cre.tasks import send_shift_notifications
         shift_ids = {shift_id for date_key, user_shifts in assignments.items() for user_id, shift_id in user_shifts.items()}
         shifts = await Shift.objects.select_related('branch').filter(id__in=shift_ids).ain_bulk()
 

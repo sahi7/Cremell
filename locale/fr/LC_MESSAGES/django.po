@@ -17,51 +17,51 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
-#: .\CRE\models.py:8
+#: .\cre\models.py:8
 msgid "Male"
 msgstr ""
 
-#: .\CRE\models.py:9
+#: .\cre\models.py:9
 msgid "Female"
 msgstr ""
 
-#: .\CRE\models.py:10
+#: .\cre\models.py:10
 msgid "Other"
 msgstr ""
 
-#: .\CRE\models.py:29
+#: .\cre\models.py:29
 msgid "Manager"
 msgstr ""
 
-#: .\CRE\models.py:30
+#: .\cre\models.py:30
 msgid "Chef"
 msgstr ""
 
-#: .\CRE\models.py:31
+#: .\cre\models.py:31
 msgid "Server"
 msgstr ""
 
-#: .\CRE\models.py:32
+#: .\cre\models.py:32
 msgid "Bartender"
 msgstr ""
 
-#: .\CRE\models.py:35
+#: .\cre\models.py:35
 msgid "Active"
 msgstr ""
 
-#: .\CRE\models.py:36
+#: .\cre\models.py:36
 msgid "Suspended"
 msgstr ""
 
-#: .\CRE\models.py:37
+#: .\cre\models.py:37
 msgid "On Leave"
 msgstr ""
 
-#: .\CRE\models.py:54
+#: .\cre\models.py:54
 msgid "User"
 msgstr ""
 
-#: .\CRE\models.py:55
+#: .\cre\models.py:55
 msgid "Users"
 msgstr ""
 

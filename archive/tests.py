@@ -5,7 +5,7 @@ from .utils import get_object_graph
 class ObjectGraphTest(TestCase):
     def setUp(self):
         # Get the model dynamically
-        model = apps.get_model('CRE', 'Branch')
+        model = apps.get_model('cre', 'Branch')
         print("Model:", model)
 
         # Create an instance for testing

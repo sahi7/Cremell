@@ -1,7 +1,7 @@
 import redis.asyncio as redis
 from django.conf import settings
 from services.sequences import SequencePool
-from CRE.models import Branch, SequenceCounter
+from cre.models import Branch, SequenceCounter
 
 redis_client = redis.from_url(settings.REDIS_URL)
 async def recover_sequences():

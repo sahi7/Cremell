@@ -44,7 +44,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django.contrib.sites',
     
-    'CRE.apps.CreConfig',   # CRE App
+    'cre.apps.CreConfig',   # cre App
     'notifications.apps.NotificationsConfig',     # notifications App
     'analytics.apps.AnalyticsConfig',       # analytics App
     'subscriptions.apps.SubscriptionsConfig',
@@ -109,7 +109,7 @@ AUTHENTICATION_BACKENDS = [
     # Needed to login by username in Django admin, regardless of `allauth`
     'django.contrib.auth.backends.ModelBackend',
 
-    'CRE.backends.emailUserPhoneAuthBackend.CustomAuthBackend',  # Backend for Auth by email|phone|
+    'cre.backends.emailUserPhoneAuthBackend.CustomAuthBackend',  # Backend for Auth by email|phone|
     'allauth.account.auth_backends.AuthenticationBackend', # `allauth` specific authentication methods, such as login by email
 ]
 
@@ -221,7 +221,7 @@ USE_I18N = True
 
 USE_TZ = True
 
-AUTH_USER_MODEL = 'CRE.CustomUser'
+AUTH_USER_MODEL = 'cre.CustomUser'
 
 LANGUAGES = [
     ('en', _('English')),

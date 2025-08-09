@@ -13,7 +13,7 @@ class Task(models.Model):
         ('payment', 'Process Payment')
     ]
     version = models.IntegerField(default=0)
-    order = models.ForeignKey('CRE.Order', on_delete=models.CASCADE, related_name='tasks')
+    order = models.ForeignKey('cre.Order', on_delete=models.CASCADE, related_name='tasks')
     task_type = models.CharField(max_length=20, choices=TASK_TYPES)
     status = models.CharField(max_length=20, choices=[
         ('pending', 'Pending'),
@@ -66,7 +66,7 @@ class BroadcastChannel(models.Model):
         ('management', 'Management')
     ]
     
-    branch = models.ForeignKey('CRE.Branch', on_delete=models.CASCADE)
+    branch = models.ForeignKey('cre.Branch', on_delete=models.CASCADE)
     channel_type = models.CharField(max_length=20, choices=CHANNEL_TYPES)
     active_connections = models.PositiveIntegerField(default=0)
 
@@ -93,7 +93,7 @@ class RestaurantActivity(models.Model):
         ('health_inspection', _('Health Inspection')),
     ]
     
-    restaurant = models.ForeignKey('CRE.Restaurant', null=True, blank=True, on_delete=models.CASCADE, verbose_name=_('Restaurant'))
+    restaurant = models.ForeignKey('cre.Restaurant', null=True, blank=True, on_delete=models.CASCADE, verbose_name=_('Restaurant'))
     activity_type = models.CharField(max_length=20, choices=ACTIVITY_CHOICES, verbose_name=_('Activity Type'))
     user = models.ForeignKey(CustomUser, null=True, blank=True, on_delete=models.SET_NULL, related_name='restaurant_activities', verbose_name=_('User'))
     timestamp = models.DateTimeField(auto_now_add=True, verbose_name=_('Timestamp'))
@@ -153,7 +153,7 @@ class BranchActivity(models.Model):
         ('price_change', _('Price Changed')), 
     ]
     
-    branch = models.ForeignKey('CRE.Branch', null=True, on_delete=models.CASCADE)
+    branch = models.ForeignKey('cre.Branch', null=True, on_delete=models.CASCADE)
     activity_type = models.CharField(max_length=20, choices=ACTIVITY_CHOICES)
     user = models.ForeignKey(CustomUser, null=True, on_delete=models.SET_NULL, related_name='branch_activities')
     timestamp = models.DateTimeField(auto_now_add=True)
@@ -171,10 +171,10 @@ class BranchActivity(models.Model):
 
 class ShiftAssignmentLog(models.Model):
     """Audit trail for all auto-assignments"""
-    branch = models.ForeignKey('CRE.Branch', on_delete=models.CASCADE)
+    branch = models.ForeignKey('cre.Branch', on_delete=models.CASCADE)
     date = models.DateField()
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
-    shift = models.ForeignKey('CRE.Shift', on_delete=models.CASCADE)
+    shift = models.ForeignKey('cre.Shift', on_delete=models.CASCADE)
     assigned_at = models.DateTimeField(auto_now_add=True)
     action = models.CharField(max_length=100, verbose_name=_("Shift Action")) 
 
@@ -199,10 +199,10 @@ class EmployeeTransfer(models.Model):
         ('rejected', _('Rejected')),
     )
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='transfers', verbose_name=_('User'))
-    from_branch = models.ForeignKey('CRE.Branch', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_from', verbose_name=_('From Branch'))
-    to_branch = models.ForeignKey('CRE.Branch', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_to', verbose_name=_('To Branch'))
-    from_restaurant = models.ForeignKey('CRE.Restaurant', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_out', verbose_name=_('From Restaurant'))
-    to_restaurant = models.ForeignKey('CRE.Restaurant', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_in', verbose_name=_('To Restaurant'))
+    from_branch = models.ForeignKey('cre.Branch', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_from', verbose_name=_('From Branch'))
+    to_branch = models.ForeignKey('cre.Branch', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_to', verbose_name=_('To Branch'))
+    from_restaurant = models.ForeignKey('cre.Restaurant', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_out', verbose_name=_('From Restaurant'))
+    to_restaurant = models.ForeignKey('cre.Restaurant', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfers_in', verbose_name=_('To Restaurant'))
     transfer_type = models.CharField(max_length=10, choices=TRANSFER_TYPES, verbose_name=_('Transfer Type'))
     start_date = models.DateTimeField(auto_now_add=True, verbose_name=_('Start Date'))
     end_date = models.DateTimeField(null=True, blank=True, verbose_name=_('End Date'))  # Null for permanent
@@ -229,13 +229,13 @@ class TransferHistory(models.Model):
         ('approved', _('Approved')),
         ('rejected', _('Rejected')),
     )
-    user = models.ForeignKey('CRE.CustomUser', on_delete=models.CASCADE, related_name='transfer_history', verbose_name=_("User"))
-    branch = models.ForeignKey('CRE.Branch', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfer_history', verbose_name=_("Branch"))
-    restaurant = models.ForeignKey('CRE.Restaurant', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfer_history', verbose_name=_("Restaurant"))
+    user = models.ForeignKey('cre.CustomUser', on_delete=models.CASCADE, related_name='transfer_history', verbose_name=_("User"))
+    branch = models.ForeignKey('cre.Branch', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfer_history', verbose_name=_("Branch"))
+    restaurant = models.ForeignKey('cre.Restaurant', null=True, blank=True, on_delete=models.SET_NULL, related_name='transfer_history', verbose_name=_("Restaurant"))
     transfer_type = models.CharField(max_length=10, choices=TRANSFER_TYPES, verbose_name=_("Transfer Type"))
     from_entity = models.CharField(max_length=100, verbose_name=_("From Entity"))  # e.g., "Branch #5" or "Restaurant #1"
     to_entity = models.CharField(max_length=100, verbose_name=_("To Entity"))  # e.g., "Branch #6" or "Restaurant #2"
-    initiated_by = models.ForeignKey('CRE.CustomUser', on_delete=models.SET_NULL, null=True, related_name='initiated_transfer_history', verbose_name=_("Initiated By"))
+    initiated_by = models.ForeignKey('cre.CustomUser', on_delete=models.SET_NULL, null=True, related_name='initiated_transfer_history', verbose_name=_("Initiated By"))
     timestamp = models.DateTimeField(auto_now_add=True, verbose_name=_("Timestamp"))
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, verbose_name=_("Status"))
     end_date = models.DateTimeField(null=True, blank=True, verbose_name=_("End Date"))  # For temporary transfers
@@ -280,10 +280,10 @@ class RoleAssignment(models.Model):
     type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     token = models.CharField(max_length=100, unique=True)
-    company = models.ForeignKey('CRE.Company', on_delete=models.CASCADE, null=True, blank=True)
-    country = models.ForeignKey('CRE.Country', on_delete=models.CASCADE, null=True, blank=True)
-    restaurant = models.ForeignKey('CRE.Restaurant', on_delete=models.CASCADE, null=True, blank=True)
-    branch = models.ForeignKey('CRE.Branch', on_delete=models.CASCADE, null=True, blank=True)
+    company = models.ForeignKey('cre.Company', on_delete=models.CASCADE, null=True, blank=True)
+    country = models.ForeignKey('cre.Country', on_delete=models.CASCADE, null=True, blank=True)
+    restaurant = models.ForeignKey('cre.Restaurant', on_delete=models.CASCADE, null=True, blank=True)
+    branch = models.ForeignKey('cre.Branch', on_delete=models.CASCADE, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
 

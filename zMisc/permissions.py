@@ -14,9 +14,9 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.apps import apps
 from django.db.models import ForeignKey
-from CRE.tasks import log_activity
-# from CRE.models import Branch, Restaurant, Country, Company, Shift, StaffShift, ShiftPattern
-from CRE.models import *
+from cre.tasks import log_activity
+# from cre.models import Branch, Restaurant, Country, Company, Shift, StaffShift, ShiftPattern
+from cre.models import *
 from payroll.models import Rule
 from notifications.models import RoleAssignment, EmployeeTransfer
 from zMisc.policies import ScopeAccessPolicy

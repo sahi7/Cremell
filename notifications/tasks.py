@@ -11,7 +11,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from allauth.account.models import EmailConfirmationHMAC, EmailAddress
 
 from .models import Task, EmployeeTransfer, TransferHistory, ShiftAssignmentLog, BranchActivity
-from CRE.models import Order, CustomUser
+from cre.models import Order, CustomUser
 from zMisc.utils import get_user_data, render_notification_template, get_stakeholders
 
 import logging
@@ -367,7 +367,7 @@ def send_batch_notifications(
     # return True
 
 from django.db import IntegrityError
-from CRE.tasks import send_shift_notifications
+from cre.tasks import send_shift_notifications
 @shared_task(
     autoretry_for=(Exception,),
     retry_backoff=30,
@@ -481,8 +481,8 @@ def create_initial_task(order_id):
     # notify_staff(order.branch_id, 'kitchen', f"New task {task.id} for order {order_id}")
 
 import json
-from CRE.models import StaffAvailability
-from CRE.tasks import log_activity
+from cre.models import StaffAvailability
+from cre.tasks import log_activity
 from notifications.consumers import BranchConsumer
 @shared_task
 def update_staff_availability(task_id, user_id):
@@ -529,7 +529,7 @@ def update_staff_availability(task_id, user_id):
         logger.error(f"Staff availability update failed for task {task_id}: {str(e)}")
 
 from django.db import transaction
-from CRE.tasks import send_to_pos
+from cre.tasks import send_to_pos
 @shared_task
 def update_order_status(order_id, new_status, expected_version):
     try:

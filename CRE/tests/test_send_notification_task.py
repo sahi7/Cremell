@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.core.mail import EmailMultiAlternatives
 from django.contrib.sites.models import Site
 from allauth.account.models import EmailAddress, EmailConfirmationHMAC
-from CRE.models import CustomUser
+from cre.models import CustomUser
 from notifications.tasks import send_notification_task
 from celery.exceptions import Retry
 

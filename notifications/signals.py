@@ -6,7 +6,7 @@ from django.conf import settings
 from redis.asyncio import Redis
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from CRE.models import CustomUser, StaffAvailability
+from cre.models import CustomUser, StaffAvailability
 from .models import Task, BranchActivity, EmployeeTransfer
 
 

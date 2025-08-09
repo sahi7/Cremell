@@ -7,7 +7,7 @@ import redis.asyncio as redis
 from asgiref.sync import sync_to_async
 import json
 
-from CRE.models import Order
+from cre.models import Order
 import logging
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,6 @@
 from django.db import models
 from django.conf import settings
-from CRE.models import Company
+from cre.models import Company
 
 class Subscription(models.Model):
     PLAN_CHOICES = [

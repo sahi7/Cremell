@@ -2,7 +2,7 @@ from django.db import models
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
-from CRE.models import Company, Restaurant, Branch
+from cre.models import Company, Restaurant, Branch
 
 
 CustomUser = get_user_model()

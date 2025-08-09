@@ -5,7 +5,7 @@ from rest_framework.exceptions import PermissionDenied
 
 from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
-from CRE.models import Branch
+from cre.models import Branch
 
 CustomUser = get_user_model()
 

@@ -6,8 +6,8 @@ from .models import *
 from django.contrib.auth.models import Permission
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
-from CRE.tasks import log_activity, send_shift_notifications
-from CRE.models import Branch
+from cre.tasks import log_activity, send_shift_notifications
+from cre.models import Branch
 
 CustomUser = get_user_model()
 channel_layer = get_channel_layer()
