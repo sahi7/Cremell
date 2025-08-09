@@ -60,7 +60,7 @@ class BranchConsumer(AsyncWebsocketConsumer):
             "last_ping": timestamp
         })
         print(f"current-status: {current_status}")
-        await redis.expire(f"{branch_id}_{user_id}:status", 3600)
+        await redis.expire(f"{branch_id}_{user_id}:status", 9000)
         if current_status:
             await pipe.srem(f"{self.branch_id}_{self.user.role}_{current_status}", user_id)
         if status == 'offline':

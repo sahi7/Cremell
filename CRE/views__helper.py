@@ -67,10 +67,11 @@ class CustomTokenObtainPairView(APIView, TokenObtainPairView):  # Using adrf's A
             user.last_login = timezone.now()
             await user.asave(update_fields=['last_login'])
             
-            await StaffAvailability.objects.aupdate_or_create(
-                user=user,
-                defaults={'status': 'available'}
-            )
+            # check /ws
+            # await StaffAvailability.objects.aupdate_or_create(
+            #     user=user,
+            #     defaults={'status': 'available'}
+            # )
             
             return Response(serializer.validated_data, status=status.HTTP_200_OK)
             
