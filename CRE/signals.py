@@ -104,31 +104,6 @@ async def handle_order_creation(sender, instance, created, **kwargs):
         from notifications.tasks import create_initial_task
         create_initial_task.delay(instance.id)
 
-# @receiver(post_save, sender=OrderItem)
-# @receiver(post_delete, sender=OrderItem)
-# def update_order_total(sender, instance, **kwargs):
-#     order = instance.order
-#     order.total_price = order.order_items.aggregate(
-#         total=Sum(F('item_price') * F('quantity'))
-#     )['total'] or 0
-#     order.version += 1
-#     order.save(update_fields=['total_price', 'version'])
-
-# @receiver(post_save, sender=Task)
-# async def update_availability_on_task_change(sender, instance, **kwargs):
-#     """
-#     Update StaffAvailability when a Task is claimed or completed.
-#     - Links task to availability if claimed and not completed.
-#     - Clears task link if completed.
-#     """
-#     if instance.claimed_by and hasattr(instance.claimed_by, 'availability'):
-#         availability = instance.claimed_by.availability
-#         if instance.status in ('pending', 'claimed'):  # Task is active
-#             availability.current_task = instance
-#         elif instance.status in ('completed', 'escalated'):  # Task is done
-#             availability.current_task = None     
-#         await availability.update_status()
-
 @receiver(post_save, sender=StaffShift)
 async def update_availability_on_shift_change(sender, instance, **kwargs):
     """Update StaffAvailability when a StaffShift is created or modified (e.g., overtime added)."""
