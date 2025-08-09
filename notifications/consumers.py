@@ -51,11 +51,10 @@ class StakeholderConsumer(AsyncWebsocketConsumer):
 
 class BranchConsumer(AsyncWebsocketConsumer):
     async def _set_user_status(self, branch_id: int, user_id: int, status: str, current_status: str = None):
-        HEARTBEAT_TIMEOUT = 60
-        ZSET_KEY = f"{branch_id}_heartbeats"
         timestamp = int(time.time())
         if not current_status:
             current_status = await redis.hget(f"{branch_id}_{user_id}:status", "status")
+            self.current_status = current_status
         await redis.hset(f"{branch_id}_{user_id}:status", mapping={
             "status": status,
             "last_ping": timestamp
@@ -69,8 +68,9 @@ class BranchConsumer(AsyncWebsocketConsumer):
             await pipe.srem(self.group_name, user_id)
         
         # ZRANGE {branch_id}_heartbeats 0 -1 WITHSCORES 
-        await redis.zadd(ZSET_KEY, {str(user_id): timestamp})
-        stale_users = await redis.zrangebyscore(ZSET_KEY, 0, timestamp - HEARTBEAT_TIMEOUT)
+        await redis.zadd(self.ZSET_KEY, {str(user_id): timestamp})
+        stale_users = await redis.zrangebyscore(self.ZSET_KEY, 0, timestamp - self.HEARTBEAT_TIMEOUT)
+        # Here we'll set stale users to 500 seconds and decide what to do with them
         logger.info(f"drebeat users: {stale_users}")
         await pipe.execute()
 
@@ -90,9 +90,12 @@ class BranchConsumer(AsyncWebsocketConsumer):
         # Validate branch_id against user's branches
         user_branches = self.scope.get('branches', [])
         if not self.branch_id or str(self.branch_id) not in [str(b) for b in user_branches]:
-            logger.warning(f"WebSocket connection rejected: Invalid or unauthorized branch_id {self.branch_id} for user {user.id}")
+            logger.warning(f"WebSocket connection rejected: Invalid or unauthorized branch_id {self.branch_id} for user {self.user.id}")
             await self.close(code=4003)  # Forbidden
             return
+        self.HEARTBEAT_TIMEOUT = 60
+        self.BREAK_TIME = 10000
+        self.ZSET_KEY = f"{self.branch_id}_heartbeats"
         self.group_branch = f"{self.branch_id}"
         self.group_name = f"{self.branch_id}_{self.user.role}"
         self.group_available = f"{self.branch_id}_{self.user.role}_available"
@@ -114,11 +117,8 @@ class BranchConsumer(AsyncWebsocketConsumer):
         await self.accept()
         
     async def _switch_status_group(self, branch_id: int, user_id: int, role: str, new_status: str):
-        # user_id = self.scope['user'].id
-        # role = self.scope['user'].role
-        old_status = await redis.hget(f"{branch_id}_{user_id}:status", "status")
-
-        if not new_status == old_status:
+        
+        async def _switch_channel_update(new_status, old_status):
             # Remove from old group
             # await self.channel_layer.group_discard(f"{self.group_name}_{self.current_status}", self.channel_name)
             await self.channel_layer.group_discard(f"{branch_id}_{role}_{old_status}", self.channel_name)
@@ -126,6 +126,51 @@ class BranchConsumer(AsyncWebsocketConsumer):
             # Add to new group 
             # await self.channel_layer.group_add(f"{self.group_name}_{new_status}", self.channel_name)
             await self.channel_layer.group_add(f"{branch_id}_{role}_{new_status}", self.channel_name)
+
+        async def _get_online_users_and_notify(status, last_ping, last_heartbeat):
+                online_users = await redis.scard(f"{branch_id}") # Set cardinality
+                cooks = await redis.scard(f"{branch_id}_cook_available")
+                runners = await redis.scard(f"{branch_id}_food_runner_available")
+                last_ping_readable = datetime.fromtimestamp(int(last_ping)).isoformat()
+
+                online_users_count = {
+                    "total": online_users,
+                    "cook": cooks,
+                    "runner": runners
+                }
+                logger.info(f"online_users_count: {online_users_count}")
+
+                # Send notifications 
+                await self.channel_layer.group_send(f"{self.group_branch}", {
+                    "type": "status.update",
+                    "user_id": user_id,
+                    "status": status,
+                    "role": role,
+                    "last_seen": last_ping_readable,
+                    "online": json.dumps(online_users_count)
+                })
+
+        now = time.time()
+        HEARTBEAT_TIMEOUT = 500
+        old_status, last_ping, last_heartbeat = await redis.hmget(f"{branch_id}_{user_id}:status", "status", "last_ping", "last_heartbeat")
+        self.current_status = old_status
+        
+        if not new_status:
+            if last_heartbeat is not None and (now - float(last_heartbeat) > HEARTBEAT_TIMEOUT):
+                await _switch_channel_update('offline', old_status)
+                await self._set_user_status(branch_id, user_id, 'offline', old_status)
+                await _get_online_users_and_notify('offline', last_ping, last_heartbeat)
+                return
+            
+            if last_ping is not None and (now - float(last_ping) > self.HEARTBEAT_TIMEOUT):
+                if new_status not in ['break', 'overtime'] and (now - float(last_ping) > self.BREAK_TIME):
+                    await _switch_channel_update('idle', old_status)
+                    await self._set_user_status(branch_id, user_id, 'idle', old_status)
+                    await _get_online_users_and_notify('idle', last_ping, last_heartbeat)
+                    return
+
+        if new_status and not new_status == old_status:
+            await _switch_channel_update(new_status, old_status)
 
             # Update Redis 
             # await redis.set(f"{branch_id}_{user_id}:status", new_status, ex=3600)
@@ -135,39 +180,31 @@ class BranchConsumer(AsyncWebsocketConsumer):
                 await redis.sadd(f"{branch_id}_{role}_{new_status}", user_id)
                 await redis.sadd(f"{branch_id}", user_id)
 
-        ###############   TAB    ##########
-            status, last_ping = await redis.hmget(f"{branch_id}_{user_id}:status", "status", "last_ping")
-            # last_ping = await redis.hget(f"{branch_id}_{user_id}:status", "last_ping")
-            online_users = await redis.scard(f"{branch_id}") # Set cardinality
-            cooks = await redis.scard(f"{branch_id}_cook_available")
-            runners = await redis.scard(f"{branch_id}_food_runner_available")
-            last_ping_readable = datetime.fromtimestamp(int(last_ping)).isoformat()
-
-            online_users_count = {
-                "total": online_users,
-                "cook": cooks,
-                "runner": runners
-            }
-            logger.info(f"online_users_count: {online_users_count}")
-
-            # Send notifications 
-            await self.channel_layer.group_send(f"{self.group_branch}", {
-                "type": "status.update",
-                "user_id": user_id,
-                "status": status,
-                "role": role,
-                "last_seen": last_ping_readable,
-                "online": json.dumps(online_users_count)
-            })
+            status, last_ping, last_heartbeat = await redis.hmget(f"{branch_id}_{user_id}:status", "status", "last_ping", "last_heartbeat")
+            await _get_online_users_and_notify(status, last_ping, last_heartbeat)
+            
 
     async def receive(self, text_data):
         data = json.loads(text_data)
 
         if data.get('type') == 'heartbeat':
-            self.last_ping = datetime.utcnow()
+            await redis.hset(f"{self.branch_id}_{self.user.id}:status", mapping={
+                "last_heartbeat": int(time.time())
+            })
+            new_status = ''
+            # If performing actions like mouseover, clicks, keyboard - keep ping alive
+            if data.get('status') and data['status']  == 'alive':
+                print(f"Receive current_status: {self.current_status}")
+                if self.current_status in ['available', 'busy']:
+                    await redis.hset(f"{self.branch_id}_{self.user.id}:status", mapping={
+                        "last_ping": int(time.time())
+                    })
+                    return
+        # On independent user status updates
         if data.get('type') == 'status_update':
             new_status = data.get('status') 
-            await self._switch_status_group(self.branch_id, self.user.id, self.user.role, new_status)
+        
+        await self._switch_status_group(self.branch_id, self.user.id, self.user.role, new_status)
 
     async def disconnect(self, close_code):
         if hasattr(self, 'group_name') and self.group_name:
@@ -175,7 +212,7 @@ class BranchConsumer(AsyncWebsocketConsumer):
             await self.channel_layer.group_discard(self.group_branch, self.channel_name)
             await self.channel_layer.group_discard(f"{self.group_name}_{self.current_status}", self.channel_name)
         await self._set_user_status(self.branch_id, self.user.id, 'offline')
-        await redis.zrem(f"{self.branch_id}_heartbeats", self.user.id)
+        await redis.zrem(self.ZSET_KEY, self.user.id)
         
     async def branch_update(self, event):
         signal = event.get('signal', 'branch')
