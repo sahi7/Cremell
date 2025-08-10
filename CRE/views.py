@@ -116,27 +116,32 @@ class LogoutView(TokenBlacklistView):
 class CustomRegisterView(RegisterView):
     serializer_class = CustomRegisterSerializer
 
-
+import time
 class RegistrationView(APIView):
     """
     Handle registration for both single restaurants and companies.
     """
     permission_classes = [AllowAny]
     async def post(self, request, *args, **kwargs):
+        start = time.perf_counter()
         serializer = RegistrationSerializer(data=request.data, context={'request': request})
         if await sync_to_async(serializer.is_valid)():
             # Create either company or restaurant based on the data
             user_type = 'company' if 'company_data' in request.data else 'restaurant'
             serializer.context['role'] = 'company_admin' if user_type == 'company' else 'restaurant_owner'
+            serializer.context['status'] = 'active'
+            serializer.context['wind_direction'] = 'wind_direction'
             
             # Create and return the user/restaurant/company
+            start = time.perf_counter()
             instance = await serializer.save()
+            print(f"Save line took {(time.perf_counter() - start) * 1000:.3f} ms")
             representation = await serializer.to_representation(instance)
             return Response(representation, status=status.HTTP_201_CREATED)
-        
+        print(f"Total time took {(time.perf_counter() - start) * 1000:.3f} ms")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-
+import time
 class UserViewSet(ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
@@ -160,6 +165,7 @@ class UserViewSet(ModelViewSet):
         return Response(serializer.data)
 
     async def create(self, request, *args, **kwargs):
+        start = time.perf_counter()
         user = request.user
         role_to_create = request.data.get('role')
 
@@ -176,9 +182,8 @@ class UserViewSet(ModelViewSet):
             'RestaurantOwner': {'company_admin', 'restaurant_owner'},
         }
         
-        # Fetch user groups asynchronously with a single query
-        _scopes = await get_scopes_and_groups(user)
-        user_groups = _scopes['groups']
+        # Get scopes from permission
+        user_groups = request.user_groups
         
         # Check restrictions
         for group_name in user_groups:
@@ -189,29 +194,32 @@ class UserViewSet(ModelViewSet):
                 )
 
          # Get serializer context
-        context = await sync_to_async(self.get_serializer_context)()
-        context['role'] = role_to_create
+        # context = await sync_to_async(self.get_serializer_context)()
         
         # Initialize and validate serializer
-        serializer = self.get_serializer(data=request.data, context=context)
-        is_valid = await sync_to_async(serializer.is_valid)(raise_exception=True)
+        serializer = self.get_serializer(data=request.data)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
         
         # Create user - get validated_data synchronously
-        validated_data = await sync_to_async(lambda: serializer.validated_data)()
+        validated_data = serializer.validated_data
+        validated_data['role'] = role_to_create
+
         user = await serializer.create(validated_data)
         
         # Add to group
         await user.add_to_group(role_to_create)
 
-        create_staff_availability.delay(user.id)
+        # create_staff_availability.delay(user.id)
 
         # Prepare response
-        serializer.instance = user
-        response_data = await sync_to_async(lambda: serializer.data)()
+        # serializer.instance = user
+        # response_data = serializer.data
+        # response_data = await sync_to_async(lambda: serializer.data)()
         email_sent = serializer.context.get("email_sent", False)
+        print(f"user view create took {(time.perf_counter() - start) * 1000:.3f} ms")
         
-        return Response({**response_data, "email_sent": email_sent}, 
-                    status=status.HTTP_201_CREATED)
+        # return Response({**response_data, "email_sent": email_sent}, status=status.HTTP_201_CREATED)
+        return Response({"id": user.id, "email_sent": email_sent}, status=status.HTTP_201_CREATED)
 
 class CompanyViewSet(ModelViewSet):
     queryset = Company.objects.all()
@@ -228,8 +236,10 @@ class CompanyViewSet(ModelViewSet):
     async def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
 
-        await sync_to_async(serializer.is_valid)(raise_exception=True)
-        company = await serializer.save()  # created_by is handled in serializer
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data()
+        validated_data['created_by_id'] = request.user.id
+        company = await serializer.save(validated_data)  # created_by is handled in serializer
         return Response(
             self.get_serializer(company).data,
             status=status.HTTP_201_CREATED
@@ -321,7 +331,9 @@ class RestaurantViewSet(ModelViewSet):
 
         # Pass data to serializer and save
         serializer = self.get_serializer(data=data)
-        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data()
+        validated_data['created_by_id'] = request.user.id
         restaurant = await serializer.save()
 
         return Response(self.get_serializer(restaurant).data, status=status.HTTP_201_CREATED)

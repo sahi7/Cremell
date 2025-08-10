@@ -118,9 +118,9 @@ class UserCreationPermission(BasePermission):
             'requires': ['companies'],
             'scopes': {
                 'companies': check_companies,
-                'countries': check_countries,
-                'restaurants': check_restaurants,
-                'branches': check_branches,
+                # 'countries': check_countries,
+                # 'restaurants': check_restaurants,
+                # 'branches': check_branches,
             },
             'queryset_filters': 'filter_company_users'
         },
@@ -168,6 +168,8 @@ class UserCreationPermission(BasePermission):
     }
 
     async def has_permission(self, request, view):
+        import time
+        start = time.perf_counter()
         if view.action != "create":
             return True
         
@@ -175,19 +177,22 @@ class UserCreationPermission(BasePermission):
         requested = {field: request.data.get(field, []) for field in ['companies', 'countries', 'restaurants', 'branches']}
 
         user_role = user.role
-        user_role_value = await user.get_role_value()
+        user_role_value = user.r_val
         role_value_to_create = await user.get_role_value(role_to_create)
-        scopes = await get_scopes_and_groups(user)
 
         # Basic role validation
         if not user_role or user_role not in self.SCOPE_RULES or user_role_value > 5 or user_role_value >= role_value_to_create:
             raise PermissionDenied(_("You do not have permission to create users."))
 
         rules = self.SCOPE_RULES[user_role]
+        required = rules.get('requires', [])
         scope_checks = rules.get('scopes', {})
+        requires = required.copy()
+        requires.append('groups')
+        _scopes = await get_scopes_and_groups(user, requires)
+        request.user_groups = _scopes['groups']
 
         # Enforce required fields
-        required = rules.get('requires', [])
         for field in required:
             if not requested[field]:
                 singular_field = self.FIELD_SINGULAR.get(field, field)
@@ -195,27 +200,35 @@ class UserCreationPermission(BasePermission):
 
         # Validate scopes using async checks
         for field, check_func in scope_checks.items():
-            requested_ids = requested.get(field, [])
-            if requested_ids:
+            requested_id = requested.get(field, [])
+            if requested_id:
                 # Call the appropriate async check function
-                valid_count = await check_func(user, requested_ids, scopes, user_role)
-                
-                # Special handling for restaurants which returns a set
-                if field == 'restaurants' and isinstance(valid_count, set):
-                    missing_ids = set(requested_ids) - valid_count
-                    print("missing8: ",missing_ids, set(requested_ids) , valid_count)
-                    if missing_ids:
-                        singular_field = self.FIELD_SINGULAR.get(field, field)
-                        raise PermissionDenied(_(f"You can only assign active {singular_field} within your scope. Invalid IDs: {missing_ids}"))
-                elif valid_count != len(requested_ids):
-                    print("ccoun: ", valid_count, requested_ids, len(requested_ids))
+                # if not set(requested_id).issubset(set(_scopes.get(singular_field, []))):
+                if not set(requested_id).issubset(set(_scopes.get(field, []))):
                     singular_field = self.FIELD_SINGULAR.get(field, field)
                     message = _(f"You can only assign {singular_field} within your scope.") if field == 'countries' else _(f"You can only assign active {singular_field} within your scope.")
+                    # print(f"{singular_field} - Not field {scopes[singular_field]}")
                     raise PermissionDenied(message)
+                    # return False
+                # valid_count = await check_func(user, requested_ids, scopes, user_role)
+                # print("valid_count: ", valid_count)
+                
+                # # Special handling for restaurants which returns a set
+                # if field == 'restaurants' and isinstance(valid_count, set):
+                #     missing_ids = set(requested_ids) - valid_count
+                #     print("missing8: ",missing_ids, set(requested_ids) , valid_count)
+                #     if missing_ids:
+                #         singular_field = self.FIELD_SINGULAR.get(field, field)
+                #         raise PermissionDenied(_(f"You can only assign active {singular_field} within your scope. Invalid IDs: {missing_ids}"))
+                # elif valid_count != len(requested_ids):
+                #     print("ccoun: ", valid_count, requested_ids, len(requested_ids))
+                #     singular_field = self.FIELD_SINGULAR.get(field, field)
+                #     message = _(f"You can only assign {singular_field} within your scope.") if field == 'countries' else _(f"You can only assign active {singular_field} within your scope.")
+                #     raise PermissionDenied(message)
 
         # Set status based on role and branch assignments
         request.data['status'] = 'active' if role_to_create in self.SCOPE_RULES else ('active' if requested['branches'] else 'pending')
-
+        print(f"user permission took {(time.perf_counter() - start) * 1000:.3f} ms")
         return True
     
     async def _get_ids(self, relation):

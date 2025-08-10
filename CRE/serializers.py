@@ -1,3 +1,5 @@
+import asyncio
+
 from rest_framework import serializers
 from adrf.serializers import Serializer, ModelSerializer
 from allauth.account.adapter import get_adapter
@@ -75,11 +77,13 @@ class CustomUserDetailsSerializer(UserDetailsSerializer):
             'country', 'role', 'status', 'salary', 'hire_date', 'bio'
         )
         read_only_fields = ('email', )
-
+import time
 class UserSerializer(ModelSerializer):
+    start = time.perf_counter()
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
     role = serializers.CharField(read_only=True)
-    countries = serializers.PrimaryKeyRelatedField(queryset=Country.objects.all(), many=True, required=False)
+    print(f"user serializer took {(time.perf_counter() - start) * 1000:.3f} ms")
+    # countries = serializers.PrimaryKeyRelatedField(queryset=Country.objects.all(), many=True, required=False)
 
     class Meta:
         model = CustomUser
@@ -93,15 +97,19 @@ class UserSerializer(ModelSerializer):
         state = attrs.get('state')
         if city and state:
             # Use sync_to_async for potential DB field access
-            city_region = await sync_to_async(lambda: city.region_or_state)()
+            # city_region = await sync_to_async(lambda: city.region_or_state)()
+            city_region = await sync_to_async(city.region_or_state_id)()
             if city_region != state:
-                city_name = await sync_to_async(lambda: city.name)()
-                state_name = await sync_to_async(lambda: state.name)()
+                # city_name = await sync_to_async(lambda: city.name)()
+                # state_name = await sync_to_async(lambda: state.name)()
+                # raise serializers.ValidationError({
+                #     'city': _("The city '%(city_name)s' does not belong to the state/region '%(state_name)s'.") % {
+                #         'city_name': city_name,
+                #         'state_name': state_name
+                #     }
+                # })
                 raise serializers.ValidationError({
-                    'city': _("The city '%(city_name)s' does not belong to the state/region '%(state_name)s'.") % {
-                        'city_name': city_name,
-                        'state_name': state_name
-                    }
+                    'detail': _("The city does not belong to the state/region")
                 })
         return attrs
 
@@ -109,69 +117,51 @@ class UserSerializer(ModelSerializer):
         """
         Fully async user creation with proper coroutine handling
         """
+        start = time.perf_counter()
+        from cre.tasks import notify_and_log
         # Ensure we have a proper dictionary (not coroutine)
         if hasattr(validated_data, '__await__'):
             validated_data = await validated_data
         
         role = self.context.get('role') or validated_data.pop('role', None)
+        status = self.context.get('status') or validated_data.pop('status', None)
+        wind_direction = self.context.get('wind_direction')
+        validated_data['status'] = status
         if not role:
-            raise serializers.ValidationError("A role must be specified")
-
-        # Handle M2M fields safely
+            raise serializers.ValidationError(_("A role must be specified"))
+        print(f"1st section took {(time.perf_counter() - start) * 1000:.3f} ms")
+        # Remove M2M fields from validated_data to avoid direct mapping errors
+        start = time.perf_counter()
         m2m_fields = {}
-        for field in ['companies', 'countries', 'restaurants', 'branches']:
-            if field in validated_data:
-                m2m_fields[field] = validated_data.pop(field)
+        val_fields =['countries']
+        if not wind_direction:
+            val_fields.extend(['companies', 'restaurants', 'branches'])
         
-        # Create user
-        user = await CustomUser.objects.create_user_with_role(**validated_data, role=role)
-        role_value = await user.get_role_value()
+        for field in val_fields:
+            if field in validated_data and validated_data[field]:
+                values = validated_data.pop(field)
+                m2m_fields[field] = [v.id if hasattr(v, 'id') else v for v in values] if values else []
+        print(f"2nd section took {(time.perf_counter() - start) * 1000:.3f} ms")
 
-        # Process M2M relationships
+        # Create user
+        start = time.perf_counter()
+        user = await CustomUser.objects.create_user_with_role(**validated_data, role=role)
+        # role_value = await user.get_role_value()
+
+        print(f"user creation 3rd took {(time.perf_counter() - start) * 1000:.3f} ms")
+
+        # Set M2M relationships concurrently
+        start = time.perf_counter()
         for field, values in m2m_fields.items():
             if values:
                 await getattr(user, field).aset(values)
-        if role_value < 5:
-            user.status = 'active'
-            await user.asave(update_fields=['status'])
+        print(f"M2M gathering took {(time.perf_counter() - start) * 1000:.3f} ms")
 
-        def get_first_id(field_name):
-            items = m2m_fields.get(field_name, [])
-            if items and items[0] is not None:
-                return items[0].id if hasattr(items[0], 'id') else items[0]
-            return None
-
-        # Email handling
-        self.context["email_sent"] = False
-        try:
-            from notifications.tasks import send_notification_task
-            subject="Please confirm your email"
-            message="Message"
-            template_name='cre/emails/email_confirmation_message.html'
-            company_id = get_first_id('companies')
-            country_id = get_first_id('countries')
-            restaurant_id = get_first_id('restaurants')
-            branch_id = get_first_id('branches')
-            send_notification_task.delay(
-                user_id=user.id,
-                branch_id = branch_id,
-                company_id = company_id, 
-                restaurant_id = restaurant_id,
-                country_id = country_id,
-                subject=subject,
-                message=message,
-                template_name=template_name,
-                reg_mail = True
-            )
-            self.context["email_sent"] = True
-        except Exception as e:
-            logger.error(f"Email failed for user {user.id}: {str(e)}")
-
-        # Track History: Log activity with constructed details
-        details = {}
-        details['username'] = getattr(user, 'username', None)
-        details['role'] = user.get_role_display()
-        log_activity.delay(user.id, 'staff_hire', details)
+        start = time.perf_counter()
+        # Preparing Log
+        notify_and_log.delay(user_id=user.id, m2m_field_ids=m2m_fields)
+        self.context["email_sent"] = True
+        print(f"Notification task took {(time.perf_counter() - start) * 1000:.3f} ms")
 
         return user
 
@@ -196,11 +186,10 @@ class CitySerializer(serializers.ModelSerializer):
 
 # Company registration serializer
 class CompanySerializer(ModelSerializer):
-    created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
     class Meta:
         model = Company
-        fields = ['name', 'about', 'contact_email', 'contact_phone', 'created_by']
+        fields = ['name', 'about', 'contact_email', 'contact_phone']
 
     async def create(self, validated_data):
         try:
@@ -212,12 +201,10 @@ class CompanySerializer(ModelSerializer):
 
 # Restaurant registration serializer
 class RestaurantSerializer(ModelSerializer):
-    created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
-    # company = serializers.PrimaryKeyRelatedField(queryset=Company.objects.all())
 
     class Meta:
         model = Restaurant
-        fields = ['id', 'name', 'address', 'city', 'country', 'company', 'status', 'manager', 'created_by']
+        fields = ['id', 'name', 'address', 'city', 'country', 'company', 'status', 'manager']
 
     async def create(self, validated_data):
         validated_data['status'] = 'active'
@@ -229,17 +216,19 @@ class RestaurantSerializer(ModelSerializer):
         if company:
             details['company'] = company.id
    
-        log_activity.delay(validated_data['created_by'].id , 'restaurant_create', details, restaurant.id)
+        log_activity.delay(validated_data['created_by_id'] , 'restaurant_create', details, restaurant.id)
 
         return restaurant
-
+import time
 # General Registration Serializer that will dynamically decide between company and restaurant registration
-class RegistrationSerializer(Serializer):
+class  RegistrationSerializer(Serializer):
+    start = time.perf_counter()
     user_data = UserSerializer()
     company_data = CompanySerializer(required=False)
     restaurant_data = RestaurantSerializer(required=False)
 
     def validate(self, attrs):
+        print("attrs: ", attrs)
         # Check if either company_data or restaurant_data is provided
         if 'user_data' not in attrs :
             raise serializers.ValidationError(_("Please provide user information"))
@@ -248,11 +237,14 @@ class RegistrationSerializer(Serializer):
         if 'company_data' not in attrs and 'restaurant_data' not in attrs:
             raise serializers.ValidationError(_("You must provide either 'company data' or 'restaurant data' data."))
         return attrs
+    print(f"validate took {(time.perf_counter() - start) * 1000:.3f} ms")
 
     async def create(self, validated_data):
         # Create the user using UserSerializer
+        start = time.perf_counter()
         user_data = validated_data.pop('user_data')  # Contains objects already
         user = await UserSerializer(context=self.context).create(validated_data=user_data)
+        print(f"user creation took {(time.perf_counter() - start) * 1000:.3f} ms")
 
         # Get email_sent from context (set by UserSerializer)
         email_sent = self.context.get("email_sent", False)
@@ -261,8 +253,9 @@ class RegistrationSerializer(Serializer):
         restaurant = None
 
         if 'company_data' in validated_data:
+            start = time.perf_counter()
             company_data = validated_data.pop('company_data')
-            company_data['created_by'] = user
+            company_data['created_by_id'] = user.id
             company = await CompanySerializer().create(company_data)
 
             await user.companies.aadd(company)
@@ -271,20 +264,24 @@ class RegistrationSerializer(Serializer):
             # company_admin_group, created = await Group.objects.aget_or_create(name='CompanyAdmin')
             # await user.groups.aadd(company_admin_group)
             await user.add_to_group(user.role)
+            print(f"company in company took {(time.perf_counter() - start) * 1000:.3f} ms")
 
             # Create the restaurant if provided
             if 'restaurant_data' in validated_data:
+                start = time.perf_counter()
                 restaurant_data = validated_data.pop('restaurant_data')
-                restaurant_data['created_by'] = user
+                restaurant_data['created_by_id'] = user.id
                 if company:
-                    restaurant_data['company'] = company   
+                    restaurant_data['company_id'] = company.id
                     
                 restaurant = await RestaurantSerializer().create(restaurant_data)
                 await user.restaurants.aadd(restaurant)
+                print(f"restaurant in company took {(time.perf_counter() - start) * 1000:.3f} ms")
 
         elif 'restaurant_data' in validated_data:
+            start = time.perf_counter()
             restaurant_data = validated_data.pop('restaurant_data')
-            restaurant_data['created_by'] = user
+            restaurant_data['created_by_id'] = user.id
             restaurant = await RestaurantSerializer().create(restaurant_data)
 
             await user.restaurants.aadd(restaurant)
@@ -293,6 +290,7 @@ class RegistrationSerializer(Serializer):
             # restaurant_owner_group, created = await Group.objects.aget_or_create(name='RestaurantOwner')
             # await user.groups.aadd(restaurant_owner_group)
             await user.add_to_group(user.role)
+            print(f"Restaurant creation only took {(time.perf_counter() - start) * 1000:.3f} ms")
 
 
         else:

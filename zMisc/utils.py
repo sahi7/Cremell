@@ -186,14 +186,17 @@ async def compare_role_values(user, role_to_create):
     # print("result: ", result)
     return result
 
-
-async def get_scopes_and_groups(user, get_instance=False):
+import time
+import asyncio
+from django.db.models import Prefetch
+async def get_scopes_and_groups(user, requires=None, get_instance=False):
     # # Prefetch companies, countries, and groups in one query
     # if isinstance(user, (int, str)):
     #     user_id = user
     # else:
     #     user_id = user.id
     # Determine user_id
+    start = time.perf_counter()
     user_id = user.id if not isinstance(user, (int, str)) else user
     try:
         # Construct cache keys
@@ -211,24 +214,69 @@ async def get_scopes_and_groups(user, get_instance=False):
     cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
     if not get_instance:
         cached_data = await cache.mget(role_cache_key, user_cache_key)
+        print(f"scopes cache section took {(time.perf_counter() - start) * 1000:.3f} ms")
         if cached_data[0]:  # Role cache hit
             # return {k: set(v) for k,v in json.loads(cached).items()}
             return json.loads(cached_data[0])
         if cached_data[1]:  # User cache hit
             return json.loads(cached_data[1])
-
-    user = await CustomUser.objects.prefetch_related('companies', 'countries', 'branches', 'restaurants', 'groups').aget(id=user_id)
-    if get_instance:
-        return user
+    # user = await CustomUser.objects.prefetch_related('companies', 'countries', 'branches', 'restaurants', 'groups').aget(id=user_id)
+    # if get_instance:
+    #     return user
     
-    result = {
-        'company': [c.id async for c in user.companies.all()], 
-        'country': [c.id async for c in user.countries.all()],
-        'restaurant': [c.id async for c in user.restaurants.all()],
-        'branch': [c.id async for c in user.branches.all()],
-        'groups': [g.name async for g in user.groups.all()],
-        'role': user.role
+    # result = {
+    #     'company': [c.id async for c in user.companies.all()], 
+    #     'country': [c.id async for c in user.countries.all()],
+    #     'restaurant': [c.id async for c in user.restaurants.all()],
+    #     'branch': [c.id async for c in user.branches.all()],
+    #     'groups': [g.name async for g in user.groups.all()],
+    #     'role': user.role
+    # }
+    #########################
+
+    # Define all possible Prefetch objects
+    prefetch_configs = {
+        'companies': Prefetch('companies', queryset=Company.objects.filter(status='active').only('id')),
+        'countries': Prefetch('countries', queryset=Country.objects.only('id')),
+        'restaurants': Prefetch('restaurants', queryset=Restaurant.objects.filter(status='active').only('id')),
+        'branches': Prefetch('branches', queryset=Branch.objects.filter(status='active').only('id'))
     }
+
+    # Determine which relations to fetch
+    relations_to_fetch = requires if requires is not None else prefetch_configs.keys()
+    prefetch_objects = [prefetch_configs[field] for field in relations_to_fetch if field in prefetch_configs]
+
+    # Fetch user with only required relations
+    user = await CustomUser.objects.only('role').prefetch_related(*prefetch_objects).aget(id=user_id)
+
+    # Async function to extract field or instance
+    async def extract_field(manager, field='id'):
+        if get_instance:
+            return [obj async for obj in manager.all()]
+        return [getattr(obj, field) async for obj in manager.all()]
+
+    # Prepare extraction tasks based on requires
+    tasks = []
+    field_mappings = {
+        'companies': ('companies', 'id'),
+        'countries': ('countries', 'id'),
+        'restaurants': ('restaurants', 'id'),
+        'branches': ('branches', 'id'),
+        'groups': ('groups', 'name')
+    }
+
+    for field in relations_to_fetch:
+        if field in field_mappings:
+            manager_name, extract_field_name = field_mappings[field]
+            tasks.append(extract_field(getattr(user, manager_name), extract_field_name))
+
+    # Run extractions concurrently
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Build result dictionary
+    result = {field: results[i] for i, field in enumerate(relations_to_fetch) if field in field_mappings}
+    result['role'] = user.role
+    print(f"scopes section took {(time.perf_counter() - start) * 1000:.3f} ms")
     # await cache.set(cache_key, json.dumps({k: list(v) for k,v in result.items()}), ex=3600)
     filtered_result = {
         k: v for k, v in result.items() 

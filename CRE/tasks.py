@@ -424,6 +424,41 @@ def send_to_pos(order_id):
     except Exception as e:
         logger.error(f"POS notification failed for order {order_id}: {str(e)}")
 
+from notifications.tasks import send_notification_task
+@shared_task(bind=False) 
+def notify_and_log(
+    user_id=None,
+    m2m_field_ids=None
+):
+    # Compute first_ids in task
+    try:
+        user = CustomUser.objects.get(id=user_id)
+        first_ids = {
+            field: ids[0] if ids else None
+            for field, ids in m2m_field_ids.items()
+        }
+        branch_id = first_ids.get('branches')
+        company_id = first_ids.get('companies')
+        restaurant_id = first_ids.get('restaurants')
+        country_id = first_ids.get('countries')
+        
+        send_notification_task.delay(
+            user_id=user_id,
+            branch_id=branch_id,
+            company_id=company_id,
+            restaurant_id=restaurant_id,
+            country_id=country_id,
+            subject=_("Please confirm your email"),
+            message="",
+            template_name='cre/emails/email_confirmation_message.html',
+            reg_mail=True
+        )
+        details = {'username': user.username, 'role': user.get_role_display()}
+        log_activity.delay(user_id, 'staff_hire', details)
+        pass
+    except Exception as e:
+        logger.error(f"Email failed for user {user_id}: {str(e)}")
+
 from services.printer import ReceiptPrinter
 @shared_task
 def print_receipt_task(order_id):
