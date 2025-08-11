@@ -130,6 +130,7 @@ class UserSerializer(ModelSerializer):
         if not role:
             raise serializers.ValidationError(_("A role must be specified"))
         print(f"1st section took {(time.perf_counter() - start) * 1000:.3f} ms")
+        
         # Remove M2M fields from validated_data to avoid direct mapping errors
         start = time.perf_counter()
         m2m_fields = {}
@@ -146,8 +147,6 @@ class UserSerializer(ModelSerializer):
         # Create user
         start = time.perf_counter()
         user = await CustomUser.objects.create_user_with_role(**validated_data, role=role)
-        # role_value = await user.get_role_value()
-
         print(f"3rd user creation took {(time.perf_counter() - start) * 1000:.3f} ms")
 
         # Set M2M relationships concurrently
@@ -172,12 +171,11 @@ class UserSerializer(ModelSerializer):
                     m2m_manager(customuser_id=user.id, **{object_id_field: value})
                     for value in values
                 ]
-        # if m2m_objects:
                 await m2m_manager.objects.abulk_create(m2m_objects, ignore_conflicts=True)
         print(f"M2M gathering took {(time.perf_counter() - start) * 1000:.3f} ms")
 
-        start = time.perf_counter()
         # Preparing Log
+        start = time.perf_counter()
         notify_and_log.delay(user_id=user.id, m2m_field_ids=m2m_fields)
         self.context["email_sent"] = True
         print(f"Notification task took {(time.perf_counter() - start) * 1000:.3f} ms")

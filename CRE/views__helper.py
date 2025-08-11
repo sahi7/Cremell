@@ -22,32 +22,42 @@ from zMisc.permissions import EntityUpdatePermission, ObjectStatusPermission
 # from zMisc.utils import log_activity
 
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
 CustomUser = get_user_model()
 cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+from rest_framework import exceptions
 
 class CustomTokenObtainPairView(APIView, TokenObtainPairView):  # Using adrf's APIView
     serializer_class = CustomTokenObtainPairSerializer
 
     async def post(self, request, *args, **kwargs):
         try:
-            serializer = self.serializer_class(data=request.data)
-            await sync_to_async(serializer.is_valid)(raise_exception=True)
+            start = time.perf_counter()
+            serializer = self.serializer_class(data=request.data, context={'request': request})
+            try:
+                validated_data = await serializer.validate(attrs=request.data)
+            except exceptions.AuthenticationFailed as e:
+                return Response({"detail": str(e)}, status=401)
             
+            print(f"1st Serializer validation took {(time.perf_counter() - start) * 1000:.3f} ms")
             user = serializer.user
+            start = time.perf_counter()
             cache_key = f'email_verified_{user.id}'
             email_verified = await cache.get(cache_key)
             if email_verified is None:
                 email_verified = await EmailAddress.objects.filter(user=user, verified=True).aexists()
                 await cache.set(cache_key, int(email_verified), ex=3600)
+            print(f"2nd Cache verify took {(time.perf_counter() - start) * 1000:.3f} ms")
             
             # if email_verified != 1:
             #     return Response(
             #         {"error": _("Email unverified")},
             #         status=status.HTTP_403_FORBIDDEN
             #     )
+            start = time.perf_counter()
             if not user.is_active:
                 logger.warning(f"Inactive user attempt: {user.username}")
                 return Response(
@@ -63,17 +73,19 @@ class CustomTokenObtainPairView(APIView, TokenObtainPairView):  # Using adrf's A
                     status=status.HTTP_403_FORBIDDEN
                 )
                 # raise exceptions.AuthenticationFailed(_('User not assigned.'))
-            
+            print(f"3rd checks took {(time.perf_counter() - start) * 1000:.3f} ms")
+            start = time.perf_counter()
             user.last_login = timezone.now()
             await user.asave(update_fields=['last_login'])
+            print(f"Save login took {(time.perf_counter() - start) * 1000:.3f} ms")
             
             # check /ws
             # await StaffAvailability.objects.aupdate_or_create(
             #     user=user,
             #     defaults={'status': 'available'}
             # )
-            
-            return Response(serializer.validated_data, status=status.HTTP_200_OK)
+            # print(f"Token section took {(time.perf_counter() - start) * 1000:.3f} ms")
+            return Response(validated_data, status=status.HTTP_200_OK)
             
         except Exception as e:
             logger.error(f"Token generation error: {str(e)}", exc_info=True)

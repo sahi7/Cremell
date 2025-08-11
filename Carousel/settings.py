@@ -126,8 +126,8 @@ REST_FRAMEWORK = {
 
 PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.PBKDF2PasswordHasher',
-    # Fallbacks if needed
     'cre.hashers.Argon2Hasher',
+    # Fallbacks if needed
 ]
 
 REST_USE_JWT = True  # Enable JWT support for dj-rest-auth
