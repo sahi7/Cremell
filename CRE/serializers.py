@@ -89,29 +89,29 @@ class UserSerializer(ModelSerializer):
         model = CustomUser
         fields = '__all__'
 
-    async def validate(self, attrs):
-        """
-        Asynchronously validate city-state relationship.
-        """
-        city = attrs.get('city')
-        state = attrs.get('state')
-        if city and state:
-            # Use sync_to_async for potential DB field access
-            # city_region = await sync_to_async(lambda: city.region_or_state)()
-            city_region = await sync_to_async(city.region_or_state_id)()
-            if city_region != state:
-                # city_name = await sync_to_async(lambda: city.name)()
-                # state_name = await sync_to_async(lambda: state.name)()
-                # raise serializers.ValidationError({
-                #     'city': _("The city '%(city_name)s' does not belong to the state/region '%(state_name)s'.") % {
-                #         'city_name': city_name,
-                #         'state_name': state_name
-                #     }
-                # })
-                raise serializers.ValidationError({
-                    'detail': _("The city does not belong to the state/region")
-                })
-        return attrs
+    # async def validate(self, attrs):
+    #     """
+    #     Asynchronously validate city-state relationship.
+    #     """
+    #     city = attrs.get('city')
+    #     state = attrs.get('state')
+    #     if city and state:
+    #         # Use sync_to_async for potential DB field access
+    #         # city_region = await sync_to_async(lambda: city.region_or_state)()
+    #         city_region = await sync_to_async(city.region_or_state_id)()
+    #         if city_region != state:
+    #             # city_name = await sync_to_async(lambda: city.name)()
+    #             # state_name = await sync_to_async(lambda: state.name)()
+    #             # raise serializers.ValidationError({
+    #             #     'city': _("The city '%(city_name)s' does not belong to the state/region '%(state_name)s'.") % {
+    #             #         'city_name': city_name,
+    #             #         'state_name': state_name
+    #             #     }
+    #             # })
+    #             raise serializers.ValidationError({
+    #                 'detail': _("The city does not belong to the state/region")
+    #             })
+    #     return attrs
 
     async def create(self, validated_data):
         """
@@ -148,13 +148,32 @@ class UserSerializer(ModelSerializer):
         user = await CustomUser.objects.create_user_with_role(**validated_data, role=role)
         # role_value = await user.get_role_value()
 
-        print(f"user creation 3rd took {(time.perf_counter() - start) * 1000:.3f} ms")
+        print(f"3rd user creation took {(time.perf_counter() - start) * 1000:.3f} ms")
 
         # Set M2M relationships concurrently
         start = time.perf_counter()
+        # for field, values in m2m_fields.items():
+        #     if values:
+        #         await getattr(user, field).aset(values)
+
+        m2m_objects = []
+        field_to_id = {
+            'companies': 'company_id',
+            'countries': 'country_id',
+            'restaurants': 'restaurant_id',
+            'branches': 'branch_id',
+            'groups': 'group_id'
+        }
         for field, values in m2m_fields.items():
             if values:
-                await getattr(user, field).aset(values)
+                m2m_manager = getattr(CustomUser, field).through
+                object_id_field = field_to_id[field]
+                m2m_objects = [
+                    m2m_manager(customuser_id=user.id, **{object_id_field: value})
+                    for value in values
+                ]
+        # if m2m_objects:
+                await m2m_manager.objects.abulk_create(m2m_objects, ignore_conflicts=True)
         print(f"M2M gathering took {(time.perf_counter() - start) * 1000:.3f} ms")
 
         start = time.perf_counter()

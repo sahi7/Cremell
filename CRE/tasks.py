@@ -34,7 +34,18 @@ def create_staff_availability(user_id):
         )
     except Exception as e:
         logger.error(f"Failed to create StaffAvailability for user {user_id}: {str(e)}")
-        
+
+@shared_task
+def set_user_password(user_id, password):
+    try:
+        from cre.models import CustomUser 
+        user = CustomUser.objects.get(id=user_id)
+        user.set_password(password)
+        user.save()
+    except Exception as e:
+        logger.error(f"Password set failed for user {user_id}: {str(e)}")
+        # Optionally store failure in Redis: redis.set(f"password_failed:{user_id}", str(e))
+
 @shared_task
 def check_overdue_shifts():
     now = timezone.now()

@@ -1,6 +1,7 @@
 import uuid
 import pytz
 import json
+import time
 
 from typing import List, Union, AsyncGenerator
 from django.core.cache import cache
@@ -18,13 +19,18 @@ redis_client = Redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 class CustomUserManager(BaseUserManager):
     async def create_user(self, email=None, username=None, phone_number=None, password=None, **extra_fields):
+        from cre.tasks import set_user_password
+        start = time.perf_counter()
         if not email and not username and not phone_number:
             raise ValueError(_('The Email, Username, or Phone number field must be set'))
         
         email = self.normalize_email(email) if email else None
         user = self.model(email=email, username=username, phone_number=phone_number, **extra_fields)
-        user.set_password(password)
+        user.set_unusable_password()
         await user.asave(using=self._db)
+        set_user_password.delay(user.id, password)
+        print(f"Set password took {(time.perf_counter() - start) * 1000:.3f} ms")
+        # user.set_password(password)
         return user
 
     async def create_superuser(self, email=None, username=None, phone_number=None, password=None, **extra_fields):
@@ -33,14 +39,13 @@ class CustomUserManager(BaseUserManager):
         return await self.create_user(email, username, phone_number, password, **extra_fields)
 
     async def create_user_with_role(self, role, email, phone_number, password=None, **extra_fields):
-        if not email and not phone_number:
+        if not any([email, phone_number]):
             raise ValueError(_('The Email or Phone number field must be set'))
         if not role:
             raise ValueError(_('A role must be specified when creating a user'))
         extra_fields.setdefault('role', role)
-        email = self.normalize_email(email) if email else None
-        if role in ['company_admin', 'restaurant_owner']:
-            extra_fields.setdefault('is_staff', True)
+        # if role in ['company_admin', 'restaurant_owner']:
+        #     extra_fields.setdefault('is_staff', True)
         return await self.create_user(email=email, phone_number=phone_number, password=password, **extra_fields)
 
     # Role-specific convenience method
