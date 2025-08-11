@@ -1,15 +1,10 @@
 import time
 from redis.asyncio import Redis
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.views import TokenObtainPairView
-from rest_framework import serializers
-from adrf.views import APIView
 from rest_framework import exceptions
 from asgiref.sync import sync_to_async
-from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth import  get_user_model
 from django.conf import settings
-import hashlib
-from django.contrib.auth.hashers import make_password
 
 import logging
 

@@ -245,7 +245,6 @@ class  RegistrationSerializer(Serializer):
     restaurant_data = RestaurantSerializer(required=False)
 
     def validate(self, attrs):
-        print("attrs: ", attrs)
         # Check if either company_data or restaurant_data is provided
         if 'user_data' not in attrs :
             raise serializers.ValidationError(_("Please provide user information"))

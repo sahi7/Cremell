@@ -44,7 +44,7 @@ class CustomTokenObtainPairView(APIView, TokenObtainPairView):  # Using adrf's A
             
             print(f"1st Serializer validation took {(time.perf_counter() - start) * 1000:.3f} ms")
             user = serializer.user
-            start = time.perf_counter()
+            # start = time.perf_counter()
             cache_key = f'email_verified_{user.id}'
             email_verified = await cache.get(cache_key)
             if email_verified is None:
@@ -57,7 +57,7 @@ class CustomTokenObtainPairView(APIView, TokenObtainPairView):  # Using adrf's A
             #         {"error": _("Email unverified")},
             #         status=status.HTTP_403_FORBIDDEN
             #     )
-            start = time.perf_counter()
+            # start = time.perf_counter()
             if not user.is_active:
                 logger.warning(f"Inactive user attempt: {user.username}")
                 return Response(
@@ -74,7 +74,7 @@ class CustomTokenObtainPairView(APIView, TokenObtainPairView):  # Using adrf's A
                 )
                 # raise exceptions.AuthenticationFailed(_('User not assigned.'))
             print(f"3rd checks took {(time.perf_counter() - start) * 1000:.3f} ms")
-            start = time.perf_counter()
+            # start = time.perf_counter()
             user.last_login = timezone.now()
             await user.asave(update_fields=['last_login'])
             print(f"Save login took {(time.perf_counter() - start) * 1000:.3f} ms")

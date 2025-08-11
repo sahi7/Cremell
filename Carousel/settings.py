@@ -125,8 +125,8 @@ REST_FRAMEWORK = {
 }
 
 PASSWORD_HASHERS = [
-    'django.contrib.auth.hashers.PBKDF2PasswordHasher',
     'cre.hashers.Argon2Hasher',
+    'django.contrib.auth.hashers.PBKDF2PasswordHasher',
     # Fallbacks if needed
 ]
 
