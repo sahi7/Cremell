@@ -23,7 +23,7 @@ class IsCookAndBranch(BasePermission):
 
         # Check if task's branch is in user's branches
         scopes = await get_scopes_and_groups(user)
-        _branches = scopes['branch']
+        _branches = scopes['branches']
 
         try:
             # Fetch task with related order and branch

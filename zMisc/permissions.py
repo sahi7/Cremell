@@ -74,7 +74,7 @@ class UserCreationPermission(BasePermission):
         elif user_role in ('restaurant_owner', 'restaurant_manager'):
             query &= Q(restaurant_id__in=scopes['restaurant']) & Q(status='active')
         elif user_role == 'branch_manager':
-            query &= Q(id__in=scopes['branch']) & Q(status='active')
+            query &= Q(id__in=scopes['branches']) & Q(status='active')
         else:
             return 0
         return await Branch.objects.filter(query).acount()
@@ -231,9 +231,9 @@ class UserCreationPermission(BasePermission):
         print(f"user permission took {(time.perf_counter() - start) * 1000:.3f} ms")
         return True
     
-    async def _get_ids(self, relation):
-        """Helper to fetch IDs asynchronously from a user relation."""
-        return [item.id async for item in relation.all()]
+    # async def _get_ids(self, relation):
+    #     """Helper to fetch IDs asynchronously from a user relation."""
+    #     return [item.id async for item in relation.all()]
 
     async def get_queryset(self):
         """
@@ -247,7 +247,8 @@ class UserCreationPermission(BasePermission):
             return CustomUser.objects.none()
 
         # Get the requester's role_value
-        user_role_value = await user.get_role_value()
+        # user_role_value = await user.get_role_value()
+        user_role_value = user.r_val
 
         # Get the queryset filter function and required relations
         filter_func_name = self.SCOPE_RULES[role]['queryset_filters']
@@ -266,18 +267,20 @@ class UserCreationPermission(BasePermission):
         if not queryset_filter:
             return CustomUser.objects.none()
 
-        FIELD_MAP = {
-            'companies': 'company',
-            'countries': 'country',
-            'restaurants': 'restaurant',
-            'branches': 'branch'
-        }
-        def normalize_scope_field(field):
-            """Convert any field name to its plural form using FIELD_MAP"""
-            return FIELD_MAP.get(field, field)
+        # FIELD_MAP = {
+        #     'companies': 'company',
+        #     'countries': 'country',
+        #     'restaurants': 'restaurant',
+        #     'branches': 'branch'
+        # }
+        # def normalize_scope_field(field):
+        #     """Convert any field name to its plural form using FIELD_MAP"""
+        #     return FIELD_MAP.get(field, field)
+        
         # Fetch required IDs concurrently
-        _scopes = await get_scopes_and_groups(user)
-        reqius = [_scopes.get(normalize_scope_field(rel), _scopes.get(rel)) for rel in required_relations]
+        _scopes = await get_scopes_and_groups(user, required_relations)
+        reqius = [_scopes.get(rel, _scopes.get(rel)) for rel in required_relations]
+        # reqius = [_scopes.get(normalize_scope_field(rel), _scopes.get(rel)) for rel in required_relations]
         # id_args = await asyncio.gather(*[self._get_ids(getattr(user, rel)) for rel in required_relations]) 
 
         # Apply the async filter function with role_value filtering
@@ -342,14 +345,14 @@ class StaffAccessPolicy(BasePermission):
         requested_branches = set(request.data.get("branches", []))
         if not requested_branches:
             return False  # Requires branches
-        if not scopes.get('branch'):
+        if not scopes.get('branches'):
             return False
-        return requested_branches.issubset(scopes['branch'])
+        return requested_branches.issubset(scopes['branches'])
 
     async def has_object_permission(self, request, view, obj):
         user = request.user
         scopes = await get_scopes_and_groups(user)
-        branch_ids = scopes['branch']
+        branch_ids = scopes['branches']
         
         # Use dictionary dispatch to avoid if/elif
         check = self.OBJECT_CHECKS.get(obj.__class__)
@@ -360,7 +363,7 @@ class StaffAccessPolicy(BasePermission):
     async def get_queryset_scope(self, user, view=None):
         model = view.queryset.model
         scopes = await get_scopes_and_groups(user)
-        branch_ids = scopes['branch']
+        branch_ids = scopes['branches']
         role = scopes['role']
         filters = LowRoleQsFilter.FILTER_TEMPLATES.get(model, {})
         filter_func = filters.get(role, filters.get('default', LowRoleQsFilter.default_empty_filter))

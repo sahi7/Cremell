@@ -29,8 +29,8 @@ class CustomUserManager(BaseUserManager):
         user.set_unusable_password()
         await user.asave(using=self._db)
         set_user_password.delay(user.id, password)
-        print(f"Set password took {(time.perf_counter() - start) * 1000:.3f} ms")
         # user.set_password(password)
+        print(f"Set password took {(time.perf_counter() - start) * 1000:.3f} ms")
         return user
 
     async def create_superuser(self, email=None, username=None, phone_number=None, password=None, **extra_fields):

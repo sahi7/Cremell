@@ -12,6 +12,7 @@ from django.db.models import Q
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone, translation
+from django.contrib.auth.models import Group
 from django.template.loader import render_to_string
 from notifications.models import BranchActivity, RestaurantActivity
 from cre.models import Branch, Restaurant, Company, Country, ShiftSwapRequest
@@ -239,7 +240,7 @@ async def get_scopes_and_groups(user, requires=None, get_instance=False):
         'companies': Prefetch('companies', queryset=Company.objects.filter(status='active').only('id')),
         'countries': Prefetch('countries', queryset=Country.objects.only('id')),
         'restaurants': Prefetch('restaurants', queryset=Restaurant.objects.filter(status='active').only('id')),
-        'branches': Prefetch('branches', queryset=Branch.objects.filter(status='active').only('id'))
+        'branches': Prefetch('branches', queryset=Branch.objects.filter(status='active').only('id'))  
     }
 
     # Determine which relations to fetch
@@ -275,7 +276,9 @@ async def get_scopes_and_groups(user, requires=None, get_instance=False):
 
     # Build result dictionary
     result = {field: results[i] for i, field in enumerate(relations_to_fetch) if field in field_mappings}
-    result['role'] = user.role
+    r_val = await user.get_role_value()
+    if not r_val > 5:
+        result['groups'] = [g.name async for g in user.groups.all()]
     print(f"scopes section took {(time.perf_counter() - start) * 1000:.3f} ms")
     # await cache.set(cache_key, json.dumps({k: list(v) for k,v in result.items()}), ex=3600)
     filtered_result = {
@@ -284,7 +287,7 @@ async def get_scopes_and_groups(user, requires=None, get_instance=False):
     }
 
     # Cache filtered data
-    print("filtered_result: ", filtered_result)
+    print("filtered_result: ", result)
     await cache.set(user_cache_key, json.dumps(filtered_result), ex=3600)
     return filtered_result
 

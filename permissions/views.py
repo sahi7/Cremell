@@ -437,7 +437,7 @@ class UserPermissionView(APIView):
                 _scopes = await get_scopes_and_groups(user)
                 print("_scopes: ", _scopes)
                 try:
-                    branches = _scopes['branch']
+                    branches = _scopes['branches']
                 except KeyError:
                     return Response(
                         {"error": _("This set is not available to you.") },

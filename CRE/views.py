@@ -192,9 +192,6 @@ class UserViewSet(ModelViewSet):
                     {"detail": _("Cannot create {role}.").format(role=role_to_create)},
                     status=status.HTTP_403_FORBIDDEN
                 )
-
-         # Get serializer context
-        # context = await sync_to_async(self.get_serializer_context)()
         
         # Initialize and validate serializer
         serializer = self.get_serializer(data=request.data)

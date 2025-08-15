@@ -76,6 +76,7 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   1. Save Printer configuration per branch 
 - ❌Improve get_stakeholders when r_val has been corrected
 - views_helper does not change user.status when they are assigned
+- When cooks are done with an order, they can print a mini receipt which has a barcode and total amount and stick it to the order packaging. For takeout orders runners can just collect the sum and hand to cashier
 
 - Next
   A. Third-Party Integration: Connect with delivery platforms
