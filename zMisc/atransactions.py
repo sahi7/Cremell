@@ -40,7 +40,9 @@ class AsyncAtomicContextManager(Atomic):
         if asyncio.iscoroutinefunction(fun):
             # For async functions, run ORM ops in the same thread as the transaction
             # return await sync_to_async(lambda: fun(*args, **kwargs), thread_sensitive=False, executor=self.executor)()
-            return await fun(*args, **kwargs)
+            # return await fun(*args, **kwargs)
+            async with self:
+                return await fun(*args, **kwargs)
         else:
             # For sync functions, run directly in the executor
             future = self.executor.submit(fun, *args, **kwargs)

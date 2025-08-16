@@ -780,6 +780,7 @@ class OrderViewSet(ModelViewSet):
 
             # Bulk fetch existing OrderItems
             existing_items = {item.menu_item_id: item for item in OrderItem.objects.filter(order=order).select_related('menu_item')}
+            deleting_items = {item.id: item for item in OrderItem.objects.filter(order_id=order.id).select_related('menu_item')}
 
             # Process changes
             for change in changes:
@@ -812,7 +813,7 @@ class OrderViewSet(ModelViewSet):
                         total_price += item_price
                         logger.debug(f"Prepared create for OrderItem: menu_item={menu_item.id}, quantity={change['quantity']}")
                 elif change['action'] == 'remove':
-                    order_item = existing_items.get(change['order_item'])
+                    order_item = deleting_items.get(change['order_item'])
                     if order_item:
                         total_price -= order_item.item_price
                         logger.debug(f"Prepared delete for OrderItem: order_item={change['order_item']}")

@@ -440,6 +440,7 @@ class TaskCompleteView(APIView):
             for perm in permissions
         )
         try:
+            @aatomic
             async def complete_task():
                 task = request.task
                 print("task: ", task)
