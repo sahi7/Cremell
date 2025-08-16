@@ -154,7 +154,7 @@ def clean_request_data(request_data, fields_to_remove=None):
     Removes specified fields and their _id variants from request data.
     Default removes branch, restaurant, company and their _id variants.
     """
-    default_fields = {'branch', 'restaurant', 'company'}
+    default_fields = {'branch', 'restaurant', 'company', 'countries', 'restaurants'}
     fields = fields_to_remove or default_fields
     
     # Generate all field variants to remove
@@ -281,15 +281,15 @@ async def get_scopes_and_groups(user, requires=None, get_instance=False):
         result['groups'] = [g.name async for g in user.groups.all()]
     print(f"scopes section took {(time.perf_counter() - start) * 1000:.3f} ms")
     # await cache.set(cache_key, json.dumps({k: list(v) for k,v in result.items()}), ex=3600)
-    filtered_result = {
-        k: v for k, v in result.items() 
-        if v or isinstance(v, (int, float, bool))  # Keep non-empty or non-sequential types
-    }
+    # filtered_result = {
+    #     k: v for k, v in result.items() 
+    #     if v or isinstance(v, (int, float, bool))  # Keep non-empty or non-sequential types
+    # }
 
     # Cache filtered data
     print("filtered_result: ", result)
-    await cache.set(user_cache_key, json.dumps(filtered_result), ex=3600)
-    return filtered_result
+    await cache.set(user_cache_key, json.dumps(result), ex=3600)
+    return result
 
 # async def get_scopes_and_groups(user_id, get_instance=False, prefetch: list[str] | str = 'all'):
 #     """

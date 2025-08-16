@@ -328,22 +328,26 @@ class  RegistrationSerializer(Serializer):
         }
 
 class BranchSerializer(ModelSerializer):
-    created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
     class Meta:
         model = Branch
         fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'status', 'timezone', 'default_language', 'manager', 'created_by']
+        read_only_fields = ('created_by', )
+
+    def validate(attrs):
+        pass
 
     async def create(self, validated_data):
         request = self.context.get('request')
         is_RO = self.context.get('is_CEO', False)
         if is_RO:
             validated_data['status'] = 'active'
+        validated_data['created_by_id'] = request.user.id
         branch = await Branch.objects.acreate(**validated_data)
         details = {}
-        details['name'] = validated_data.get('name') 
-        details['restaurant'] = validated_data.get('restaurant').id
-        log_activity.delay(validated_data['created_by'].id , 'branch_create', details, branch.id, 'branch')
+        details['name'] = branch.name
+        details['restaurant'] = branch.restaurant_id
+        log_activity.delay(validated_data['created_by_id'], 'branch_create', details, branch.id, 'branch')
         
         return branch
 

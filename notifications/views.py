@@ -386,7 +386,7 @@ class TaskClaimView(APIView):
             for perm in permissions
         )
         
-        # @aatomic()
+        @aatomic()
         async def claim_task():
             # try:
             task = request.task

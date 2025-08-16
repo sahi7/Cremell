@@ -44,7 +44,7 @@ class RuleViewSet(ModelViewSet):
         validated_data = serializer.validated_data
         targets_data = validated_data.pop('targets', [])
         
-        # @aatomic()
+        @aatomic()
         async def create_rule():
             # try:
             # rule = await serializer.save()

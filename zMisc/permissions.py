@@ -20,7 +20,8 @@ from cre.models import *
 from payroll.models import Rule
 from notifications.models import RoleAssignment, EmployeeTransfer
 from zMisc.policies import ScopeAccessPolicy
-from zMisc.utils import AttributeChecker, LowRoleQsFilter, compare_role_values, validate_role, get_scopes_and_groups, get_user_permissions
+from zMisc.utils import *
+# from zMisc.utils import AttributeChecker, LowRoleQsFilter, compare_role_values, validate_role, get_scopes_and_groups, get_user_permissions, clean_request_data
 
 CustomUser = get_user_model()
 
@@ -546,10 +547,26 @@ class BranchPermission(BasePermission):
     async def has_permission(self, request, view):
         if view.action not in ['create', 'update', 'partial_update']:
             return True  # Only apply to these actions
+        start = time.perf_counter()
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
+        try:
+            data['restaurant'] = int(request.data.get('restaurants', [None])[0])
+        except (TypeError, IndexError, ValueError):
+            data['restaurant'] = None
+        try:
+            data['company'] = int(request.data.get('companies', [None])[0])
+        except (TypeError, IndexError, ValueError):
+            data['company'] = None
+        try:
+            data['country'] = int(request.data.get('countries', [None])[0])
+        except (TypeError, IndexError, ValueError):
+            data['country'] = None
+        request.enc_data = data
         
-        manager_id = request.data.get('manager')
-        company_id = request.data.get('company')
-        country_id = request.data.get('country')
+        manager_id = data.get('manager')
+        company_id = data.get('company')
+        country_id = data.get('country')
         scopes_and_groups = await get_scopes_and_groups(request.user)
 
         # Attach to request for reuse in view
@@ -557,11 +574,12 @@ class BranchPermission(BasePermission):
         if manager_id:
             await AttributeChecker().check_manager(manager_id, company_id, 'branch')
         if company_id:
-            if company_id not in scopes_and_groups['company']:
+            if company_id not in scopes_and_groups['companies']:
                 raise PermissionDenied(_("You do not have permission to create branches in this company."))
         if country_id and "CountryManager" in scopes_and_groups['groups']:
-            if country_id not in scopes_and_groups['country']:
+            if country_id not in scopes_and_groups['countries']:
                 raise PermissionDenied(_("You do not have permission to create branches in this country."))
+        print(f"Branch permission task took {(time.perf_counter() - start) * 1000:.3f} ms")
         return True
 
 

@@ -667,7 +667,7 @@ class Order(models.Model):
     ]
 
     # Add version for optimistic locking
-    version = models.IntegerField(default=0)
+    version = models.IntegerField(default=1)
     status = models.CharField(max_length=20, choices=ORDER_STATUS_CHOICES, default='received', verbose_name=_("Status"))
     order_number = models.CharField(max_length=50, unique=True)
     order_type = models.CharField(max_length=20, choices=ORDER_TYPE_CHOICES, default='dine_in', verbose_name=_("Order Type"))
@@ -676,7 +676,7 @@ class Order(models.Model):
     delivery_driver = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
         related_name='deliveries'
     )
-    priority = models.IntegerField(default=0, help_text=_("Set priority in cook time"))
+    priority = models.IntegerField(default=1, help_text=_("Set priority in cook time"))
     branch = models.ForeignKey('Branch', on_delete=models.CASCADE, related_name='orders', verbose_name=_("Branch"))
     total_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name=_("Total Price"))
     special_instructions = models.TextField(blank=True)

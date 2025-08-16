@@ -410,33 +410,36 @@ class BranchViewSet(ModelViewSet):
         return self.queryset.filter(scope_filter)
 
     async def create(self, request, *args, **kwargs):
+        start = time.perf_counter()
         allowed_scopes = {}
         user = request.user
-        data = request.data
+        data = request.enc_data
         serializer = self.get_serializer(data=data)
-        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        serializer.is_valid(raise_exception=True)
 
         user_scope = getattr(request, 'user_scope', None)
         user_groups = user_scope['groups']
         print("user_scope: ", user_scope)
+        print(f"Request data task took {(time.perf_counter() - start) * 1000:.3f} ms")
 
         # Validation for role-based creation permissions
+        start = time.perf_counter()
         if "CompanyAdmin" in user_groups:
-            allowed_scopes['company'] = user_scope['company']
-            allowed_scopes['restaurant'] = user_scope['restaurant']
+            allowed_scopes['company'] = user_scope['companies']
+            allowed_scopes['restaurant'] = user_scope['restaurants']
             serializer.context['is_CEO'] = True
 
         elif "CountryManager" in user_groups:
             allowed_scopes['country'] = user_scope['country']
             allowed_scopes['company'] = user_scope['company']
-            allowed_scopes['restaurant'] = user_scope['restaurant']
+            allowed_scopes['restaurant'] = user_scope['restaurants']
 
         elif "RestaurantOwner" in user_groups:
-            allowed_scopes['restaurant'] = user_scope['restaurant']
+            allowed_scopes['restaurant'] = user_scope['restaurants']
             serializer.context['is_CEO'] = True
 
         elif "RestaurantManager" in user_groups:
-            allowed_scopes['restaurant'] = user_scope['restaurant']
+            allowed_scopes['restaurant'] = user_scope['restaurants']
         else:
             # Other roles cannot create restaurants
             return Response({"detail": _("You do not have permission to create a branch.")},
@@ -446,9 +449,12 @@ class BranchViewSet(ModelViewSet):
             await sync_to_async(validate_scope)(user, data, allowed_scopes)
         except ValidationError as e:
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
+        print(f"Branch validation task took {(time.perf_counter() - start) * 1000:.3f} ms")
 
         # Pass data to serializer and save
+        start = time.perf_counter()
         branch = await serializer.save()
+        print(f"Branch save task took {(time.perf_counter() - start) * 1000:.3f} ms")
 
         return Response(self.get_serializer(branch).data, status=status.HTTP_201_CREATED)
     
@@ -580,30 +586,96 @@ from decimal import Decimal
 from cre.tasks import send_to_kds
 from services.sequences import generate_order_number
 class OrderViewSet(ModelViewSet):
-    """
-    API endpoint for CRUD orders.
-    Supports adding and removing items from an existing order.
-    Uses optimistic locking to prevent concurrent modifications.
-    """
     queryset = Order.objects.filter(is_active=True)
     serializer_class = OrderSerializer
 
     def get_permissions(self):
         role_value = async_to_sync(self.request.user.get_role_value)()
-        self._access_policy = (ScopeAccessPolicy if role_value <= 5 else StaffAccessPolicy)()
-        return [self._access_policy, OrderPermission(),]
-    
+        self._access_policy = ScopeAccessPolicy if role_value <= 5 else StaffAccessPolicy
+        return [self._access_policy(), OrderPermission()]
+
     def get_queryset(self):
         user = self.request.user
         scope_filter = async_to_sync(self._access_policy.get_queryset_scope)(user, view=self)
         return self.queryset.filter(scope_filter)
-    
+
     async def get_valid_menu_item_ids(self, branch):
-        menu_data = await branch.get_menus()
+        menu_data = await branch.get_menus()  # Keep async for I/O
         valid_menu_item_ids = set()
         for menu_id, item_ids in menu_data.items():
             valid_menu_item_ids.update(item_ids)
         return valid_menu_item_ids
+
+    @aatomic()
+    def create_order_transaction(self, data, validated_data, user):
+        """Synchronous function for atomic database operations."""
+        start = time.perf_counter()
+        # 1. Get Branch
+        branch = Branch.objects.prefetch_related('country').get(id=data['branch'])
+        print(f"2 order branch query took {(time.perf_counter() - start) * 1000:.3f} ms")
+
+        start = time.perf_counter()
+        # 2. Get menus and validate menu items (sync for simplicity; wrap if async needed)
+        valid_menu_item_ids = async_to_sync(self.get_valid_menu_item_ids)(branch)
+        item_ids = [item['menu_item'].id for item in validated_data['items']]
+        invalid_items = set(item_ids) - valid_menu_item_ids
+        if invalid_items:
+            logger.error(f"Validation failed: Menu items {invalid_items} do not belong to branch {branch.id}")
+            raise ValidationError(f"Menu items {invalid_items} are invalid or unavailable.")
+        if len(item_ids) != len(set(item_ids)):
+            raise ValidationError("Duplicate menu items are not allowed in the order.")
+        print(f"3 order valid menu took {(time.perf_counter() - start) * 1000:.3f} ms")
+
+        # 3. Calculate Total Price
+        start = time.perf_counter()
+        total_price = Decimal('0.00')
+        menu_items = []
+        items_map = {item.id: item for item in MenuItem.objects.filter(id__in=item_ids)}
+        for item_data in validated_data['items']:
+            menu_item = items_map[item_data['menu_item'].id]
+            quantity = item_data['quantity']
+            item_price = menu_item.price * quantity
+            total_price += item_price
+            menu_items.append({
+                'menu_item': menu_item,
+                'quantity': quantity,
+                'price': item_price
+            })
+        print(f"4 took {(time.perf_counter() - start) * 1000:.3f} ms")
+
+        # 4. Create Order
+        start = time.perf_counter()
+        order_number = async_to_sync(generate_order_number)(branch)  # Wrap if async
+        filtered_validated_data = {
+            k: v for k, v in validated_data.items()
+            if k not in ['branch', 'items']
+        }
+        order = Order.objects.create(
+            branch_id=branch.id,
+            order_number=order_number,
+            source=validated_data.get('source', 'pos'),
+            total_price=total_price,
+            created_by_id=user.id,
+            special_instructions=data.get('notes', ''),
+            status='received',
+            **filtered_validated_data
+        )
+        print(f"5 order create took {(time.perf_counter() - start) * 1000:.3f} ms")
+
+        # 5. Bulk Create Items
+        start = time.perf_counter()
+        OrderItem.objects.bulk_create([
+            OrderItem(
+                order_id=order.id,
+                menu_item=item['menu_item'],
+                quantity=item['quantity'],  # Fixed typo
+                item_price=item['price'],
+                added_by_id=user.id,
+            ) for item in menu_items
+        ])
+        print(f"6 create items took {(time.perf_counter() - start) * 1000:.3f} ms")
+
+        return order
 
     async def create(self, request, *args, **kwargs):
         """
@@ -620,136 +692,163 @@ class OrderViewSet(ModelViewSet):
             "notes": "No onions please"
         }
         """
-
-        # Initial Validation
+        start = time.perf_counter()
         try:
-            if 'branch' in request.data:
-                del request.data['branch'] 
-            data = request.data.copy()
+            # Initial Validation (async)
+            cleaned_data = clean_request_data(request.data)
+            data = cleaned_data
             data['branch'] = int(request.data['branches'][0])
             serializer = OrderSerializer(data=data)
             await sync_to_async(serializer.is_valid)(raise_exception=True)
             validated_data = serializer.validated_data
+            print(f"A1 order serialize took {(time.perf_counter() - start) * 1000:.3f} ms")
+
+            # Run transactional operations
+            start = time.perf_counter()
+            order = await self.create_order_transaction(data, validated_data, request.user)
+            print(f"A11 atomic task took {(time.perf_counter() - start) * 1000:.3f} ms")
+
+            # Post-transaction async tasks
+            details = {
+                'user_id': request.user.id,
+                'item_names': [item['menu_item'].name for item in validated_data['items']],
+            }
+            send_to_kds.delay(order.id, details)
+            print(f"A2 fire task took {(time.perf_counter() - start) * 1000:.3f} ms")
+
+            # Serialize response
+            start = time.perf_counter()
+            serializer = OrderSerializer(order)
+            serialized_data = await sync_to_async(lambda: serializer.data)()
+            print(f"A3 finish data took {(time.perf_counter() - start) * 1000:.3f} ms")
+            return Response(serialized_data, status=status.HTTP_201_CREATED)
+
         except KeyError as e:
-            raise ValidationError(f'Error on the field {e}')
+            logger.error(f"Missing key in order data: {str(e)}")
+            return Response({"error": f"Missing required field: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Order creation failed: {str(e)}")
+            return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # @aatomic()
-        async def create_order():
-            try:
-                # 1. Get Branch with lock
-                # branch = await Branch.objects.select_for_update().aget(id=data['branch'])
-                branch = await Branch.objects.prefetch_related('country').aget(id=data['branch'])
-                user = request.user
+    @aatomic()
+    def modify_order_transaction(self, pk, data, user):
+        """Synchronous function for atomic database operations."""
+        # 1. Lock and get order
+        start = time.perf_counter()
+        order = Order.objects.select_related('branch').get(id=pk)
+        print(f"1 order query took {(time.perf_counter() - start) * 1000:.3f} ms")
 
-                # 2. Get menus and validate menu items
-                valid_menu_item_ids = await self.get_valid_menu_item_ids(branch)
-                print("valid_menu_item_ids: ", valid_menu_item_ids)
+        # 2. Check version
+        start = time.perf_counter()
+        if 'expected_version' not in data or data['expected_version'] is None:
+            raise ValidationError("Order version mismatch -- Order must have a version")
+        try:
+            if order.version != int(data['expected_version']):
+                raise ValidationError("Concurrent modification detected", code=status.HTTP_409_CONFLICT)
+        except (ValueError, TypeError):
+            raise ValidationError("Order version must be a valid integer")
+        print(f"2 version check took {(time.perf_counter() - start) * 1000:.3f} ms")
 
-                # 3. Validate menu items belong to branch
-                item_ids = [item['menu_item'].id for item in validated_data['items']]
-                invalid_items = set(item_ids) - valid_menu_item_ids
-                if invalid_items:
-                    logger.error(f"Validation failed: Menu items {invalid_items} do not belong to branch {branch.id}")
-                    return Response(
-                        {"error": f"Menu items {invalid_items} are invalid or are unavailable."},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                if len(item_ids) != len(set(item_ids)):
-                    return Response(
-                        {"error": _("Duplicate menu items are not allowed in the order.")},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                
-                # 4. Calculate Total Price
-                total_price = Decimal('0.00')
-                menu_items = []
-                item_names = [(item['menu_item'].name) for item in validated_data['items']]
-                print("item_names: ", item_names)
-                # print("item_ids: ", item_ids)
-                items_map = {item.id: item async for item in MenuItem.objects.filter(id__in=item_ids)}
-                # print("items_map: ", items_map)
-                
-                # Calculate total price and prepare items
-                for item_data in validated_data['items']:
-                    menu_item = items_map[item_data['menu_item'].id ]
-                    quantity = item_data['quantity']
-                    item_price = menu_item.price * quantity
-                    total_price += item_price
-                    
-                    menu_items.append({
-                        'menu_item': menu_item,
-                        'quantity': quantity,
-                        'price': item_price
-                    })
-                # print("total_price: ", total_price)
-                # print("menu_items: ", menu_items)
-                # print("validated_data: ", validated_data)
+        # 3. Process changes
+        start = time.perf_counter()
+        changes = data.get('changes', [])
+        total_price = order.total_price
+        if changes:
+            items_to_create = []
+            item_ids_to_delete = []
+            items_to_update = []
+            menu_item_ids = set()
 
-                # 5. Create Order with Final Price
-                filtered_validated_data = {
-                    k: v for k, v in validated_data.items()
-                    if k not in ['branch', 'items']
-                }
-                order = await Order.objects.acreate(
-                    branch=branch,
-                    order_number=await generate_order_number(branch),
-                    source=validated_data.get('source', 'pos'),
-                    total_price=total_price,  # Now has the correct calculated value
-                    created_by=user,
-                    special_instructions=data.get('notes', ''),
-                    status='received',  # Ensure default status is set
-                    **filtered_validated_data
-                )
+            # Collect menu_item IDs and map existing OrderItems
+            valid_menu_item_ids = async_to_sync(self.get_valid_menu_item_ids)(order.branch)
+            for change in changes:
+                if change['action'] == 'add':
+                    menu_item_ids.add(change['menu_item'])
+                elif change['action'] == 'remove':
+                    item_ids_to_delete.append(change['order_item'])
 
-                # 6. Bulk Create Items
-                await OrderItem.objects.abulk_create([
-                    OrderItem(
-                        order=order,
-                        menu_item=item['menu_item'],
-                        quantity=item['quantity'],
-                        item_price=item['price'],
-                        added_by=user,
-                    ) for item in menu_items
-                ])
+            invalid_items = menu_item_ids - valid_menu_item_ids
+            if invalid_items:
+                logger.error(f"Validation failed: Menu items {invalid_items}")
+                raise ValidationError(f"Menu items {invalid_items} are invalid or unavailable.")
 
-                # 7. Fire notification and forget
-                details = {
-                    'user_id': request.user.id,
-                    'item_names': item_names,
-                }
-                send_to_kds.delay(order.id, details)
+            # Bulk fetch MenuItems
+            menu_items = {item.id: item for item in MenuItem.objects.filter(id__in=menu_item_ids)}
+            item_names = [menu_items[menu_item_id].name for menu_item_id in menu_item_ids if menu_item_id in menu_items]
 
-                # serializer = OrderSerializer(order)
-                serialized_data = await sync_to_async(lambda: serializer.data)()
-                return Response(serialized_data, status=status.HTTP_201_CREATED)
+            # Bulk fetch existing OrderItems
+            existing_items = {item.menu_item_id: item for item in OrderItem.objects.filter(order=order).select_related('menu_item')}
 
-               
-            except KeyError as e:
-                logger.error(f"Missing key in order data: {str(e)}")
-                return Response(
-                    {"error": f"Missing required field: {str(e)}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-                
-                # asyncio.create_task(
-                #     update_inventory_levels.delay([i.menu_item_id for i in order_items])
-                # )
-                
-            except ValidationError as e:
-                return Response(
-                    {"error": str(e)},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            except Exception as e:
-                logger.error(f"Order creation failed: {str(e)}")
-                return Response(
-                    {"error": _("Internal server error")},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-        response = await create_order()
-        return response
-        
+            # Process changes
+            for change in changes:
+                if change['action'] == 'add':
+                    menu_item = menu_items.get(change['menu_item'])
+                    if not menu_item:
+                        logger.warning(f"MenuItem {change['menu_item']} not found")
+                        continue
+                    item_price = menu_item.price * change['quantity']
+                    existing_order_item = existing_items.get(change['menu_item'])
+                    if existing_order_item:
+                        # Update existing OrderItem
+                        old_item_price = existing_order_item.item_price
+                        new_quantity = existing_order_item.quantity + change['quantity']
+                        existing_order_item.quantity = new_quantity
+                        existing_order_item.item_price = menu_item.price * new_quantity
+                        existing_order_item.added_by = user
+                        items_to_update.append(existing_order_item)
+                        total_price = total_price - old_item_price + existing_order_item.item_price
+                        logger.debug(f"Prepared update for OrderItem: menu_item={menu_item.id}, new_quantity={new_quantity}")
+                    else:
+                        # Create new OrderItem
+                        items_to_create.append(OrderItem(
+                            order=order,
+                            menu_item=menu_item,
+                            quantity=change['quantity'],
+                            item_price=item_price,
+                            added_by=user
+                        ))
+                        total_price += item_price
+                        logger.debug(f"Prepared create for OrderItem: menu_item={menu_item.id}, quantity={change['quantity']}")
+                elif change['action'] == 'remove':
+                    order_item = existing_items.get(change['order_item'])
+                    if order_item:
+                        total_price -= order_item.item_price
+                        logger.debug(f"Prepared delete for OrderItem: order_item={change['order_item']}")
+                    else:
+                        logger.warning(f"OrderItem {change['order_item']} not found")
 
+            # Bulk operations
+            if items_to_create:
+                OrderItem.objects.bulk_create(items_to_create)
+                logger.debug(f"Bulk created {len(items_to_create)} OrderItems")
+            if items_to_update:
+                OrderItem.objects.bulk_update(items_to_update, ['quantity', 'item_price', 'added_by'])
+                logger.debug(f"Bulk updated {len(items_to_update)} OrderItems")
+            if item_ids_to_delete:
+                deleted = OrderItem.objects.filter(id__in=item_ids_to_delete, order=order).delete()
+                logger.debug(f"Bulk deleted {deleted[0]} OrderItems")
+
+            # Ensure total_price is not negative
+            if total_price < 0:
+                logger.error(f"Negative total_price for order {order.id}: {total_price}")
+                raise ValidationError("Total price cannot be negative")
+        print(f"3 process changes took {(time.perf_counter() - start) * 1000:.3f} ms")
+
+        # 4. Update order
+        start = time.perf_counter()
+        for field, value in data.items():
+            if hasattr(order, field) and field not in ['changes', 'expected_version']:
+                setattr(order, field, value)
+        order.version += 1
+        order.total_price = total_price
+        order.special_instructions = data.get('notes')
+        order.save()
+        order.refresh_from_db()
+        print(f"4 order update took {(time.perf_counter() - start) * 1000:.3f} ms")
+
+        return order, item_names
 
     @action(detail=True, methods=['patch'], url_path='modify')
     async def order_modify(self, request, *args, **kwargs):
@@ -778,165 +877,39 @@ class OrderViewSet(ModelViewSet):
         change just quantity:
             {"action": "add", "menu_item": 42, "quantity": -2}, Reduce initial qty by 2 units
         """
-        pk = kwargs['pk']
-        # @aatomic
-        async def modify_order():
-            try:
-                # Start an atomic transaction to ensure data consistency
-                # with transaction.atomic():
-                    # 1. Lock and get order
-                    # Lock the order row to prevent concurrent modifications
-                    # order = await Order.objects.select_for_update().aget(id=pk)
-                data = request.data
-                order = await Order.objects.select_related('branch').aget(id=pk)
-                order_v = order.version
-                changes = data.get('changes', [])
-                total_price = order.total_price
-                
-                # 2. Check version
-                # Check for version mismatch (optimistic locking)
-                if not data.get('expected_version'):
-                    return Response(
-                        {"error": _("Order version mismatch -- Order must have a version")},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+        start = time.perf_counter()
+        try:
+            pk = kwargs['pk']
+            data = request.data
+            # Run transactional operations
+            order, item_names = await self.modify_order_transaction(pk, data, request.user)
 
-                if order_v != data['expected_version']:
-                    return Response(
-                        {"error": _("Concurrent modification detected")},
-                        status=status.HTTP_409_CONFLICT
-                    )
-                
-                # 3. Process changes
-                # Process each change in the request
-                if changes:
-                    # Prepare bulk operations
-                    items_to_create = []
-                    item_ids_to_delete = []
-                    items_to_update = []
-                    menu_item_ids = set()
+            # Post-transaction async tasks
+            start = time.perf_counter()
+            details = {
+                'user_id': request.user.id,
+                'menu_item_names': item_names,
+            }
+            send_to_kds.delay(order.id, details)
+            print(f"5 fire task took {(time.perf_counter() - start) * 1000:.3f} ms")
 
-                    # Collect menu_item IDs for add actions and map existing OrderItems
-                    for change in changes:
-                        if change['action'] == 'add':
-                            menu_item_ids.add(change['menu_item'])
-                        elif change['action'] == 'remove':
-                            item_ids_to_delete.append(change['order_item'])
+            # Serialize response
+            start = time.perf_counter()
+            serializer = OrderSerializer(order)
+            serialized_data = await sync_to_async(lambda: serializer.data)()
+            print(f"6 get ser data took {(time.perf_counter() - start) * 1000:.3f} ms")
+            return Response(serialized_data, status=status.HTTP_200_OK)
 
-                    valid_menu_item_ids = await self.get_valid_menu_item_ids(order.branch)
-
-                    invalid_items = menu_item_ids - valid_menu_item_ids
-                    if invalid_items:
-                        logger.error(f"Validation failed: Menu items {invalid_items} ")
-                        return Response(
-                            {"error": f"Menu items {invalid_items} are invalid or are unavailable."},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
-                    
-                    # Bulk fetch MenuItems
-                    menu_items = {item.id: item async for item in MenuItem.objects.filter(id__in=menu_item_ids).all()}
-                    item_names = [menu_items[menu_item_id].name for menu_item_id in menu_item_ids if menu_item_id in menu_items]
-                    
-                    # Bulk fetch existing OrderItems for the order
-                    existing_items = {item.menu_item_id: item async for item in OrderItem.objects.filter(order=order).select_related('menu_item').all()}
-                    for change in changes:
-                        if change['action'] == 'add':
-                            menu_item = menu_items.get(change['menu_item'])
-                            if not menu_item:
-                                logger.warning(f"MenuItem {change['menu_item']} not found")
-                                continue
-                            item_price = menu_item.price * change['quantity']
-                            
-                            existing_order_item = existing_items.get(change['menu_item'])
-                            if existing_order_item:
-                                # Update existing OrderItem
-                                old_item_price = existing_order_item.item_price
-                                new_quantity = existing_order_item.quantity + change['quantity']
-                                existing_order_item.quantity = new_quantity
-                                existing_order_item.item_price = menu_item.price * new_quantity
-                                existing_order_item.added_by = request.user
-                                items_to_update.append(existing_order_item)
-                                total_price = total_price - old_item_price + existing_order_item.item_price
-                                logger.debug(f"Prepared update for OrderItem: menu_item={menu_item.id}, new_quantity={new_quantity}, new_item_price={existing_order_item.item_price}")
-                            else:
-                                # Create new OrderItem
-                                items_to_create.append(OrderItem(
-                                    order=order,
-                                    menu_item=menu_item,
-                                    quantity=change['quantity'],
-                                    item_price=item_price,
-                                    added_by=request.user
-                                ))
-                                total_price += item_price
-                                logger.debug(f"Prepared create for OrderItem: menu_item={menu_item.id}, quantity={change['quantity']}, item_price={item_price}")
-                        elif change['action'] == 'remove':
-                            order_item = existing_items.get(change['order_item'])
-                            if order_item:
-                                total_price -= order_item.item_price
-                                logger.debug(f"Prepared delete for OrderItem: order_item={change['order_item']}, item_price={order_item.item_price}")
-                            else:
-                                logger.warning(f"OrderItem {change['order_item']} not found for order {order.id}")
-
-                    # Bulk create OrderItems
-                    if items_to_create:
-                        await OrderItem.objects.abulk_create(items_to_create)
-                        logger.debug(f"Bulk created {len(items_to_create)} OrderItems")
-
-                    # Bulk update OrderItems
-                    if items_to_update:
-                        fields_to_update = ['quantity', 'item_price', 'added_by']
-                        await sync_to_async(lambda: OrderItem.objects.bulk_update(items_to_update, fields_to_update))()
-                        logger.debug(f"Bulk updated {len(items_to_update)} OrderItems")
-
-                    # Bulk delete OrderItems
-                    if item_ids_to_delete:
-                        deleted = await OrderItem.objects.filter(id__in=item_ids_to_delete, order=order).adelete()
-                        logger.debug(f"Bulk deleted {deleted[0]} OrderItems")
-
-                    # Ensure total_price is not negative
-                    if total_price < 0:
-                        logger.error(f"Negative total_price calculated for order {order.id}: {total_price}")
-                        raise ValidationError("Total price cannot be negative")
-                
-                # 4. Refresh order data
-                # Refresh the order object to reflect changes
-                for field, value in data.items():
-                    if hasattr(order, field):
-                        setattr(order, field, value)
-                order.version += 1
-                order.total_price = total_price
-                order.special_instructions = data.get('notes')
-                await order.asave()
-                await order.arefresh_from_db()
-
-                details = {
-                    'user_id': request.user.id,
-                    'menu_item_names': item_names,
-                }
-                send_to_kds.delay(order.id, details)
-                
-                # 5. Prepare success response (LAST THING WE DO)
-                serializer = OrderSerializer(order)
-                serialized_data = await sync_to_async(lambda: serializer.data)()
-                return Response(serialized_data, status=status.HTTP_200_OK)
-                    
-            
-            except Order.DoesNotExist:
-                # Handle case where order does not exist
-                return Response({"error": "Order not found"}, status=status.HTTP_404_NOT_FOUND)
-            
-            except MenuItem.DoesNotExist:
-                # Handle case where menu item does not exist
-                return Response({"error": "Invalid menu item"}, status=status.HTTP_400_BAD_REQUEST)
-            
-            except Exception as e:
-                # Handle unexpected errors
-                logger.error(f"Order creation failed: {str(e)}", exc_info=True)
-                return Response({"error": "Order processing failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # 6. FINAL STEP: Return response
-        response = await modify_order()
-        return response
+        except Order.DoesNotExist:
+            return Response({"error": "Order not found"}, status=status.HTTP_404_NOT_FOUND)
+        except MenuItem.DoesNotExist:
+            return Response({"error": "Invalid menu item"}, status=status.HTTP_400_BAD_REQUEST)
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=e.status_code if hasattr(e, 'status_code') else status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Order modification failed: {str(e)}", exc_info=True)
+            return Response({"error": "Order processing failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
     
     @action(detail=True, methods=['post'])
     async def cancel(self, request, *args, **kwargs):
@@ -1070,7 +1043,7 @@ class StaffShiftViewSet(ModelViewSet):
         user_id = getattr(request, 'user_id', None)
         original_shift_name = await sync_to_async(lambda: staff_shift.shift.name)()
 
-        # @aatomic()
+        @aatomic()
         async def run_atomic(new_shift_name):        
             staff_shift.shift_id = shift_id
             staff_shift.date = date

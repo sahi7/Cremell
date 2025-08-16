@@ -27,9 +27,10 @@ class AsyncAtomicContextManager(Atomic):
         print(f"TRANSACTION ENDING: {exc_type}")
         try:
             # End transaction in the assigned thread
+            # await sync_to_async(super().__exit__, thread_sensitive=False, executor=self.executor)(exc_type, exc_value, traceback)
             await sync_to_async(super().__exit__, thread_sensitive=False, executor=self.executor)(exc_type, exc_value, traceback)
             # Close connections in the assigned thread
-            await sync_to_async(self.close_connections, thread_sensitive=False, executor=self.executor)()
+            # await sync_to_async(self.close_connections, thread_sensitive=False, executor=self.executor)()
         finally:
             # Return executor to the pool
             await executor_pool.put(self.executor)
@@ -38,7 +39,8 @@ class AsyncAtomicContextManager(Atomic):
         """Execute a function within the transaction context."""
         if asyncio.iscoroutinefunction(fun):
             # For async functions, run ORM ops in the same thread as the transaction
-            return await sync_to_async(lambda: fun(*args, **kwargs), thread_sensitive=False, executor=self.executor)()
+            # return await sync_to_async(lambda: fun(*args, **kwargs), thread_sensitive=False, executor=self.executor)()
+            return await fun(*args, **kwargs)
         else:
             # For sync functions, run directly in the executor
             future = self.executor.submit(fun, *args, **kwargs)
