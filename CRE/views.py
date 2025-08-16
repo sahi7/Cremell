@@ -779,7 +779,7 @@ class OrderViewSet(ModelViewSet):
             item_names = [menu_items[menu_item_id].name for menu_item_id in menu_item_ids if menu_item_id in menu_items]
 
             # Bulk fetch existing OrderItems
-            existing_items = {item.menu_item_id: item for item in OrderItem.objects.filter(order=order).select_related('menu_item')}
+            existing_items = {item.menu_item_id: item for item in OrderItem.objects.filter(order_id=order.id).select_related('menu_item')}
             deleting_items = {item.id: item for item in OrderItem.objects.filter(order_id=order.id).select_related('menu_item')}
 
             # Process changes
