@@ -2,6 +2,9 @@ from redis.asyncio import Redis
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework_simplejwt.views import TokenBlacklistView
+from rest_framework_simplejwt.tokens import RefreshToken, UntypedToken, OutstandingToken
+from rest_framework_simplejwt.views import TokenRefreshView
 from adrf.views import APIView
 from channels.layers import get_channel_layer
 from allauth.account.models import EmailAddress
@@ -14,7 +17,6 @@ from django.conf import settings
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 
-from .models import StaffAvailability
 from .serializers import RestaurantSerializer, CompanySerializer, CountrySerializer, AssignmentSerializer
 from .serializers_helper import CustomTokenObtainPairSerializer
 from zMisc.policies import ScopeAccessPolicy
@@ -29,6 +31,24 @@ logger = logging.getLogger(__name__)
 CustomUser = get_user_model()
 cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)
 from rest_framework import exceptions
+
+class CustomTokenRefreshView(APIView, TokenRefreshView):
+    async def post(self, request, *args, **kwargs):
+        from rest_framework_simplejwt.exceptions import InvalidToken
+        # Standard validation (decodes refresh token, checks 'exp')
+        response = await sync_to_async(super().post)(request, *args, **kwargs)
+        # Additional expires_at check
+        refresh = request.data.get('refresh')
+        if refresh:
+            token = await sync_to_async(UntypedToken)(refresh)
+            jti = token['jti']
+            outstanding_token = await OutstandingToken.objects.filter(jti=jti).afirst()
+
+            if not outstanding_token:
+                raise InvalidToken("Token not found")
+            if outstanding_token.expires_at <= timezone.now():
+                raise InvalidToken("Token has expired")
+        return response
 
 class CustomTokenObtainPairView(APIView, TokenObtainPairView):  # Using adrf's APIView
     serializer_class = CustomTokenObtainPairSerializer
@@ -93,6 +113,79 @@ class CustomTokenObtainPairView(APIView, TokenObtainPairView):  # Using adrf's A
                 {"error": "Internal server error"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+        
+class LogoutView(APIView):
+    async def post(self, request, *args, **kwargs):
+        access_cookie = settings.SIMPLE_JWT.get('AUTH_COOKIE')
+        refresh_cookie = settings.SIMPLE_JWT.get('REFRESH_COOKIE')
+        refresh_token = request.data.get('refresh') or request.COOKIES.get(refresh_cookie)
+        if not refresh_token:
+            return Response({"detail": _("Refresh token is required.")}, status=status.HTTP_400_BAD_REQUEST)
+        # Blacklist refresh token
+        try:
+            token = await sync_to_async(RefreshToken)(refresh_token)
+            jti = token.payload['jti']
+            print("r token: ", token)
+            print("r jti: ", jti)
+            # Find and update OutstandingToken
+            outstanding_token = await sync_to_async(OutstandingToken.objects.filter(jti=jti).first)()
+            if outstanding_token:
+                await sync_to_async(outstanding_token.__setattr__)('expires_at', timezone.now())
+                await sync_to_async(outstanding_token.save)()
+            else:
+                # Fallback: Create if not found (rare)
+                await sync_to_async(OutstandingToken.objects.create)(
+                    jti=jti,
+                    user=request.user,
+                    token=refresh_token,
+                    expires_at=timezone.now()
+                )
+            # token = await sync_to_async(RefreshToken)(refresh_token)
+            # await sync_to_async(token.blacklist)()
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Blacklist access token
+        access_token = request.COOKIES.get(access_cookie) or (
+            request.headers.get('Authorization', '').split(' ')[1] if request.headers.get('Authorization', '').startswith('Bearer ') else None
+        )
+        if access_token:
+            try:
+                # jti = RefreshToken(access_token).payload['jti']
+                # expires_at = timezone.now() + request.auth.lifetime if request.auth else timezone.now() + timezone.timedelta(minutes=5)
+                # outstanding_token, _ = await sync_to_async(OutstandingToken.objects.get_or_create)(
+                #     jti=jti,
+                #     defaults={
+                #         'user': request.user,
+                #         'token': access_token,
+                #         'expires_at': expires_at
+                #     }
+                # )
+                # await sync_to_async(BlacklistedToken.objects.get_or_create)(
+                #     token=outstanding_token
+                # )
+                token = await sync_to_async(UntypedToken)(access_token)
+                jti = token.payload['jti']
+                print("a token: ", token)
+                print("a jti: ", jti)
+                # Find and update OutstandingToken
+                outstanding_token = await sync_to_async(OutstandingToken.objects.filter(jti=jti).first)()
+                if outstanding_token:
+                    await sync_to_async(outstanding_token.__setattr__)('expires_at', timezone.now())
+                    await sync_to_async(outstanding_token.save)()
+                else:
+                    # Fallback: Create if not found (rare)
+                    await sync_to_async(OutstandingToken.objects.create)(
+                        jti=jti,
+                        user=request.user,
+                        token=access_token,
+                        expires_at=timezone.now()
+                    )
+            except Exception as e:
+                pass  # Silently ignore access token blacklisting errors
+
+        response = Response({"detail": _("Successfully logged out")}, status=status.HTTP_200_OK)
+        return response
 
 class CheckUserExistsView(APIView):
     """

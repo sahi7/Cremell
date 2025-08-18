@@ -3,11 +3,11 @@
 from dj_rest_auth.registration.views import RegisterView, ResendEmailVerificationView, VerifyEmailView
 from dj_rest_auth.views import UserDetailsView, PasswordResetConfirmView, PasswordResetView
 from rest_framework_simplejwt.views import TokenRefreshView
-from rest_framework_simplejwt.views import TokenObtainPairView
+# from rest_framework_simplejwt.views import TokenObtainPairView
 from cre.views import email_confirm_redirect, password_reset_confirm_redirect
 from django.urls import path
-from .views import LogoutView, CustomRegisterView
-from .views__helper import CustomTokenObtainPairView
+from .views import CustomRegisterView
+from .views__helper import CustomTokenObtainPairView, CustomTokenRefreshView, LogoutView
 
 from allauth.socialaccount.views import signup
 from cre.views import GoogleLogin
@@ -22,7 +22,8 @@ urlpatterns = [
     # JWT tokens
     # path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'), # View token
     path('token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
 
     path("register/verify-email/", VerifyEmailView.as_view(), name="rest_verify_email"),
     path("register/resend-email/", ResendEmailVerificationView.as_view(), name="rest_resend_email"),

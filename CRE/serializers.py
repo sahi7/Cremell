@@ -178,7 +178,7 @@ class UserSerializer(ModelSerializer):
 
         # Preparing Log
         start = time.perf_counter()
-        notify_and_log.delay(user_id=user.id, m2m_field_ids=m2m_fields)
+        # notify_and_log.delay(user_id=user.id, m2m_field_ids=m2m_fields)
         self.context["email_sent"] = True
         print(f"Notification task took {(time.perf_counter() - start) * 1000:.3f} ms")
 

@@ -27,7 +27,8 @@ class CustomUserManager(BaseUserManager):
         email = self.normalize_email(email) if email else None
         user = self.model(email=email, username=username, phone_number=phone_number, **extra_fields)
         user.set_unusable_password()
-        await user.asave(using=self._db)
+        await user.asave()
+        # await user.asave(using=self._db)
         set_user_password.delay(user.id, password)
         # user.set_password(password)
         print(f"Set password took {(time.perf_counter() - start) * 1000:.3f} ms")

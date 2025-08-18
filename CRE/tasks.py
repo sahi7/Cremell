@@ -35,15 +35,23 @@ def create_staff_availability(user_id):
     except Exception as e:
         logger.error(f"Failed to create StaffAvailability for user {user_id}: {str(e)}")
 
-@shared_task
-def set_user_password(user_id, password):
+@shared_task(bind=True, max_retries=3, acks_late=True)
+def set_user_password(self, user_id, password):
     try:
         from cre.models import CustomUser 
         user = CustomUser.objects.get(id=user_id)
         user.set_password(password)
         user.save()
-    except Exception as e:
-        logger.error(f"Password set failed for user {user_id}: {str(e)}")
+        logger.info(f"Password successfully set for user {user_id}")
+        # Don't retry for user not found - it's a permanent error
+    except Exception as exc:
+        logger.error(f"Password set failed for user {user_id}: {str(exc)}")
+        # Trigger retry
+        raise self.retry(
+            exc=exc,
+            countdown=60,  # Wait 60 seconds before retry
+            max_retries=3
+        )
         # Optionally store failure in Redis: redis.set(f"password_failed:{user_id}", str(e))
 
 @shared_task
