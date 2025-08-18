@@ -74,7 +74,7 @@ class Rule(models.Model):
         help_text=_("Restaurant this rule applies to, if scope=restaurant"))
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, null=True, blank=True,
         help_text=_("Branch this rule applies to, if scope=branch"))
-    priority = models.IntegerField(default=0, help_text=_("Higher priority rules override lower ones within the same scope"))
+    priority = models.IntegerField(default=1, help_text=_("Higher priority rules override lower ones within the same scope"))
     effective_from = models.DateField(default=timezone.now, help_text=_("Date from which the rule is effective"))
     is_active = models.BooleanField(default=True, help_text=_("Whether the rule is currently active"))
     created_at = models.DateTimeField(auto_now_add=True, help_text=_("Timestamp when the rule was created"))

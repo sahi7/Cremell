@@ -590,14 +590,20 @@ class OrderViewSet(ModelViewSet):
     serializer_class = OrderSerializer
 
     def get_permissions(self):
-        role_value = async_to_sync(self.request.user.get_role_value)()
+        role_value = self.request.user.r_val
         self._access_policy = ScopeAccessPolicy if role_value <= 5 else StaffAccessPolicy
         return [self._access_policy(), OrderPermission()]
 
-    def get_queryset(self):
+    async def get_queryset(self):
         user = self.request.user
-        scope_filter = async_to_sync(self._access_policy.get_queryset_scope)(user, view=self)
+        scope_filter = await self._access_policy().get_queryset_scope(user, view=self)
         return self.queryset.filter(scope_filter)
+    
+    async def list(self, request, *args, **kwargs):
+        queryset = await self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        data = await sync_to_async(lambda: serializer.data)()
+        return Response(data)
 
     async def get_valid_menu_item_ids(self, branch):
         menu_data = await branch.get_menus()  # Keep async for I/O
@@ -974,7 +980,7 @@ class OrderViewSet(ModelViewSet):
             "reason": str(_(f"Order {order.id} cancelled by {request.user.username}")),
             "order_id": order.id,
         }
-        # log_activity.delay(request.user.id, 'order_cancelled', details, order.branch.id, 'branch')
+        log_activity.delay(request.user.id, 'order_cancelled', details, order.branch.id, 'branch')
         return Response({"status": str(_(f"Order {order.status}"))}, status=status.HTTP_200_OK)
         
 
