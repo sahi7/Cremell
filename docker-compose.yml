@@ -8,3 +8,17 @@ services:
     environment:
       - REDIS_APPENDONLY=yes
     restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    environment:  
+      POSTGRES_PASSWORD: liveWell25
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

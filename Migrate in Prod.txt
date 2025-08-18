@@ -1,5 +1,5 @@
 - create db
-- create user with login
+- create user us with login password 'psw'
 - grant login and creatdb to user | ALTER USER us CREATEDB
 - set user to ownver - ALTER DATABASE db OWNER TO db_user;
 - make all migrations before adding this file in cre > signals.py
@@ -14,7 +14,7 @@ Delete Migration Files with Win + X → PowerShell
  Delete All migration folders accross all apps
  - Get-ChildItem -Directory -Recurse -Filter "migrations" | Remove-Item -Recurse -Force
  Recreate them
- - $apps = "cre", "notifications","archive","payroll","permissions"; foreach ($app in $apps) { New-Item -Path "$app\migrations" -ItemType Directory -Force | Out-Null; New-Item -Path "$app\migrations\__init__.py" -ItemType File -Force | Out-Null }
+ - $apps = "cre", "notifications","archive","payroll","permissions","tmp"; foreach ($app in $apps) { New-Item -Path "$app\migrations" -ItemType Directory -Force | Out-Null; New-Item -Path "$app\migrations\__init__.py" -ItemType File -Force | Out-Null }
 
 
 If Models are in a custom file, import them in admin.py; from .custom_file import *

@@ -160,7 +160,8 @@ class CustomUser(AbstractUser):
         }
         group_name = group_map.get(role)
         if group_name:
-            group = await Group.objects.aget(name=group_name)
+            # group = await Group.objects.aget(name=group_name)
+            group, _ = await Group.objects.aget_or_create(name=group_name)
             if action == 'add':
                 await self.groups.aadd(group)
             elif action == 'remove':

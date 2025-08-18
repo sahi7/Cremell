@@ -98,3 +98,4 @@ Try to create a system of prefetching and caching where only POST and PATCH requ
 This will create the fastest system for GET[FILTER] requests - Its like scaling REDIS to work with hundred million requests but the underlying hardware is very important.
 Third parties can learn how to use the DB we will create -- that works with this CACHE CLOUD
 
+RPS: ~60-100 RPS per core (15ms/request). With 8 cores and 10 uvicorn workers, ~4,800-8,000 RPS per instance.

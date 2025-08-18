@@ -3,7 +3,6 @@ from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
-from django.db import transaction
 from django.utils import timezone
 
 from rest_framework.response import Response
@@ -27,7 +26,6 @@ from adrf.viewsets import ModelViewSet
 
 from .serializers import *
 from .models import *
-from .tasks import create_staff_availability
 
 from archive.tasks import finalize_deletion, handle_deletion_tasks
 from notifications.tasks import log_shift_assignment
