@@ -42,17 +42,16 @@ def set_user_password(self, user_id, password):
         user = CustomUser.objects.get(id=user_id)
         user.set_password(password)
         user.save()
-        logger.info(f"Password successfully set for user {user_id}")
-        # Don't retry for user not found - it's a permanent error
     except Exception as exc:
         logger.error(f"Password set failed for user {user_id}: {str(exc)}")
+        retry_delay = 5 * (2 ** self.request.retries)
         # Trigger retry
         raise self.retry(
             exc=exc,
-            countdown=60,  # Wait 60 seconds before retry
+            countdown=retry_delay,  # Exponential backoff: 1min, 2min, 4min
             max_retries=3
         )
-        # Optionally store failure in Redis: redis.set(f"password_failed:{user_id}", str(e))
+    return True
 
 @shared_task
 def check_overdue_shifts():
