@@ -179,7 +179,7 @@ class GeneratePayrollView(APIView):
 
             requested = {
                 'company_id': request.data.get("companies", []),
-                'country_id': request.data.get("countries", []),
+                # 'country_id': request.data.get("countries", []),
                 'restaurant_id': request.data.get("restaurants", []),
                 'branch_id': request.data.get("branches", []),
             }
