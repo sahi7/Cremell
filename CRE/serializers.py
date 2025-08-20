@@ -208,7 +208,7 @@ class CompanySerializer(ModelSerializer):
 
     class Meta:
         model = Company
-        fields = ['name', 'about', 'contact_email', 'contact_phone']
+        fields = ['id', 'name', 'about', 'contact_email', 'contact_phone']
 
     async def create(self, validated_data):
         try:
@@ -443,26 +443,33 @@ class  RegistrationSerializer(Serializer):
 #         }
 
 class BranchSerializer(ModelSerializer):
+    # restaurant = serializers.IntegerField(source='restaurant_id', required=False)
+    # company = serializers.IntegerField(source='company_id', required=False)
+    # country = serializers.IntegerField(source='country_id', required=True)
 
     class Meta:
         model = Branch
         fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'status', 'timezone', 'default_language', 'manager', 'created_by']
         read_only_fields = ('created_by', )
 
-    def validate(attrs):
-        pass
+    def validate(self, attrs):
+        print("attrs: ", attrs)
+        return attrs
 
     async def create(self, validated_data):
+        from notifications.tasks import invalidate_cache_keys
         request = self.context.get('request')
         is_RO = self.context.get('is_CEO', False)
         if is_RO:
             validated_data['status'] = 'active'
-        validated_data['created_by_id'] = request.user.id
+        user_id = request.user.id
+        validated_data['created_by_id'] = user_id
         branch = await Branch.objects.acreate(**validated_data)
         details = {}
         details['name'] = branch.name
         details['restaurant'] = branch.restaurant_id
         log_activity.delay(validated_data['created_by_id'], 'branch_create', details, branch.id, 'branch')
+        invalidate_cache_keys.delay(['user_scopes:{id}', f'scopes:{request.user.role}:{user_id}'], [user_id])
         
         return branch
 

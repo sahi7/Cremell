@@ -565,8 +565,8 @@ class BranchPermission(BasePermission):
         request.enc_data = data
         
         manager_id = data.get('manager')
-        company_id = data.get('company')
-        country_id = data.get('country')
+        company_id = data.get('company_id')
+        country_id = data.get('country_id')
         scopes_and_groups = await get_scopes_and_groups(request.user)
 
         # Attach to request for reuse in view

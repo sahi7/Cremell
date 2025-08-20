@@ -266,12 +266,12 @@ class RestaurantViewSet(ModelViewSet):
 
         # Validation for role-based creation permissions
         if "CompanyAdmin" in user_groups:
-            allowed_scopes['company'] = user_scope['company']
+            allowed_scopes['company'] = user_scope['companies']
             
         elif "CountryManager" in user_groups:
             # CountryManager: Restricted by country and company
-            allowed_scopes['country'] = user_scope['country']
-            allowed_scopes['company'] = user_scope['company']
+            allowed_scopes['country'] = user_scope['countries']
+            allowed_scopes['company'] = user_scope['companies']
 
         else:
             # Other roles cannot create restaurants
@@ -371,8 +371,9 @@ class BranchViewSet(ModelViewSet):
         allowed_scopes = {}
         user = request.user
         data = request.enc_data
+        print("data: ", data)
         serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
 
         user_scope = getattr(request, 'user_scope', None)
         user_groups = user_scope['groups']
@@ -387,8 +388,8 @@ class BranchViewSet(ModelViewSet):
             serializer.context['is_CEO'] = True
 
         elif "CountryManager" in user_groups:
-            allowed_scopes['country'] = user_scope['country']
-            allowed_scopes['company'] = user_scope['company']
+            allowed_scopes['country'] = user_scope['countries']
+            allowed_scopes['company'] = user_scope['companies']
             allowed_scopes['restaurant'] = user_scope['restaurants']
 
         elif "RestaurantOwner" in user_groups:

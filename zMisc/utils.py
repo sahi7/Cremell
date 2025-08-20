@@ -154,7 +154,7 @@ def clean_request_data(request_data, fields_to_remove=None):
     Removes specified fields and their _id variants from request data.
     Default removes branch, restaurant, company and their _id variants.
     """
-    default_fields = {'branch', 'restaurant', 'company', 'countries', 'restaurants'}
+    default_fields = {'branch', 'restaurant', 'company', 'countries', 'branches','restaurants', 'companies'}
     fields = fields_to_remove or default_fields
     
     # Generate all field variants to remove

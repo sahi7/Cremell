@@ -36,9 +36,10 @@ class RuleViewSet(ModelViewSet):
     async def create(self, request):
         cleaned_data = clean_request_data(request.data)
         data = cleaned_data
-        data['company_id'] = request.data.get('companies', [None])[0]
-        data['restaurant_id'] = request.data.get('restaurants', [None])[0]
-        data['branch_id'] = request.data.get('branches', [None])[0]
+        data['company'] = request.data.get('companies', [None])[0]
+        data['restaurant'] = request.data.get('restaurants', [None])[0]
+        data['branch'] = request.data.get('branches', [None])[0]
+        print("v data: ", data)
         serializer = self.serializer_class(data=data, context={'request': request})
         await sync_to_async(serializer.is_valid)(raise_exception=True)
         validated_data = serializer.validated_data
@@ -177,10 +178,10 @@ class GeneratePayrollView(APIView):
             }
 
             requested = {
-                'company': request.data.get("companies", []),
-                'country': request.data.get("countries", []),
-                'restaurant': request.data.get("restaurants", []),
-                'branch': request.data.get("branches", []),
+                'company_id': request.data.get("companies", []),
+                'country_id': request.data.get("countries", []),
+                'restaurant_id': request.data.get("restaurants", []),
+                'branch_id': request.data.get("branches", []),
             }
             for field, requested_ids in requested.items():
                 if not requested_ids:
