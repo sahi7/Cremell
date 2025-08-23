@@ -28,6 +28,14 @@ KAFKA_PAYROLL_TOPIC = 'payroll.generate'
 class RuleViewSet(ModelViewSet):
     """
     Handles POST /rules to create or update payroll rules asynchronously.
+    Request data
+    {
+        "name": "Indemnité de Logement",
+        "rule_type": "bonus",
+        "amount": "30.00", | "percentage": null,
+        "scope": "branch",
+        "branch": []
+    }
     """
     queryset = Rule.objects.filter(is_active=True)
     serializer_class = RuleSerializer
@@ -85,6 +93,7 @@ class RuleViewSet(ModelViewSet):
             await producer.start()
             try:
                 event = {
+                    'type': KAFKA_RULES_TOPIC,
                     'rule_id': rule.id,
                     'scope': rule.scope,
                     'company_id': rule.company_id,
@@ -123,6 +132,18 @@ class RuleViewSet(ModelViewSet):
 class OverrideCreateView(APIView):
     """
     Handles POST /overrides to create special-case overrides asynchronously.
+    Request data
+    {
+        "rule": 101,
+        "period": 1,
+        "user": 5001,
+        "override_type": "replace",
+        "amount": 1500.50, # adds the amount for the rule
+        "percentage": 5.0,
+        "branch": [1],
+        "expires_at": null,
+        "notes": "Adjusted bonus for performance"
+    }
     """
     permission_classes = (ScopeAccessPolicy, RulePermission, )
     async def post(self, request):
@@ -137,6 +158,7 @@ class OverrideCreateView(APIView):
             await producer.start()
             try:
                 event = {
+                    'type': KAFKA_OVERRIDES_TOPIC,
                     'override_id': override.id,
                     'rule_id': override.rule_id,
                     'user_id': override.user_id,
@@ -172,6 +194,7 @@ class GeneratePayrollView(APIView):
             period = await Period.objects.aget(month=month, year=year)
 
             event = {
+                'type': KAFKA_PAYROLL_TOPIC,
                 'period_id': period.id,
                 'month': period.month,
                 'year': period.year
