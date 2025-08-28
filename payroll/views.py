@@ -137,9 +137,7 @@ class OverrideCreateView(APIView):
         "rule": 101,
         "period": 1,
         "user": 5001,
-        "override_type": "replace",
-        "amount": 1500.50, # adds the amount for the rule
-        "percentage": 5.0,
+        "override_type": "replace", | "percentage": 5.0,
         "branch": [1],
         "expires_at": null,
         "notes": "Adjusted bonus for performance"

@@ -50,11 +50,9 @@ class RulePermission(BasePermission):
             rule = {"target_type": "user", "target_value": rule, "category": "rule"}
 
             if not await self.check_target_permission(request, target):
-                print("Kumbaya")
                 return False
             
             if not await self.check_target_permission(request, rule):
-                print("My lord")
                 return False
             
         return True
