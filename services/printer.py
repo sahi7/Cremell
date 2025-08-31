@@ -1,7 +1,7 @@
 from django.utils import timezone
 from django.conf import settings
 from escpos.printer import Usb, Network, Serial
-from escpos.exceptions import BarcodeTypeError, BarcodeSizeError, DeviceNotFoundError, USBNotFoundError
+from escpos.exceptions import BarcodeTypeError, BarcodeSizeError, DeviceNotFoundError
 from usb.core import USBError
 import redis.asyncio as redis
 from asgiref.sync import sync_to_async
