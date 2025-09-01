@@ -2,48 +2,147 @@ from django.utils import timezone
 from django.conf import settings
 from escpos.printer import Usb, Network, Serial
 from escpos.exceptions import BarcodeTypeError, BarcodeSizeError, DeviceNotFoundError
-from usb.core import USBError
-import redis.asyncio as redis
 from asgiref.sync import sync_to_async
+from zeroconf import Zeroconf, ServiceBrowser  # For network detection
+import redis.asyncio as redis
+import usb.core
+import socket  # For network connection test
 import json
+import asyncio
 
 from cre.models import Order
 import logging
 logger = logging.getLogger(__name__)
 
+class PrinterListener:
+    """Listener for zeroconf network printer discovery."""
+    def __init__(self):
+        self.printers = []
+
+    def add_service(self, zeroconf, type, name):
+        info = zeroconf.get_service_info(type, name)
+        if info:
+            ip = socket.inet_ntoa(info.addresses[0])
+            self.printers.append({'name': name, 'ip_address': ip, 'port': info.port})
+
 class ReceiptPrinter:
-    """Handles printing receipts for orders using ESC/POS thermal printers."""
-    def __init__(self, connection_type='usb', vendor_id=0x04b8, product_id=0x0202, ip_address=None, serial_port=None):
-        """Initialize printer based on connection type."""
-        self.connection_type = connection_type
+    """Handles printing and printer management."""
+
+    def __init__(self, printer_config=None):
+        self.connection_type = printer_config.connection_type if printer_config else None
         self.printer = None
-        if connection_type == 'usb':
-            try:
-                self.printer = Usb(vendor_id, product_id, profile="TM-T88III")
-            except USBError as e:
-                logger.error(f"Failed to initialize USB printer: {str(e)}")
-                raise
-        elif connection_type == 'network':
-            try:
-                self.printer = Network(ip_address, profile="TM-T88III")
-            except DeviceNotFoundError as e:
-                logger.error(f"Failed to initialize network printer: {str(e)}")
-                raise
-        elif connection_type == 'serial':
-            try:
+        self.printer_config = printer_config
+
+    async def connect(self):
+        """Asynchronously connect to the printer based on config."""
+        if not self.printer_config:
+            raise ValueError("Printer config required for connection.")
+        try:
+            if self.connection_type == 'usb':
+                self.printer = Usb(
+                    int(self.printer_config.vendor_id, 16),
+                    int(self.printer_config.product_id, 16),
+                    profile=self.printer_config.profile
+                )
+            elif self.connection_type == 'network':
+                self.printer = Network(
+                    self.printer_config.ip_address,
+                    profile=self.printer_config.profile
+                )
+            elif self.connection_type == 'serial':
                 self.printer = Serial(
-                    devfile=serial_port,
+                    devfile=self.printer_config.serial_port,
                     baudrate=9600,
                     bytesize=8,
                     parity='N',
                     stopbits=1,
                     timeout=1.00,
                     dsrdtr=True,
-                    profile="TM-T88III"
+                    profile=self.printer_config.profile
                 )
-            except DeviceNotFoundError as e:
-                logger.error(f"Failed to initialize serial printer: {str(e)}")
-                raise
+            # Update status asynchronously
+            await sync_to_async(self._update_status)(True)
+            logger.info(f"Connected to printer {self.printer_config.name}")
+        except (usb.core.USBError, DeviceNotFoundError) as e:
+            await sync_to_async(self._update_status)(False)
+            logger.error(f"Failed to connect to {self.printer_config.name}: {str(e)}")
+            raise
+
+    async def disconnect(self):
+        """Asynchronously disconnect from the printer."""
+        if self.printer:
+            self.printer.close()
+            self.printer = None
+            logger.info(f"Disconnected from printer {self.printer_config.name}")
+
+    async def test_connection(self):
+        """Asynchronously test printer connection by sending a status check."""
+        if not self.printer:
+            await self.connect()
+        try:
+            # Simple test: Send a text and cut (ESC/POS status check)
+            self.printer.text("Connection test\n")
+            self.printer.cut()
+            logger.info(f"Connection test successful for {self.printer_config.name}")
+            return True
+        except Exception as e:
+            logger.error(f"Connection test failed for {self.printer_config.name}: {str(e)}")
+            return False
+        finally:
+            await self.disconnect()
+
+    @staticmethod
+    async def detect_printers(connection_type='all', branch_id=None):
+        """Asynchronously detect available printers and update Printer model."""
+        detected = []
+        if connection_type in ['all', 'usb']:
+            devices = usb.core.find(find_all=True)
+            for dev in devices:
+                if dev.bDeviceClass == 7:  # Printer class
+                    detected.append({
+                        'connection_type': 'usb',
+                        'vendor_id': hex(dev.idVendor),
+                        'product_id': hex(dev.idProduct),
+                        'profile': 'TM-T88III'  # Default; customize based on IDs
+                    })
+
+        if connection_type in ['all', 'network']:
+            zeroconf = Zeroconf()
+            listener = PrinterListener()
+            browser = ServiceBrowser(zeroconf, "_printer._tcp.local.", listener)
+            await asyncio.sleep(5)  # Allow time for discovery
+            browser.cancel()
+            zeroconf.close()
+            detected.extend([{
+                'connection_type': 'network',
+                'ip_address': p['ip_address'],
+                'name': p['name'],
+                'profile': 'TM-T88III'
+            } for p in listener.printers])
+
+        if connection_type in ['all', 'serial']:
+            ports = serial.tools.list_ports.comports()
+            detected.extend([{
+                'connection_type': 'serial',
+                'serial_port': port.device,
+                'profile': 'TM-T88III'
+            } for port in ports if 'printer' in port.description.lower()])  # Filter heuristically
+
+        # Update Django models asynchronously
+        for d in detected:
+            await sync_to_async(Printer.objects.update_or_create)(
+                branch_id=branch_id,
+                connection_type=d['connection_type'],
+                defaults=d
+            )
+        logger.info(f"Detected {len(detected)} printers")
+        return detected
+
+    def _update_status(self, is_active):
+        """Sync helper to update Printer model."""
+        self.printer_config.is_active = is_active
+        self.printer_config.last_connected = timezone.now() if is_active else None
+        self.printer_config.save()
 
     async def print_receipt(self, order_id):
         """Print receipt for the given order."""

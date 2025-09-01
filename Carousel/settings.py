@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'archive.apps.ArchiveConfig',
     'payroll.apps.PayrollConfig',
     'permissions.apps.PermissionsConfig',
+    'printing.apps.PrintingConfig',
 
     # django-allauth
     'allauth',
