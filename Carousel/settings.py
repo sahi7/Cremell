@@ -186,6 +186,20 @@ CHANNEL_LAYERS = {
 
 # Kafka Configuration 
 KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'
+KAFKA_SECURITY_PROTOCOL = 'SASL_SSL'
+KAFKA_SASL_MECHANISM = 'PLAIN'
+KAFKA_SASL_USERNAME = os.getenv('SASL_USERNAME')
+KAFKA_SASL_PASSWORD = os.getenv('SASL_PASSWORD')
+KAFKA_PRODUCER_CONFIG = {
+    'bootstrap_servers': KAFKA_BOOTSTRAP_SERVERS,
+    'security_protocol': KAFKA_SECURITY_PROTOCOL,
+    'sasl_mechanism': KAFKA_SASL_MECHANISM,
+    'sasl_plain_username': KAFKA_SASL_USERNAME,
+    'sasl_plain_password': KAFKA_SASL_PASSWORD,
+    'compression_type': 'gzip',  # Efficiency
+    'linger_ms': 5,  # Batch messages for efficiency
+    'max_request_size': 1048576  # 1MB, for large order payloads
+}
 
 
 # Celery configuration

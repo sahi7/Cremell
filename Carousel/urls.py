@@ -52,8 +52,9 @@ router.register(r"overtime-request", OvertimeRequestViewSet, basename="ot-reques
 #  - POST /api/overtime-request/{id}/approve/: For admin to approve ot_request
 
 router.register(r"orders", OrderViewSet)
-# POST /api/orders/{id}/modify/: Modify orders
-# POST /api/orders/{id}/cancel/: Cancel orders
+# POST /api/orders/{id}/modify/: Modify order
+# POST /api/orders/{id}/cancel/: Cancel order
+# POST /api/orders/{id}/print/: Print order
 
 def api_path(route, view, name=None):
     return path(f'api/{route}', view, name=name)

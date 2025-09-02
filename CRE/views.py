@@ -22,6 +22,7 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync, sync_to_async 
 from adrf.views import APIView
 from adrf.viewsets import ModelViewSet
+from aiokafka import AIOKafkaProducer
 
 from .serializers import *
 from .models import *
@@ -632,7 +633,7 @@ class OrderViewSet(ModelViewSet):
             OrderItem(
                 order_id=order.id,
                 menu_item=item['menu_item'],
-                quantity=item['quantity'],  # Fixed typo
+                quantity=item['quantity'],
                 item_price=item['price'],
                 added_by_id=user.id,
             ) for item in menu_items
@@ -673,9 +674,10 @@ class OrderViewSet(ModelViewSet):
             print(f"A11 atomic task took {(time.perf_counter() - start) * 1000:.3f} ms")
 
             # Post-transaction async tasks
+            item_names = [item['menu_item'].name for item in validated_data['items']]
             details = {
                 'user_id': request.user.id,
-                'item_names': [item['menu_item'].name for item in validated_data['items']],
+                'item_names': item_names,
             }
             send_to_kds.delay(order.id, details)
             print(f"A2 fire task took {(time.perf_counter() - start) * 1000:.3f} ms")
@@ -685,6 +687,24 @@ class OrderViewSet(ModelViewSet):
             serializer = OrderSerializer(order)
             serialized_data = await sync_to_async(lambda: serializer.data)()
             print(f"A3 finish data took {(time.perf_counter() - start) * 1000:.3f} ms")
+            start = time.perf_counter()
+            producer = AIOKafkaProducer(**settings.KAFKA_PRODUCER_CONFIG)
+            await producer.start()
+            try:
+                event = {
+                    'items': item_names,
+                    'order_id': order.id,
+                    'order_number': order.order_number,
+                    'branch_id': order.branch_id
+                }
+                await self.producer.send_and_wait(
+                    topic='agent.print.receipt',
+                    value=event,
+                    key=f"branch:{order.branch_id}".encode('utf-8')
+                )
+            finally:
+                await producer.stop()
+            print(f"A4 producer took {(time.perf_counter() - start) * 1000:.3f} ms")
             return Response(serialized_data, status=status.HTTP_201_CREATED)
 
         except KeyError as e:
@@ -874,6 +894,32 @@ class OrderViewSet(ModelViewSet):
         except Exception as e:
             logger.error(f"Order modification failed: {str(e)}", exc_info=True)
             return Response({"error": "Order processing failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        
+    @action(detail=True, methods=['post'], url_path='print')
+    async def order_print(self, request, *args, **kwargs):
+        pk = kwargs.get('pk')
+        order = await Order.objects.aget(id=pk)
+        
+        start = time.perf_counter()
+        producer = AIOKafkaProducer(**settings.KAFKA_PRODUCER_CONFIG)
+        await producer.start()
+        try:
+            event = {
+                'order': order,
+                'order_id': order.id,
+                'order_number': order.order_number,
+                'branch_id': order.branch_id
+            }
+            await self.producer.send_and_wait(
+                topic='agent.print.receipt',
+                value=event,
+                key=f"branch:{order.branch_id}".encode('utf-8')
+            )
+        finally:
+            await producer.stop()
+        print(f"1st producer took {(time.perf_counter() - start) * 1000:.3f} ms")
+        return Response({'detail': _('Print job queued')}, status=status.HTTP_201_CREATED)
         
     
     @action(detail=True, methods=['post'])
