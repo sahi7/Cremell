@@ -1,7 +1,47 @@
+import uuid
+import secrets
 from django.db import models
 from django.utils.translation import gettext as _
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+from datetime import timedelta
 
 from cre.models import Branch
+
+CustomUser = get_user_model()
+
+
+def generate_device_id():
+    """Generate a 6-character unique device ID."""
+    return uuid.uuid4().hex[:6].upper()
+
+def generate_device_token():
+    """Generate a secure 128-character random token."""
+    return secrets.token_urlsafe(96)  # ~128 chars when encoded
+
+def default_expiry():
+    return timezone.now() + timedelta(days=10)
+
+class Device(models.Model):
+    device_id = models.CharField(max_length=6, unique=True, default=generate_device_id)
+    device_token = models.CharField(max_length=128, unique=True, default=generate_device_token)
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='devices')
+    name = models.CharField(max_length=255, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True)
+    last_seen = models.DateTimeField(auto_now=True)
+    expiry_date = models.DateTimeField(default=default_expiry)
+
+    class Meta:
+        unique_together = ('device_id', 'branch')
+        indexes = [
+            models.Index(fields=['device_id']),
+            models.Index(fields=['device_token', 'is_active']),
+            models.Index(fields=['branch']),
+        ]
+
+    def __str__(self):
+        return f"{self.device_id} ({self.branch.name})"
 
 class Printer(models.Model):
     """
@@ -26,10 +66,12 @@ class Printer(models.Model):
     last_connected = models.DateTimeField(blank=True, null=True, help_text=_("Last time the printer was successfully connected"))
 
     class Meta:
-        verbose_name = _("Printer")
-        verbose_name_plural = _("Printers")
         unique_together = ('branch', 'name')
         ordering = ['branch', 'name']
+        indexes = [
+            models.Index(fields=['connection_type']),
+            models.Index(fields=['branch']),
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.get_connection_type_display()}) at {self.branch.name}"

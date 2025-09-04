@@ -75,4 +75,5 @@ urlpatterns = [
     path('api/', include('notifications.urls')),
     path('api/', include('payroll.urls')),
     path('api/', include('permissions.urls')),
+    path('api/', include('printing.urls')),
 ]

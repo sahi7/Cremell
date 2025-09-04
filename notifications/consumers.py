@@ -232,14 +232,40 @@ class BranchConsumer(AsyncWebsocketConsumer):
             'online': event['online']
         }))
 
-class OrderConsumer(AsyncWebsocketConsumer):
+class PrintJobConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.order_group = f"order_{self.scope['order_id']}"
-        await self.channel_layer.group_add(self.order_group, self.channel_name)
-        await self.accept()
+        token = self.scope['query_string'].decode().split('token=')[-1]
+        try:
+            payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+            self.branch_id = str(payload['branch_id'])
+            self.group_name = f"branch_{self.branch_id}"
+            await self.channel_layer.group_add(self.group_name, self.channel_name)
+            await self.accept()
+            await self.send(text_data=json.dumps({'type': 'connected'}))
+            logger.info(f"Device connected to {self.group_name}")
+        except jwt.InvalidTokenError:
+            logger.error("Invalid token")
+            await self.close()
 
-    async def order_update(self, event):
-        await self.send(text_data=json.dumps(event['data']))
+    async def disconnect(self, close_code):
+        if hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+            logger.info(f"Device disconnected from {self.group_name}")
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        if data['type'] == 'subscribe' and str(data['branch_id']) == self.branch_id:
+            await self.send(text_data=json.dumps({'type': 'subscribed'}))
+        elif data['type'] == 'ack':
+            logger.info(f"Ack received for order {data['order_id']}: {data['status']}")
+        elif data['type'] == 'status_update':
+            logger.info(f"Printer status update: {data}")
+
+    async def print_job(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'print_job',
+            'payload': event['payload']
+        }))     
 
 
 class KitchenConsumer(AsyncWebsocketConsumer):

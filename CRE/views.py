@@ -1,4 +1,3 @@
-from datetime import date
 from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.utils.translation import gettext_lazy as _
@@ -895,7 +894,7 @@ class OrderViewSet(ModelViewSet):
             logger.error(f"Order modification failed: {str(e)}", exc_info=True)
             return Response({"error": "Order processing failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-        
+
     @action(detail=True, methods=['post'], url_path='print')
     async def order_print(self, request, *args, **kwargs):
         pk = kwargs.get('pk')
@@ -906,14 +905,14 @@ class OrderViewSet(ModelViewSet):
         await producer.start()
         try:
             event = {
-                'order': order,
+                # 'order': order,
                 'order_id': order.id,
                 'order_number': order.order_number,
                 'branch_id': order.branch_id
             }
-            await self.producer.send_and_wait(
+            await producer.send_and_wait(
                 topic='agent.print.receipt',
-                value=event,
+                value=json.dumps(event).encode('utf-8'),
                 key=f"branch:{order.branch_id}".encode('utf-8')
             )
         finally:

@@ -17,6 +17,7 @@ from django.template.loader import render_to_string
 from notifications.models import BranchActivity, RestaurantActivity
 from cre.models import Branch, Restaurant, Company, Country, ShiftSwapRequest
 from payroll.models import Rule
+from printing.models import Device, Printer
 
 logger = logging.getLogger(__name__)
 CustomUser = get_user_model()
@@ -263,7 +264,8 @@ async def get_scopes_and_groups(user, requires=None, get_instance=False):
         'countries': ('countries', 'id'),
         'restaurants': ('restaurants', 'id'),
         'branches': ('branches', 'id'),
-        'groups': ('groups', 'name')
+        'groups': ('groups', 'name'),
+        'role': user.role
     }
 
     for field in relations_to_fetch:
@@ -276,8 +278,8 @@ async def get_scopes_and_groups(user, requires=None, get_instance=False):
 
     # Build result dictionary
     result = {field: results[i] for i, field in enumerate(relations_to_fetch) if field in field_mappings}
-    r_val = await user.get_role_value()
-    if not r_val > 5:
+    # r_val = await user.get_role_value()
+    if not user.r_val > 5:
         result['groups'] = [g.name async for g in user.groups.all()]
     print(f"scopes section took {(time.perf_counter() - start) * 1000:.3f} ms")
     # await cache.set(cache_key, json.dumps({k: list(v) for k,v in result.items()}), ex=3600)
@@ -828,6 +830,7 @@ class HighRoleQsFilter:
         """Filter querysets for CompanyAdmin."""
         companies = scopes['companies']
         return {
+            Device: Q(branch__company__in=companies),
             ShiftSwapRequest: Q(branch__company__in=companies),
             Rule: Q(company_id__in=companies, is_active=True),
             OrderItem: Q(order__branch__company__in=companies),
@@ -909,6 +912,7 @@ class HighRoleQsFilter:
         companies = scopes['companies']
         countries = scopes['countries']
         return {
+            Device: Q(branch__company__in=companies) & Q(branch__country__in=countries),
             ShiftSwapRequest: Q(branch__company__in=companies) & Q(branch__country__in=countries),
             Rule: Q(company_id__in=companies, is_active=True) & (Q(branch__country__in=countries, is_active=True) & Q(restaurant__country__in=countries, is_active=True)),
             OrderItem: Q(order__branch__company__in=companies) & Q(order__branch__country__in=countries),
@@ -967,6 +971,7 @@ class HighRoleQsFilter:
         """Filter querysets for RestaurantOwner."""
         restaurants = scopes['restaurants']
         return {
+            Device: Q(branch__restaurant__in=restaurants),
             ShiftSwapRequest: Q(branch__restaurant__in=restaurants),
             Rule: Q(restaurant__in=restaurants, is_active=True),
             OrderItem: Q(order__branch__restaurant__in=restaurants),
@@ -1036,6 +1041,7 @@ class HighRoleQsFilter:
         """Filter querysets for RestaurantManager."""
         restaurants = scopes['restaurants']
         return {
+            Device: Q(branch__restaurant__in=restaurants),
             ShiftSwapRequest: Q(branch__restaurant__in=restaurants),
             Rule: Q(restaurant__in=restaurants, is_active=True),
             OrderItem: Q(order__branch__restaurant__in=restaurants),
@@ -1077,6 +1083,7 @@ class HighRoleQsFilter:
         """Filter querysets for BranchManager."""
         branches = scopes['branches']
         return {
+            Device: Q(branch_id__in=branches),
             ShiftSwapRequest: Q(branch_id__in=branches),
             Rule: Q(branch_id__in=branches, is_active=True),
             OrderItem: Q(order__branch_id__in=branches),
