@@ -10,7 +10,7 @@ class DeviceSerializer(ModelSerializer):
 
     class Meta:
         model = Device
-        fields = ['device_id', 'device_token', 'branch_id', 'name', 'is_active', 'created_by', 'last_seen']
+        fields = ['id', 'device_id', 'device_token', 'branch_id', 'name', 'is_active', 'added_by', 'last_seen']
         read_only_fields = ['device_id', 'device_token', 'last_seen']
 
     def validate(self, data):

@@ -28,7 +28,7 @@ class Device(models.Model):
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='devices')
     name = models.CharField(max_length=255, blank=True)
     is_active = models.BooleanField(default=True)
-    created_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True)
+    added_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True,  related_name='devices_added')
     last_seen = models.DateTimeField(auto_now=True)
     expiry_date = models.DateTimeField(default=default_expiry)
     user = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name='device')
@@ -54,7 +54,7 @@ class Printer(models.Model):
         ('serial', _('Serial')),
     )
 
-    device = models.ForeignKey(Device, on_delete=models.SET_NULL, related_name='printers', help_text=_("Device this printer belongs to"))
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='printers', help_text=_("Device this printer belongs to"))
     name = models.CharField(max_length=255, help_text=_("Descriptive name for the printer, e.g., 'Kitchen Printer 1'"))
     connection_type = models.CharField(max_length=10, choices=CONNECTION_TYPES, help_text=_("Type of connection to the printer"))
     vendor_id = models.CharField(max_length=10, blank=True, null=True, help_text=_("USB vendor ID in hex, e.g., '0x04b8' (required for USB)"))

@@ -20,8 +20,7 @@ class DeviceViewSet(ModelViewSet):
     def get_permissions(self):
         role_value = self.request.user.r_val
         self._access_policy = ScopeAccessPolicy if role_value <= 5 else StaffAccessPolicy
-        # return [self._access_policy(), DevicePermission()]
-        return [self._access_policy()]
+        return [self._access_policy(), DevicePermission()]
     
     async def get_queryset(self):
         user = self.request.user
@@ -36,8 +35,8 @@ class DeviceViewSet(ModelViewSet):
 
     @database_sync_to_async
     def perform_create(self, serializer):
-        """Set created_by to current user."""
-        serializer.save(created_by=self.request.user)
+        """Set added_by to current user."""
+        serializer.save(added_by=self.request.user)
 
     async def create(self, request, *args, **kwargs):
         """
