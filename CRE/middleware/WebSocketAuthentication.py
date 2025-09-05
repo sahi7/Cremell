@@ -5,7 +5,9 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
+import logging
 
+logger = logging.getLogger(__name__)
 
 from printing.models import Device
 from zMisc.utils import get_scopes_and_groups
@@ -27,12 +29,21 @@ def get_device_from_token(token):
     """Validate device_token and return Device instance or None."""
     try:
         device = Device.objects.get(device_token=token, is_active=True)
-        if device.expiry_date and device.expiry_date > timezone.now():
+        if device.expiry_date and timezone.now() > device.expiry_date:
             return None  # expired
-        return device
+        device_dets = {
+            "device_id": device.device_id,
+            "branch_id": device.branch_id,
+            "device_token": device.device_token,
+            "expiry_date": device.expiry_date.isoformat(),
+            "is_active": device.is_active
+        }
+        return device_dets
     except ObjectDoesNotExist:
+        logger.error(f"Token not valid")
         return None
     except Exception as e:
+        logger.error(f"Error building device data: {str(e)}")
         return None
 
 
@@ -92,6 +103,7 @@ class TokenAuthMiddleware:
             # Device DRF token auth
             token = auth_header[6:]  # strip "Token "
             device = await get_device_from_token(token)
+            # print("in 4323423: ", device)
 
         # Attach final scope
         scope.update({
@@ -100,6 +112,7 @@ class TokenAuthMiddleware:
             'branches': branches,
             'role': roles,
         })
+        # print("scope: ", scope)
 
         return await self.inner(scope, receive, send)
 

@@ -1,16 +1,25 @@
+import json
+from adrf.views import APIView
 from adrf.viewsets import ModelViewSet
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
 from channels.db import database_sync_to_async
+from channels.layers import get_channel_layer
 from asgiref.sync import sync_to_async
+from django.utils.translation import gettext_lazy as _
 
-from .models import Device
+from .models import Device, generate_device_id
 from .serializers import DeviceSerializer
 from .permissions import DevicePermission
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.permissions import StaffAccessPolicy
 from zMisc.utils import clean_request_data
+
+import logging
+
+logger = logging.getLogger(__name__)
+channel_layer = get_channel_layer()
 
 class DeviceViewSet(ModelViewSet):
     queryset = Device.objects.filter(is_active=True)
@@ -19,7 +28,7 @@ class DeviceViewSet(ModelViewSet):
     
     async def get_queryset(self):
         user = self.request.user
-        scope_filter = await self._access_policy().get_queryset_scope(user, view=self)
+        scope_filter = await ScopeAccessPolicy().get_queryset_scope(user, view=self)
         return self.queryset.filter(scope_filter)
     
     async def list(self, request, *args, **kwargs):
@@ -67,20 +76,78 @@ class DeviceViewSet(ModelViewSet):
         await sync_to_async(device.save)()
         serializer = DeviceSerializer(device)
         return Response(serializer.data, status=status.HTTP_200_OK)
-
-    @action(detail=False, methods=['post'], url_path='register-device')
-    async def register_device(self, request):
-        """Async return device details for given device_id."""
-        device_id = request.data.get('device_id')
-        if not device_id:
-            return Response({'error': 'device_id required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    async def reset(self, request, *args, **kwargs):
         try:
-            device = await database_sync_to_async(Device.objects.get)(device_id=device_id, is_active=True)
-            return Response({
-                'device_id': device.device_id,
-                'device_token': device.device_token,
-                'branch_id': device.branch_id,
-                'name': device.name
-            }, status=status.HTTP_200_OK)
+            pk = kwargs.get('pk')
+            device = await sync_to_async(Device.objects.get)(pk=pk)
+            device.is_active = True  # Mark as inactive to block connections
+            # await sync_to_async(device.save)()
+
+            await channel_layer.group_send(
+                f"device_{device.device_id}", {
+                'type': 'print.job',
+                'signal': 'reset',
+                'message': device.device_id
+            }) 
+
+            logger.info(f"Reset initiated for device {device.device_id}")
+            return Response({'status': _('reset command sent')})
         except Device.DoesNotExist:
-            return Response({'error': 'Invalid or inactive device_id'}, status=status.HTTP_404_NOT_FOUND)
+            logger.error(f"Device {pk} not found")
+            return Response({'error': _('Device not found')}, status=404)
+        except Exception as e:
+            logger.error(f"Reset failed for device {pk}: {str(e)}")
+            return Response({'error': str(e)}, status=500)
+
+from django.http import JsonResponse
+from rest_framework.permissions import AllowAny
+
+class RegisterDeviceView(APIView):
+    permission_classes = [AllowAny]
+
+    async def post(self, request):
+        try:
+            data = json.loads(request.body)
+            device_id = data.get('device_id')
+            
+            if not device_id:
+                logger.error("Missing device_id in request")
+                return JsonResponse({'error': _('Device ID is required')}, status=400)
+            
+            try:
+                device = await Device.objects.select_related('branch').aget(device_id=device_id, is_active=True)
+            except Device.DoesNotExist:
+                logger.error(f"Device with ID {device_id} not found or inactive")
+                return JsonResponse({'error': _('Invalid or inactive device ID')}, status=404)
+            
+            branch_dets = {
+                'branch_id': device.branch_id,
+                'name': device.branch.name,
+                'address': device.branch.address,
+                'currency': device.branch.currency,
+            }
+            
+            new_device_id = generate_device_id()
+            device.device_id = new_device_id
+            # await device.asave()
+            
+            response_data = {
+                'branch': branch_dets,
+                'device': {
+                    'name': device.name or f"Device-{device.device_id}",
+                    "device_id": device.device_id,
+                    'device_token': device.device_token,
+                    'expiry_date': device.expiry_date
+                }
+            }
+            logger.info(f"Device {device_id} registered successfully for branch {device.branch_id}")
+            return JsonResponse(response_data, status=200)
+        
+        except json.JSONDecodeError:
+            logger.error("Invalid JSON in request body")
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+        except Exception as e:
+            logger.error(f"Error registering device: {str(e)}")
+            return JsonResponse({'error': 'Internal server error'}, status=500)

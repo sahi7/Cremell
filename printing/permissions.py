@@ -9,6 +9,8 @@ CustomUser = get_user_model()
 
 class DevicePermission(BasePermission):
     async def has_permission(self, request, view):
+        if request.method == 'GET':
+            return True
         entity_permission = EntityUpdatePermission()
         user_id = request.data.get('user_id')
         if user_id:

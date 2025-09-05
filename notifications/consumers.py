@@ -232,25 +232,32 @@ class BranchConsumer(AsyncWebsocketConsumer):
             'online': event['online']
         }))
 
-class PrintJobConsumer(AsyncWebsocketConsumer):
+class HardwareConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        token = self.scope['query_string'].decode().split('token=')[-1]
-        try:
-            payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
-            self.branch_id = str(payload['branch_id'])
-            self.group_name = f"branch_{self.branch_id}"
-            await self.channel_layer.group_add(self.group_name, self.channel_name)
-            await self.accept()
-            await self.send(text_data=json.dumps({'type': 'connected'}))
-            logger.info(f"Device connected to {self.group_name}")
-        except jwt.InvalidTokenError:
-            logger.error("Invalid token")
-            await self.close()
+        self.group_name = None
+        self.device = self.scope['device']   
+        self.branch_id = self.device['branch_id']  
+        self.device_id = self.scope.get('url_route', {}).get('kwargs', {}).get('device_id')
+        if not self.device_id:
+            query_string = self.scope.get('query_string', b'').decode()
+            query_params = dict(q.split('=') for q in query_string.split('&') if '=' in q)
+            self.device_id = query_params.get('device_id')
+        if self.device_id != self.device['device_id']:
+            logger.warning("WebSocket connection rejected: Invalid Device")
+            await self.close(code=4001)
+            return 0
+        self.group_name = f"device_{self.device_id}"
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+        logger.info(f"WebSocket connected for device {self.device['device_id']} to branch {self.branch_id}")
 
     async def disconnect(self, close_code):
-        if hasattr(self, 'group_name'):
-            await self.channel_layer.group_discard(self.group_name, self.channel_name)
-            logger.info(f"Device disconnected from {self.group_name}")
+        try: 
+            if hasattr(self, 'group_name'):
+                await self.channel_layer.group_discard(self.group_name, self.channel_name)
+                logger.info(f"Device disconnected from {self.group_name}")
+        except Exception as e:
+            logger.error(f"Error clossing Device consumer: {str(e)}")
 
     async def receive(self, text_data):
         data = json.loads(text_data)
@@ -262,10 +269,12 @@ class PrintJobConsumer(AsyncWebsocketConsumer):
             logger.info(f"Printer status update: {data}")
 
     async def print_job(self, event):
+        message = event['message']
+        signal = event.get('signal', 'notify')
         await self.send(text_data=json.dumps({
-            'type': 'print_job',
-            'payload': event['payload']
-        }))     
+            'type': f'{signal}.command',
+            'message': message
+        }))   
 
 
 class KitchenConsumer(AsyncWebsocketConsumer):

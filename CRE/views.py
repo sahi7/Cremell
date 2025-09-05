@@ -897,27 +897,37 @@ class OrderViewSet(ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='print')
     async def order_print(self, request, *args, **kwargs):
-        pk = kwargs.get('pk')
-        order = await Order.objects.aget(id=pk)
-        
         start = time.perf_counter()
-        producer = AIOKafkaProducer(**settings.KAFKA_PRODUCER_CONFIG)
-        await producer.start()
-        try:
-            event = {
-                # 'order': order,
-                'order_id': order.id,
-                'order_number': order.order_number,
-                'branch_id': order.branch_id
+        pk = kwargs.get('pk')
+        user = request.user
+        order = await Order.objects.aget(id=pk)
+        # user_device = getattr(user, 'device')
+        user_device = await sync_to_async(getattr)(user, "device", None)
+        if user_device:
+            device_id = user_device.device_id
+        else:
+            device = await sync_to_async(Device.objects.only("device_id").filter(branch_id=order.branch_id).last)()
+            device_id = device.device_id
+        
+        details = {
+            "order_id": order.id,
+            "status": order.status,
+            'order_number': order.order_number,
+            'branch_id': order.branch_id,
+            "device_id": device_id
+        }
+        print("order_dets: ", details)
+        
+        group_name = f"device_{device_id}"
+        await channel_layer.group_send(
+            group_name,
+            {
+                'signal': 'print',
+                "type": "print.job",
+                'message': json.dumps(details)
             }
-            await producer.send_and_wait(
-                topic='agent.print.receipt',
-                value=json.dumps(event).encode('utf-8'),
-                key=f"branch:{order.branch_id}".encode('utf-8')
-            )
-        finally:
-            await producer.stop()
-        print(f"1st producer took {(time.perf_counter() - start) * 1000:.3f} ms")
+        )
+        print(f"1st websocket took {(time.perf_counter() - start) * 1000:.3f} ms")
         return Response({'detail': _('Print job queued')}, status=status.HTTP_201_CREATED)
         
     

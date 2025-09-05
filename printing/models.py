@@ -31,7 +31,7 @@ class Device(models.Model):
     added_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True,  related_name='devices_added')
     last_seen = models.DateTimeField(auto_now=True)
     expiry_date = models.DateTimeField(default=default_expiry)
-    user = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name='device')
+    user = models.OneToOneField(CustomUser, on_delete=models.SET_NULL, null=True, related_name='device')
 
     class Meta:
         unique_together = ('device_id', 'branch')
