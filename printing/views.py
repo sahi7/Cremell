@@ -15,12 +15,7 @@ from zMisc.utils import clean_request_data
 class DeviceViewSet(ModelViewSet):
     queryset = Device.objects.filter(is_active=True)
     serializer_class = DeviceSerializer
-    # permission_classes = (ScopeAccessPolicy, )
-    # permission_classes = (ScopeAccessPolicy, DevicePermission, )
-    def get_permissions(self):
-        role_value = self.request.user.r_val
-        self._access_policy = ScopeAccessPolicy if role_value <= 5 else StaffAccessPolicy
-        return [self._access_policy(), DevicePermission()]
+    permission_classes = (ScopeAccessPolicy, DevicePermission, )
     
     async def get_queryset(self):
         user = self.request.user
@@ -43,6 +38,7 @@ class DeviceViewSet(ModelViewSet):
         request data
         {
             'name': 'My Printer',
+            "user_id": 27,
             'branches'
         }
         """
@@ -60,7 +56,7 @@ class DeviceViewSet(ModelViewSet):
         device = await sync_to_async(Device.objects.get)(pk=pk)
 
         # Only allow specific fields to be updated
-        allowed_fields = ["name", "user"]
+        allowed_fields = ["name", "user_id"]
         data = {k: v for k, v in request.data.items() if k in allowed_fields}
 
         # Update the object
