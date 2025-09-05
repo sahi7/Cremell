@@ -29,7 +29,7 @@ class DeviceViewSet(ModelViewSet):
     
     async def list(self, request, *args, **kwargs):
         queryset = await self.get_queryset()
-        serializer = self.get_serializer(queryset, many=True)
+        serializer = self.serializer_class(queryset, many=True)
         data = await sync_to_async(lambda: serializer.data)()
         return Response(data)
 
@@ -49,10 +49,28 @@ class DeviceViewSet(ModelViewSet):
         cleaned_data = clean_request_data(request.data)
         data = cleaned_data
         data['branch_id'] = request.data.get('branches', [None])[0]
-        serializer = self.get_serializer(data=data)
+        serializer = self.serializer_class(data=data)
         await sync_to_async(serializer.is_valid)(raise_exception=True)
         await self.perform_create(serializer)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    async def partial_update(self, request, *args, **kwargs):
+        # Get PK from URL kwargs
+        pk = kwargs.get('pk')
+        device = await sync_to_async(Device.objects.get)(pk=pk)
+
+        # Only allow specific fields to be updated
+        allowed_fields = ["name", "user"]
+        data = {k: v for k, v in request.data.items() if k in allowed_fields}
+
+        # Update the object
+        for field, value in data.items():
+            setattr(device, field, value)
+
+        # Save asynchronously, Serialize and return
+        await sync_to_async(device.save)()
+        serializer = DeviceSerializer(device)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'], url_path='register-device')
     async def register_device(self, request):
