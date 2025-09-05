@@ -31,13 +31,13 @@ class Device(models.Model):
     created_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True)
     last_seen = models.DateTimeField(auto_now=True)
     expiry_date = models.DateTimeField(default=default_expiry)
+    user = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name='device')
 
     class Meta:
         unique_together = ('device_id', 'branch')
         indexes = [
             models.Index(fields=['device_id']),
             models.Index(fields=['device_token', 'is_active']),
-            models.Index(fields=['branch']),
         ]
 
     def __str__(self):
@@ -45,8 +45,8 @@ class Device(models.Model):
 
 class Printer(models.Model):
     """
-    Represents a printer configuration for a specific branch.
-    Supports dynamic addition of printers per branch, with details for connection.
+    Represents a printer configuration for a specific device.
+    Supports dynamic addition of printers per device, with details for connection.
     """
     CONNECTION_TYPES = (
         ('usb', _('USB')),
@@ -54,7 +54,7 @@ class Printer(models.Model):
         ('serial', _('Serial')),
     )
 
-    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='printers', help_text=_("Branch this printer belongs to"))
+    device = models.ForeignKey(Device, on_delete=models.SET_NULL, related_name='printers', help_text=_("Device this printer belongs to"))
     name = models.CharField(max_length=255, help_text=_("Descriptive name for the printer, e.g., 'Kitchen Printer 1'"))
     connection_type = models.CharField(max_length=10, choices=CONNECTION_TYPES, help_text=_("Type of connection to the printer"))
     vendor_id = models.CharField(max_length=10, blank=True, null=True, help_text=_("USB vendor ID in hex, e.g., '0x04b8' (required for USB)"))
@@ -66,12 +66,11 @@ class Printer(models.Model):
     last_connected = models.DateTimeField(blank=True, null=True, help_text=_("Last time the printer was successfully connected"))
 
     class Meta:
-        unique_together = ('branch', 'name')
-        ordering = ['branch', 'name']
+        unique_together = ('device', 'name')
+        ordering = ['device', 'name']
         indexes = [
             models.Index(fields=['connection_type']),
-            models.Index(fields=['branch']),
         ]
 
     def __str__(self):
-        return f"{self.name} ({self.get_connection_type_display()}) at {self.branch.name}"
+        return f"{self.name} ({self.get_connection_type_display()})"
