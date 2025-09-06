@@ -624,6 +624,51 @@ async def validate_order_role(user, task_type):
     valid_roles = role_mapping.get(task_type, [])
     return user.role in valid_roles
 
+async def get_branch_device(branch_id, user_id=None):
+    """
+    Get device for order with priority:
+    1. First find device assigned to the current user
+    2. Then find default device
+    3. Finally take any available device
+    """
+    def get_deviceID(devices):
+        default_device = None
+        first_device = devices[0]
+        for device in devices:
+            if device.get('user_id') == user_id:
+                return device['device_id']  # Return immediately if user device found
+            
+            if device.get('is_default') and not default_device:
+                default_device = device
+            
+            # Keep track of first device as fallback
+        
+        if default_device:
+            return default_device['device_id']
+        return first_device['device_id']
+    
+    # Get all devices for the branch with only needed fields
+    cache_key = f"devices:{branch_id}"
+    cached_devices = await redis_client.get(cache_key)
+    if cached_devices:
+        return get_deviceID(json.loads(cached_devices))
+    devices = await sync_to_async(list)(
+        Device.objects.only("device_id", "is_default", "user_id")
+        .filter(branch_id=branch_id)
+        .order_by('id')
+    )
+    print("full devices: ", devices)
+    
+    if devices:
+        devices_data = [{
+            'device_id': device.device_id,
+            'is_default': device.is_default,
+            'user_id': device.user_id,
+        } for device in devices]
+    
+        await redis_client.set(cache_key, json.dumps(devices_data), ex=3600)  # Cache for 1 hour
+        return get_deviceID(devices_data)
+
 
 class AttributeChecker:
     async def check_manager(self, manager_id, company_id=None, manager_type='restaurant'):

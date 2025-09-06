@@ -1,4 +1,5 @@
 import json
+import time
 from adrf.views import APIView
 from adrf.viewsets import ModelViewSet
 from rest_framework.decorators import action
@@ -51,23 +52,29 @@ class DeviceViewSet(ModelViewSet):
             'branches'
         }
         """
+        start = time.perf_counter()
         cleaned_data = clean_request_data(request.data)
         data = cleaned_data
         data['branch_id'] = request.data.get('branches', [None])[0]
         serializer = self.serializer_class(data=data)
         await sync_to_async(serializer.is_valid)(raise_exception=True)
         await self.perform_create(serializer)
+        print(f"1st device create took {(time.perf_counter() - start) * 1000:.3f} ms")
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     
     async def partial_update(self, request, *args, **kwargs):
         # Get PK from URL kwargs
+        start = time.perf_counter()
         pk = kwargs.get('pk')
         device = await sync_to_async(Device.objects.get)(pk=pk)
 
         # Only allow specific fields to be updated
-        allowed_fields = ["name", "user_id"]
+        allowed_fields = ["name", "user_id", "is_default"]
         data = {k: v for k, v in request.data.items() if k in allowed_fields}
 
+        if data.get('is_default'):
+            await sync_to_async(Device.objects.filter(branch_id=device.branch_id, is_default=True).exclude(id=pk).update)(is_default=False)
+        
         # Update the object
         for field, value in data.items():
             setattr(device, field, value)
@@ -75,11 +82,13 @@ class DeviceViewSet(ModelViewSet):
         # Save asynchronously, Serialize and return
         await sync_to_async(device.save)()
         serializer = DeviceSerializer(device)
+        print(f"1st device partial_update took {(time.perf_counter() - start) * 1000:.3f} ms")
         return Response(serializer.data, status=status.HTTP_200_OK)
     
     @action(detail=True, methods=['post'])
     async def reset(self, request, *args, **kwargs):
         try:
+            start = time.perf_counter()
             pk = kwargs.get('pk')
             device = await sync_to_async(Device.objects.get)(pk=pk)
             device.is_active = True  # Mark as inactive to block connections
@@ -93,6 +102,7 @@ class DeviceViewSet(ModelViewSet):
             }) 
 
             logger.info(f"Reset initiated for device {device.device_id}")
+            print(f"1st device reset took {(time.perf_counter() - start) * 1000:.3f} ms")
             return Response({'status': _('reset command sent')})
         except Device.DoesNotExist:
             logger.error(f"Device {pk} not found")
@@ -109,6 +119,7 @@ class RegisterDeviceView(APIView):
 
     async def post(self, request):
         try:
+            start = time.perf_counter()
             data = json.loads(request.body)
             device_id = data.get('device_id')
             
@@ -143,6 +154,7 @@ class RegisterDeviceView(APIView):
                 }
             }
             logger.info(f"Device {device_id} registered successfully for branch {device.branch_id}")
+            print(f"1st reg device took {(time.perf_counter() - start) * 1000:.3f} ms")
             return JsonResponse(response_data, status=200)
         
         except json.JSONDecodeError:

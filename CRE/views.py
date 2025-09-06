@@ -897,17 +897,20 @@ class OrderViewSet(ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='print')
     async def order_print(self, request, *args, **kwargs):
+        from zMisc.utils import get_branch_device
         start = time.perf_counter()
         pk = kwargs.get('pk')
         user = request.user
         order = await Order.objects.aget(id=pk)
         # user_device = getattr(user, 'device')
-        user_device = await sync_to_async(getattr)(user, "device", None)
-        if user_device:
-            device_id = user_device.device_id
-        else:
-            device = await sync_to_async(Device.objects.only("device_id").filter(branch_id=order.branch_id).last)()
-            device_id = device.device_id
+        device_id = await get_branch_device(order.branch_id, user.id)
+        # user_device = await sync_to_async(getattr)(user, "device", None)
+        # if user_device:
+        #     device_id = user_device.device_id
+        # else:
+        #     device = await sync_to_async(Device.objects.only("device_id").filter(branch_id=order.branch_id, is_default=True).first)()
+        #     device_id = device.device_id
+        print("br devices: ", device_id)
         
         details = {
             "order_id": order.id,

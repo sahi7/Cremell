@@ -27,11 +27,12 @@ class Device(models.Model):
     device_token = models.CharField(max_length=128, unique=True, default=generate_device_token)
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='devices')
     name = models.CharField(max_length=255, blank=True)
-    is_active = models.BooleanField(default=True)
     added_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True,  related_name='devices_added')
     last_seen = models.DateTimeField(auto_now=True)
     expiry_date = models.DateTimeField(default=default_expiry)
     user = models.OneToOneField(CustomUser, on_delete=models.SET_NULL, null=True, related_name='device')
+    is_active = models.BooleanField(default=True)
+    is_default = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ('device_id', 'branch')
@@ -41,7 +42,7 @@ class Device(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.device_id} ({self.branch.name})"
+        return f"{self.device_id}"
 
 class Printer(models.Model):
     """
