@@ -8,6 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 from django.conf import settings
 from datetime import datetime
+from printing.handlers import *
 
 logger = logging.getLogger(__name__)
 redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
@@ -261,10 +262,25 @@ class HardwareConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, text_data):
         data = json.loads(text_data)
+        print("received data: ", data)
         if data['type'] == 'subscribe' and data['branch_id'] == str(self.branch_id):
             await self.send(text_data=json.dumps({'type': 'subscribed'}))
         elif data['type'] == 'ack':
             logger.info(f"Ack received for order {data['order_id']}: {data['status']}")
+        elif data['type'] == 'error':
+            logger.info(f"Error: {data}")
+        elif data['type'] == 'printer_discovered':
+            scan_id = data['scan_id'] 
+            config = data['config'] 
+            receiver = data['sender'] 
+            print("discovered")
+            await handle_printer_discovered(scan_id, config, receiver)
+        elif data['type'] == 'scan_complete':
+            scan_id = data['scan_id'] 
+            count = data['count'] 
+            receiver = data['sender'] 
+            await handle_scan_complete(scan_id, count, receiver)
+            logger.info(f"Scan {data['scan_id']} completed for device {self.device_id}: {data['count']} printers")
         elif data['type'] == 'status_update':
             logger.info(f"Printer status update: {data}")
 

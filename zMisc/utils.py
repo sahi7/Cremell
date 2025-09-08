@@ -771,11 +771,18 @@ class LowRoleQsFilter:
         return Q(branch_id__in=branch_ids, initiator__role=user.role) & (Q(initiator=user) | Q(counterparty=user) | Q(status='pending'))
 
     @staticmethod
+    async def default_device_filter(user, branch_ids):
+        return Q(user=user, branch_id__in=branch_ids)
+
+    @staticmethod
     async def default_empty_filter(user, branch_ids):
         """Default empty filter for invalid models or roles."""
         return Q(pk__in=[])
 
     FILTER_TEMPLATES = {
+        Device: {
+            'default': default_device_filter
+        },
         ShiftSwapRequest: {
             'default': shift_swap_filter
         },

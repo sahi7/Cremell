@@ -917,7 +917,8 @@ class OrderViewSet(ModelViewSet):
             "status": order.status,
             'order_number': order.order_number,
             'branch_id': order.branch_id,
-            "device_id": device_id
+            "device_id": device_id,
+            "sender": user.id
         }
         print("order_dets: ", details)
         

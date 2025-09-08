@@ -1,5 +1,6 @@
 import json
 import time
+import asyncio
 from adrf.views import APIView
 from adrf.viewsets import ModelViewSet
 from rest_framework.decorators import action
@@ -25,11 +26,15 @@ channel_layer = get_channel_layer()
 class DeviceViewSet(ModelViewSet):
     queryset = Device.objects.filter(is_active=True)
     serializer_class = DeviceSerializer
-    permission_classes = (ScopeAccessPolicy, DevicePermission, )
+
+    def get_permissions(self):
+        role_value = self.request.user.r_val
+        self._access_policy = ScopeAccessPolicy if role_value <= 5 else StaffAccessPolicy
+        return [self._access_policy(), DevicePermission()]
     
     async def get_queryset(self):
         user = self.request.user
-        scope_filter = await ScopeAccessPolicy().get_queryset_scope(user, view=self)
+        scope_filter = await self._access_policy().get_queryset_scope(user, view=self)
         return self.queryset.filter(scope_filter)
     
     async def list(self, request, *args, **kwargs):
@@ -110,6 +115,46 @@ class DeviceViewSet(ModelViewSet):
         except Exception as e:
             logger.error(f"Reset failed for device {pk}: {str(e)}")
             return Response({'error': str(e)}, status=500)
+        
+    @action(detail=True, methods=['post'], url_path='scan-printers')
+    async def scan_printers(self, request, pk=None):
+        import uuid
+        try:
+            # Get the device instance (pk is the device ID from URL)
+            user = request.user
+            device = await Device.objects.aget(pk=pk, is_active=True)
+            scan_id = str(uuid.uuid4())
+            print("device-scan: ", device, scan_id)
+            add_data = {'scan_id': scan_id, 'sender': user.id}
+
+            # Create tasks for both messages
+            tasks = [
+                channel_layer.group_send(
+                    f"device_{device.device_id}",
+                    {
+                        'signal': 'scan',
+                        'type': 'print.job',
+                        'message': json.dumps(add_data)
+                    }
+                ),
+                channel_layer.group_send(
+                    f"user_{user.id}",
+                    {
+                        'signal': 'scan',
+                        'type': 'stakeholder.notification',
+                        'message': json.dumps(add_data)
+                    }
+                )
+            ]
+            # Send both messages concurrently
+            await asyncio.gather(*tasks)
+            
+            return Response({'detail': _('scan initiated'), 'scan_id': scan_id}, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                'error': f'Internal server error: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 from django.http import JsonResponse
 from rest_framework.permissions import AllowAny

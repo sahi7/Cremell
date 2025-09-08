@@ -65,6 +65,7 @@ class Printer(models.Model):
     profile = models.CharField(max_length=50, default='TM-T88III', help_text=_("ESC/POS profile for the printer model, e.g., 'TM-T88III'"))
     is_active = models.BooleanField(default=True, help_text=_("Whether the printer is currently active and available"))
     last_connected = models.DateTimeField(blank=True, null=True, help_text=_("Last time the printer was successfully connected"))
+    fingerprint = models.CharField(max_length=256, unique=True)
 
     class Meta:
         unique_together = ('device', 'name')
