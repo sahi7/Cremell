@@ -278,7 +278,7 @@ class HardwareConsumer(AsyncWebsocketConsumer):
         elif data['type'] == 'scan_complete':
             scan_id = data['scan_id'] 
             count = data['count'] 
-            receiver = data['sender'] 
+            receiver = data.get('sender') 
             await handle_scan_complete(scan_id, count, receiver)
             logger.info(f"Scan {data['scan_id']} completed for device {self.device_id}: {data['count']} printers")
         elif data['type'] == 'status_update':
