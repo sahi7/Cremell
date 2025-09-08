@@ -261,7 +261,7 @@ class HardwareConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, text_data):
         data = json.loads(text_data)
-        if data['type'] == 'subscribe' and str(data['branch_id']) == self.branch_id:
+        if data['type'] == 'subscribe' and data['branch_id'] == str(self.branch_id):
             await self.send(text_data=json.dumps({'type': 'subscribed'}))
         elif data['type'] == 'ack':
             logger.info(f"Ack received for order {data['order_id']}: {data['status']}")
@@ -273,7 +273,7 @@ class HardwareConsumer(AsyncWebsocketConsumer):
         signal = event.get('signal', 'notify')
         await self.send(text_data=json.dumps({
             'type': f'{signal}.command',
-            'message': message
+            'payload': message
         }))   
 
 

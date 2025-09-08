@@ -142,7 +142,7 @@ class RegisterDeviceView(APIView):
             
             new_device_id = generate_device_id()
             device.device_id = new_device_id
-            # await device.asave()
+            await device.asave()
             
             response_data = {
                 'branch': branch_dets,
