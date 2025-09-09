@@ -124,6 +124,7 @@ class DeviceViewSet(ModelViewSet):
     @action(detail=True, methods=['post'], url_path='remove-printer')
     async def remove_printer(self, request, device_id=None):
         try:
+            start = time.perf_counter()
             data = request.data
             user_id = request.user.id
             use_device = data.get('use_device')
@@ -139,14 +140,15 @@ class DeviceViewSet(ModelViewSet):
             # Send WebSocket message
             channel_layer = get_channel_layer()
             await channel_layer.group_send(
-                f"branch_{branch_id}",
+                f"device_{device_id}",
                 {
                     'signal': 'remove',
                     'type': 'print.job',
                     'message': payload
                 }
             )
-            return Response({'status': 'printer removed'}, status=status.HTTP_200_OK)
+            print(f"1st printer remove took {(time.perf_counter() - start) * 1000:.3f} ms")
+            return Response({'status': _('Removal initiated')}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': f'Internal server error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -168,14 +170,14 @@ class DeviceViewSet(ModelViewSet):
             # Send WebSocket message
             channel_layer = get_channel_layer()
             await channel_layer.group_send(
-                f"branch_{branch_id}",
+                f"device_{device_id}",
                 {
                     'signal': 'default',
                     'type': 'print.job',
                     'message': payload
                 }
             )
-            return Response({'status': 'default set'}, status=status.HTTP_200_OK)
+            return Response({'status': _('Setting default printer')}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': f'Internal server error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -183,7 +185,7 @@ class DeviceViewSet(ModelViewSet):
     async def test_printer(self, request, device_id=None):
         try:
             data = request.data
-            user_id = request.user-id
+            user_id = request.user.id
             printer_id = data.get('printer_id')
             branch_id = int(request.data['branches'][0])
             use_device = data.get('use_device')
@@ -197,14 +199,14 @@ class DeviceViewSet(ModelViewSet):
             # Send WebSocket message
             channel_layer = get_channel_layer()
             await channel_layer.group_send(
-                f"branch_{branch_id}",
+                f"device_{device_id}",
                 {
                     'signal': 'test',
                     'type': 'print.job',
                     'message': payload
                 }
             )
-            return Response({'status': 'test initiated'}, status=status.HTTP_200_OK)
+            return Response({'status': 'Test initiated'}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': f'Internal server error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -245,15 +247,15 @@ class DeviceViewSet(ModelViewSet):
                 'sender': user_id
             }
             
-            # Verify device exists
-            await Device.objects.aget(device_id=device_id, branch_id_id=branch_id)
+            # # Verify device exists
+            # await Device.objects.aget(device_id=device_id, branch_id_id=branch_id)
             
             # Send WebSocket message
             channel_layer = get_channel_layer()
             await channel_layer.group_send(
-                f"branch_{branch_id}",
+                f"device_{device_id}",
                 {
-                    'signal': 'get',
+                    'signal': 'list',
                     'type': 'print.job',
                     'message': payload
                 }
