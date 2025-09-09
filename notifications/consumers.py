@@ -264,9 +264,10 @@ class HardwareConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         print("received data: ", data)
         if data['type'] == 'subscribe' and data['branch_id'] == str(self.branch_id):
-            await self.send(text_data=json.dumps({'type': 'subscribed'}))
+            await self.send(text_data=json.dumps({'type': 'subscribed', 'payload': self.device['device_id']}))
         elif data['type'] == 'ack':
-            logger.info(f"Ack received for order {data['order_id']}: {data['status']}")
+            await handle_ack(data)
+            logger.info(f"Ack received for command {data['command']}")
         elif data['type'] == 'error':
             logger.info(f"Error: {data}")
         elif data['type'] == 'printer_discovered':

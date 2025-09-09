@@ -46,3 +46,6 @@ async def handle_printer_discovered(scan_id, config, receiver):
 
 async def handle_scan_complete(scan_id, count, receiver):
     pass
+
+async def handle_ack(data):
+    pass

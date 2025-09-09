@@ -13,7 +13,7 @@ CustomUser = get_user_model()
 
 def generate_device_id():
     """Generate a 6-character unique device ID."""
-    return uuid.uuid4().hex[:6].upper()
+    return uuid.uuid4().hex[:12].upper()
 
 def generate_device_token():
     """Generate a secure 128-character random token."""
@@ -23,7 +23,7 @@ def default_expiry():
     return timezone.now() + timedelta(days=10)
 
 class Device(models.Model):
-    device_id = models.CharField(max_length=6, unique=True, default=generate_device_id)
+    device_id = models.CharField(max_length=12, unique=True, default=generate_device_id)
     device_token = models.CharField(max_length=128, unique=True, default=generate_device_token)
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='devices')
     name = models.CharField(max_length=255, blank=True)

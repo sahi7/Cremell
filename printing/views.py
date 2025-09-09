@@ -16,7 +16,7 @@ from .serializers import DeviceSerializer
 from .permissions import DevicePermission
 from zMisc.policies import ScopeAccessPolicy
 from zMisc.permissions import StaffAccessPolicy
-from zMisc.utils import clean_request_data
+from zMisc.utils import clean_request_data, get_branch_device
 
 import logging
 
@@ -26,6 +26,7 @@ channel_layer = get_channel_layer()
 class DeviceViewSet(ModelViewSet):
     queryset = Device.objects.filter(is_active=True)
     serializer_class = DeviceSerializer
+    lookup_field = "device_id"
 
     def get_permissions(self):
         role_value = self.request.user.r_val
@@ -68,17 +69,17 @@ class DeviceViewSet(ModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     
     async def partial_update(self, request, *args, **kwargs):
-        # Get PK from URL kwargs
+        # Get device_id from URL kwargs
         start = time.perf_counter()
-        pk = kwargs.get('pk')
-        device = await sync_to_async(Device.objects.get)(pk=pk)
+        device_id = kwargs.get(self.lookup_field)
+        device = await sync_to_async(Device.objects.get)(device_id=device_id)
 
         # Only allow specific fields to be updated
         allowed_fields = ["name", "user_id", "is_default"]
         data = {k: v for k, v in request.data.items() if k in allowed_fields}
 
         if data.get('is_default'):
-            await sync_to_async(Device.objects.filter(branch_id=device.branch_id, is_default=True).exclude(id=pk).update)(is_default=False)
+            await sync_to_async(Device.objects.filter(branch_id=device.branch_id, is_default=True).exclude(device_id=device_id).update)(is_default=False)
         
         # Update the object
         for field, value in data.items():
@@ -91,38 +92,187 @@ class DeviceViewSet(ModelViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
     
     @action(detail=True, methods=['post'])
-    async def reset(self, request, *args, **kwargs):
+    async def reset(self, request, device_id=None):
         try:
             start = time.perf_counter()
-            pk = kwargs.get('pk')
-            device = await sync_to_async(Device.objects.get)(pk=pk)
-            device.is_active = True  # Mark as inactive to block connections
-            # await sync_to_async(device.save)()
+            user_id = request.user.id
+            device = await sync_to_async(Device.objects.get)(device_id=device_id)
+            device.is_active = False  # Mark as inactive to block connections
+            await sync_to_async(device.save)()
 
+            payload = {
+                'device_id': device.device_id,
+                'sender': user_id
+            }
             await channel_layer.group_send(
                 f"device_{device.device_id}", {
                 'type': 'print.job',
                 'signal': 'reset',
-                'message': device.device_id
+                'message': payload
             }) 
 
             logger.info(f"Reset initiated for device {device.device_id}")
             print(f"1st device reset took {(time.perf_counter() - start) * 1000:.3f} ms")
             return Response({'status': _('reset command sent')})
         except Device.DoesNotExist:
-            logger.error(f"Device {pk} not found")
+            logger.error(f"Device {device_id} not found")
             return Response({'error': _('Device not found')}, status=404)
         except Exception as e:
-            logger.error(f"Reset failed for device {pk}: {str(e)}")
+            logger.error(f"Reset failed for device {device_id}: {str(e)}")
             return Response({'error': str(e)}, status=500)
         
+    @action(detail=True, methods=['post'], url_path='remove-printer')
+    async def remove_printer(self, request, device_id=None):
+        try:
+            data = request.data
+            user_id = request.user.id
+            use_device = data.get('use_device')
+            branch_id = int(request.data['branches'][0])
+            printer_id = data.get('printer_id')
+            device_id = device_id if use_device else await get_branch_device(branch_id, user_id)
+            payload = {
+                'printer_id': printer_id,
+                'device_id': device_id,
+                'sender': user_id
+            }
+            
+            # Send WebSocket message
+            channel_layer = get_channel_layer()
+            await channel_layer.group_send(
+                f"branch_{branch_id}",
+                {
+                    'signal': 'remove',
+                    'type': 'print.job',
+                    'message': payload
+                }
+            )
+            return Response({'status': 'printer removed'}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': f'Internal server error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='set-default-printer')
+    async def set_default_printer(self, request, device_id=None):
+        try:
+            data = request.data
+            user_id = request.user.id
+            printer_id = data.get('printer_id')
+            use_device = data.get('use_device')
+            branch_id = int(request.data['branches'][0])
+            device_id = device_id if use_device else await get_branch_device(branch_id, user_id)
+            payload = {
+                'printer_id': printer_id,
+                'device_id': device_id,
+                'sender': user_id
+            }
+            
+            # Send WebSocket message
+            channel_layer = get_channel_layer()
+            await channel_layer.group_send(
+                f"branch_{branch_id}",
+                {
+                    'signal': 'default',
+                    'type': 'print.job',
+                    'message': payload
+                }
+            )
+            return Response({'status': 'default set'}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': f'Internal server error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='test-printer')
+    async def test_printer(self, request, device_id=None):
+        try:
+            data = request.data
+            user_id = request.user-id
+            printer_id = data.get('printer_id')
+            branch_id = int(request.data['branches'][0])
+            use_device = data.get('use_device')
+            device_id = device_id if use_device else await get_branch_device(branch_id, user_id)
+            payload = {
+                'printer_id': printer_id,
+                'device_id': device_id,
+                'sender': user_id
+            }
+            
+            # Send WebSocket message
+            channel_layer = get_channel_layer()
+            await channel_layer.group_send(
+                f"branch_{branch_id}",
+                {
+                    'signal': 'test',
+                    'type': 'print.job',
+                    'message': payload
+                }
+            )
+            return Response({'status': 'test initiated'}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': f'Internal server error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='status-check')
+    async def status_check(self, request, device_id=None):
+        try:
+            data = request.data
+            branch_id = data.get('branch_id')
+            device_id = data.get('device_id')
+            
+            # Verify device exists
+            await Device.objects.aget(device_id=device_id, branch_id_id=branch_id)
+            
+            # Send WebSocket message
+            channel_layer = get_channel_layer()
+            await channel_layer.group_send(
+                f"branch_{branch_id}",
+                {
+                    'type': 'print.job'
+                }
+            )
+            return Response({'status': 'status check initiated'}, status=status.HTTP_200_OK)
+        except Device.DoesNotExist:
+            return Response({'error': 'Device not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': f'Internal server error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='list-printers')
+    async def list_printers(self, request, device_id=None):
+        try:
+            data = request.data
+            user_id = request.user.id
+            use_device = data.get('use_device')
+            branch_id = int(request.data['branches'][0])
+            device_id = device_id if use_device else await get_branch_device(branch_id, user_id)
+            payload = {
+                'device_id': device_id,
+                'sender': user_id
+            }
+            
+            # Verify device exists
+            await Device.objects.aget(device_id=device_id, branch_id_id=branch_id)
+            
+            # Send WebSocket message
+            channel_layer = get_channel_layer()
+            await channel_layer.group_send(
+                f"branch_{branch_id}",
+                {
+                    'signal': 'get',
+                    'type': 'print.job',
+                    'message': payload
+                }
+            )
+            
+            return Response({'status': 'list request initiated'}, status=status.HTTP_200_OK)
+            
+        except Device.DoesNotExist:
+            return Response({'error': 'Device not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': f'Internal server error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=True, methods=['post'], url_path='scan-printers')
-    async def scan_printers(self, request, pk=None):
+    async def scan_printers(self, request, device_id=None):
         import uuid
         try:
-            # Get the device instance (pk is the device ID from URL)
+            # Get the device instance (device_id is the device ID from URL)
             user = request.user
-            device = await Device.objects.aget(pk=pk, is_active=True)
+            device = await Device.objects.aget(device_id=device_id, is_active=True)
             scan_id = str(uuid.uuid4())
             print("device-scan: ", device, scan_id)
             add_data = {'scan_id': scan_id, 'sender': user.id}
@@ -167,6 +317,7 @@ class RegisterDeviceView(APIView):
             start = time.perf_counter()
             data = json.loads(request.body)
             device_id = data.get('device_id')
+            print("device_id: ", device_id)
             
             if not device_id:
                 logger.error("Missing device_id in request")
