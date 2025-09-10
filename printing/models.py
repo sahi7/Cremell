@@ -39,6 +39,7 @@ class Device(models.Model):
         indexes = [
             models.Index(fields=['device_id']),
             models.Index(fields=['device_token', 'is_active']),
+            models.Index(fields=['device_token', 'is_active', 'expiry_date']),
         ]
 
     def __str__(self):

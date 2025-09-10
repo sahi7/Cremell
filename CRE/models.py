@@ -342,6 +342,7 @@ class Company(models.Model):
     created_by = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="created_company")
     default_language = models.CharField(max_length=10, choices=settings.LANGUAGES, default='en',
                                 help_text=_('Default language for the company.'))
+    logo = models.ImageField(upload_to="logos/", null=True, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -414,6 +415,7 @@ class Restaurant(models.Model):
     is_active = models.BooleanField(default=True)
     default_language = models.CharField(max_length=10, choices=settings.LANGUAGES, default=None, blank=True, null=True,
                                 help_text=_('Default language for the restaurant. Falls back to company language.'))
+    logo = models.ImageField(upload_to="logos/", null=True, blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE, related_name="restaurant")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -452,6 +454,7 @@ class Branch(models.Model):
     timezone = models.CharField(max_length=50, choices=[(tz, tz) for tz in pytz.common_timezones], default='UTC')
     default_language = models.CharField(max_length=10, choices=settings.LANGUAGES, default=None, blank=True, null=True,
                                 help_text=_('Default language for the branch. Falls back to restaurant or company language.'))
+    logo = models.ImageField(upload_to="logos/", null=True, blank=True)
     currency = models.CharField(max_length=3, choices=settings.CURRENCIES, default='XAF')
     extension = models.CharField(max_length=10, choices=EXT_CHOICES, default='branch') # add a kiosk
     allow_auto_shift_swap = models.BooleanField(default=True)

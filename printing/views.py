@@ -10,6 +10,7 @@ from channels.db import database_sync_to_async
 from channels.layers import get_channel_layer
 from asgiref.sync import sync_to_async
 from django.utils.translation import gettext_lazy as _
+from django.utils import timezone
 
 from .models import Device, generate_device_id
 from .serializers import DeviceSerializer
@@ -113,7 +114,7 @@ class DeviceViewSet(ModelViewSet):
 
             logger.info(f"Reset initiated for device {device.device_id}")
             print(f"1st device reset took {(time.perf_counter() - start) * 1000:.3f} ms")
-            return Response({'status': _('reset command sent')})
+            return Response({'status': _('Device reset in progress')})
         except Device.DoesNotExist:
             logger.error(f"Device {device_id} not found")
             return Response({'error': _('Device not found')}, status=404)
@@ -155,6 +156,7 @@ class DeviceViewSet(ModelViewSet):
     @action(detail=True, methods=['post'], url_path='set-default-printer')
     async def set_default_printer(self, request, device_id=None):
         try:
+            start = time.perf_counter()
             data = request.data
             user_id = request.user.id
             printer_id = data.get('printer_id')
@@ -177,6 +179,7 @@ class DeviceViewSet(ModelViewSet):
                     'message': payload
                 }
             )
+            print(f"1st set default took {(time.perf_counter() - start) * 1000:.3f} ms")
             return Response({'status': _('Setting default printer')}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': f'Internal server error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -184,6 +187,7 @@ class DeviceViewSet(ModelViewSet):
     @action(detail=True, methods=['post'], url_path='test-printer')
     async def test_printer(self, request, device_id=None):
         try:
+            start = time.perf_counter()
             data = request.data
             user_id = request.user.id
             printer_id = data.get('printer_id')
@@ -206,37 +210,15 @@ class DeviceViewSet(ModelViewSet):
                     'message': payload
                 }
             )
+            print(f"1st test printer took {(time.perf_counter() - start) * 1000:.3f} ms")
             return Response({'status': 'Test initiated'}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({'error': f'Internal server error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    @action(detail=True, methods=['post'], url_path='status-check')
-    async def status_check(self, request, device_id=None):
-        try:
-            data = request.data
-            branch_id = data.get('branch_id')
-            device_id = data.get('device_id')
-            
-            # Verify device exists
-            await Device.objects.aget(device_id=device_id, branch_id_id=branch_id)
-            
-            # Send WebSocket message
-            channel_layer = get_channel_layer()
-            await channel_layer.group_send(
-                f"branch_{branch_id}",
-                {
-                    'type': 'print.job'
-                }
-            )
-            return Response({'status': 'status check initiated'}, status=status.HTTP_200_OK)
-        except Device.DoesNotExist:
-            return Response({'error': 'Device not found'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({'error': f'Internal server error: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=True, methods=['post'], url_path='list-printers')
     async def list_printers(self, request, device_id=None):
         try:
+            start = time.perf_counter()
             data = request.data
             user_id = request.user.id
             use_device = data.get('use_device')
@@ -260,8 +242,8 @@ class DeviceViewSet(ModelViewSet):
                     'message': payload
                 }
             )
-            
-            return Response({'status': 'list request initiated'}, status=status.HTTP_200_OK)
+            print(f"1st list printers took {(time.perf_counter() - start) * 1000:.3f} ms")
+            return Response({'status': 'List request initiated'}, status=status.HTTP_200_OK)
             
         except Device.DoesNotExist:
             return Response({'error': 'Device not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -272,12 +254,12 @@ class DeviceViewSet(ModelViewSet):
     async def scan_printers(self, request, device_id=None):
         import uuid
         try:
+            start = time.perf_counter()
             # Get the device instance (device_id is the device ID from URL)
             user = request.user
             device = await Device.objects.aget(device_id=device_id, is_active=True)
             scan_id = str(uuid.uuid4())
             print("device-scan: ", device, scan_id)
-            add_data = {'scan_id': scan_id, 'sender': user.id}
 
             # Create tasks for both messages
             tasks = [
@@ -286,7 +268,7 @@ class DeviceViewSet(ModelViewSet):
                     {
                         'signal': 'scan',
                         'type': 'print.job',
-                        'message': json.dumps(add_data)
+                        'message': json.dumps({'scan_id': scan_id, 'sender': user.id})
                     }
                 ),
                 channel_layer.group_send(
@@ -294,14 +276,14 @@ class DeviceViewSet(ModelViewSet):
                     {
                         'signal': 'scan',
                         'type': 'stakeholder.notification',
-                        'message': json.dumps(add_data)
+                        'message': json.dumps({'type': 'in_progress', 'scan_id': scan_id})
                     }
                 )
             ]
             # Send both messages concurrently
             await asyncio.gather(*tasks)
-            
-            return Response({'detail': _('scan initiated'), 'scan_id': scan_id}, status=status.HTTP_200_OK)
+            print(f"1st scan printers took {(time.perf_counter() - start) * 1000:.3f} ms")
+            return Response({'detail': _('Scan initiated'), 'scan_id': scan_id}, status=status.HTTP_200_OK)
             
         except Exception as e:
             return Response({
@@ -315,6 +297,7 @@ class RegisterDeviceView(APIView):
     permission_classes = [AllowAny]
 
     async def post(self, request):
+        from .utils import get_default_logo
         try:
             start = time.perf_counter()
             data = json.loads(request.body)
@@ -326,16 +309,19 @@ class RegisterDeviceView(APIView):
                 return JsonResponse({'error': _('Device ID is required')}, status=400)
             
             try:
-                device = await Device.objects.select_related('branch').aget(device_id=device_id, is_active=True)
+                device = await Device.objects.select_related('branch__restaurant', 'branch__company').aget(device_id=device_id, is_active=True, expiry_date__gte=timezone.now())
+                logo_url = await get_default_logo(device.branch)
             except Device.DoesNotExist:
                 logger.error(f"Device with ID {device_id} not found or inactive")
-                return JsonResponse({'error': _('Invalid or inactive device ID')}, status=404)
+                return JsonResponse({'error': _('Device Not Found')}, status=404)
             
             branch_dets = {
                 'branch_id': device.branch_id,
                 'name': device.branch.name,
                 'address': device.branch.address,
                 'currency': device.branch.currency,
+                'timezone': device.branch.timezone,
+                "logo_url": logo_url,
             }
             
             new_device_id = generate_device_id()

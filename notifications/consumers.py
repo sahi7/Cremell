@@ -268,19 +268,10 @@ class HardwareConsumer(AsyncWebsocketConsumer):
         if data['type'] == 'ack':
             await handle_ack(data)
             logger.info(f"Ack received for command {data['command']}")
-        elif data['type'] == 'error':
-            logger.info(f"Error: {data}")
         elif data['type'] == 'printer_discovered':
-            scan_id = data['scan_id'] 
-            config = data['config'] 
-            receiver = data['sender'] 
-            print("discovered")
-            await handle_printer_discovered(scan_id, config, receiver)
+            await handle_printer_discovered(data)
         elif data['type'] == 'scan_complete':
-            scan_id = data['scan_id'] 
-            count = data['count'] 
-            receiver = data.get('sender') 
-            await handle_scan_complete(scan_id, count, receiver)
+            await handle_scan_complete(data)
             logger.info(f"Scan {data['scan_id']} completed for device {self.device_id}: {data['count']} printers")
         elif data['type'] == 'status_update':
             logger.info(f"Printer status update: {data}")
