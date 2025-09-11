@@ -1,6 +1,5 @@
 import json
 import time
-import asyncio
 from adrf.views import APIView
 from adrf.viewsets import ModelViewSet
 from rest_framework.decorators import action
@@ -139,7 +138,6 @@ class DeviceViewSet(ModelViewSet):
             }
             
             # Send WebSocket message
-            channel_layer = get_channel_layer()
             await channel_layer.group_send(
                 f"device_{device_id}",
                 {
@@ -170,7 +168,6 @@ class DeviceViewSet(ModelViewSet):
             }
             
             # Send WebSocket message
-            channel_layer = get_channel_layer()
             await channel_layer.group_send(
                 f"device_{device_id}",
                 {
@@ -201,7 +198,6 @@ class DeviceViewSet(ModelViewSet):
             }
             
             # Send WebSocket message
-            channel_layer = get_channel_layer()
             await channel_layer.group_send(
                 f"device_{device_id}",
                 {
@@ -233,7 +229,6 @@ class DeviceViewSet(ModelViewSet):
             # await Device.objects.aget(device_id=device_id, branch_id_id=branch_id)
             
             # Send WebSocket message
-            channel_layer = get_channel_layer()
             await channel_layer.group_send(
                 f"device_{device_id}",
                 {
@@ -261,27 +256,14 @@ class DeviceViewSet(ModelViewSet):
             scan_id = str(uuid.uuid4())
             print("device-scan: ", device, scan_id)
 
-            # Create tasks for both messages
-            tasks = [
-                channel_layer.group_send(
-                    f"device_{device.device_id}",
-                    {
-                        'signal': 'scan',
-                        'type': 'print.job',
-                        'message': json.dumps({'scan_id': scan_id, 'sender': user.id})
-                    }
-                ),
-                channel_layer.group_send(
-                    f"user_{user.id}",
-                    {
-                        'signal': 'scan',
-                        'type': 'stakeholder.notification',
-                        'message': json.dumps({'type': 'in_progress', 'scan_id': scan_id})
-                    }
-                )
-            ]
-            # Send both messages concurrently
-            await asyncio.gather(*tasks)
+            await channel_layer.group_send(
+                f"device_{device.device_id}",
+                {
+                    'signal': 'scan',
+                    'type': 'print.job',
+                    'message': json.dumps({'scan_id': scan_id, 'sender': user.id})
+                }
+            )
             print(f"1st scan printers took {(time.perf_counter() - start) * 1000:.3f} ms")
             return Response({'detail': _('Scan initiated'), 'scan_id': scan_id}, status=status.HTTP_200_OK)
             

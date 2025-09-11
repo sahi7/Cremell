@@ -55,8 +55,7 @@ class Printer(models.Model):
         ('network', _('Network')),
         ('serial', _('Serial')),
     )
-
-    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='printers', help_text=_("Device this printer belongs to"))
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='printers')
     name = models.CharField(max_length=255, help_text=_("Descriptive name for the printer, e.g., 'Kitchen Printer 1'"))
     connection_type = models.CharField(max_length=10, choices=CONNECTION_TYPES, help_text=_("Type of connection to the printer"))
     vendor_id = models.CharField(max_length=10, blank=True, null=True, help_text=_("USB vendor ID in hex, e.g., '0x04b8' (required for USB)"))
