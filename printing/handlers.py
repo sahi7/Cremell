@@ -38,14 +38,15 @@ async def handle_scan_complete(data):
     receiver = data.pop('sender', None)
     print("handle_scan_complete: ", scan_id, branch_id, receiver)
 
-    await channel_layer.group_send(
-        f"user_{receiver}",
-        {
-            'signal': 'scan',
-            'type': 'stakeholder.notification',
-            'message': json.dumps(data)
-        }
-    )
+    if receiver:
+        await channel_layer.group_send(
+            f"user_{receiver}",
+            {
+                'signal': 'scan',
+                'type': 'stakeholder.notification',
+                'message': json.dumps(data)
+            }
+        )
     cached = await get_branch_printers(int(branch_id))
     new_printers = []
     new_entries = []
@@ -98,3 +99,27 @@ async def handle_ack(data):
         )
     except Exception as e:
         logger.error(f"Message failed for user {receiver}: {str(e)}")
+
+async def handle_token_refresh(self, data):
+    from .models import Device, generate_device_token, default_expiry
+    device_id = data.get('device_id')
+    try:
+        device = await sync_to_async(Device.objects.get)(device_id=device_id)
+        new_token = generate_device_token()
+        expiry_date = default_expiry()
+        device.device_token = new_token
+        device.expiry_date = expiry_date
+        await sync_to_async(device.save)()
+        await self.send(text_data=json.dumps({
+            'type': 'token.refresh',
+            'device_token': new_token,
+            'expiry_date': expiry_date.isoformat(),
+            'payload': {}
+        }))
+        logger.info(f"Refreshed token for device {device_id}")
+    except Device.DoesNotExist:
+        logger.error(f"Device {device_id} not found for token refresh")
+        await self.send(text_data=json.dumps({
+            'type': 'error',
+            'message': 'Device not found'
+        }))

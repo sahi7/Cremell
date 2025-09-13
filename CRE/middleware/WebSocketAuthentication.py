@@ -28,7 +28,9 @@ def get_user_from_token(token):
 def get_device_from_token(token):
     """Validate device_token and return Device instance or None."""
     try:
+        # print("token in token: ", token)
         device = Device.objects.get(device_token=token, is_active=True)
+        # print("device in token: ", device)
         if device.expiry_date and timezone.now() > device.expiry_date:
             return None  # expired
         device_dets = {
@@ -38,6 +40,7 @@ def get_device_from_token(token):
             "expiry_date": device.expiry_date.isoformat(),
             "is_active": device.is_active
         }
+        # print("device_dets: ", device_dets)
         return device_dets
     except ObjectDoesNotExist:
         logger.error(f"Token not valid")

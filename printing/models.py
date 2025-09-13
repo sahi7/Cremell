@@ -1,5 +1,6 @@
-import uuid
 import secrets
+import asyncio
+from asgiref.sync import async_to_sync
 from django.db import models
 from django.utils.translation import gettext as _
 from django.contrib.auth import get_user_model
@@ -7,23 +8,28 @@ from django.utils import timezone
 from datetime import timedelta
 
 from cre.models import Branch
+from .utils import generate_device_id
 
 CustomUser = get_user_model()
 
-
-def generate_device_id():
-    """Generate a 6-character unique device ID."""
-    return uuid.uuid4().hex[:12].upper()
+def generate_device_uid():
+    uid = async_to_sync(generate_device_id)()
+    print("uid: ", uid)
+    return uid
 
 def generate_device_token():
     """Generate a secure 128-character random token."""
     return secrets.token_urlsafe(96)  # ~128 chars when encoded
 
 def default_expiry():
-    return timezone.now() + timedelta(days=10)
+    # return timezone.now() + timedelta(days=10)
+    expiry = timezone.now() + timedelta(hours=12)
+    # print("now: ", timezone.now())
+    # print("expiry: ", timezone.now() + timedelta(hours=0.1))
+    return expiry
 
 class Device(models.Model):
-    device_id = models.CharField(max_length=12, unique=True, default=generate_device_id)
+    device_id = models.CharField(max_length=12, unique=True, default=generate_device_uid)
     device_token = models.CharField(max_length=128, unique=True, default=generate_device_token)
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='devices')
     name = models.CharField(max_length=255, blank=True)
@@ -68,8 +74,7 @@ class Printer(models.Model):
     fingerprint = models.CharField(max_length=256, unique=True)
 
     class Meta:
-        unique_together = ('device', 'name')
-        ordering = ['device', 'name']
+        unique_together = ('branch', 'fingerprint')
         indexes = [
             models.Index(fields=['connection_type']),
         ]

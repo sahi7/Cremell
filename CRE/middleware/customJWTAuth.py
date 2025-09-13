@@ -28,22 +28,21 @@ class CustomJWTAuthentication(JWTAuthentication):
         return validated_token
     
     async def authenticate(self, request):
-        # Log request headers and cookies for debugging
-        logger.info(f"Request headers: {request.headers}")
-        logger.info(f"Request cookies: {request.COOKIES}")
+        # # Log request headers and cookies for debugging
+        # logger.info(f"Request headers: {request.headers}")
+        # logger.info(f"Request cookies: {request.COOKIES}")
 
         # Extract raw token from header or cookie
         header = self.get_header(request)
-        print("header: ", header)
         if header is None:
             access_cookie = settings.SIMPLE_JWT.get('AUTH_COOKIE')
             raw_token = request.COOKIES.get(access_cookie) or None
-            logger.info(f"No Authorization header, trying cookie: {raw_token}")
+            # logger.info(f"No Authorization header, trying cookie: {raw_token}")
         else:
             raw_token = self.get_raw_token(header)
-            logger.info(f"Raw token from header: {raw_token}")
+            # logger.info(f"Raw token from header: {raw_token}")
         if raw_token is None:
-            logger.warning("No token provided in request")
+            # logger.warning("No token provided in request")
             return None
 
         try:

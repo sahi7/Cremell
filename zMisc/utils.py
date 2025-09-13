@@ -249,7 +249,7 @@ async def get_scopes_and_groups(user, requires=None, get_instance=False):
     prefetch_objects = [prefetch_configs[field] for field in relations_to_fetch if field in prefetch_configs]
 
     # Fetch user with only required relations
-    user = await CustomUser.objects.only('role').prefetch_related(*prefetch_objects).aget(id=user_id)
+    user = await CustomUser.objects.only('role', 'r_val').prefetch_related(*prefetch_objects).aget(id=user_id)
 
     # Async function to extract field or instance
     async def extract_field(manager, field='id'):

@@ -449,7 +449,7 @@ class BranchSerializer(ModelSerializer):
 
     class Meta:
         model = Branch
-        fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'status', 'timezone', 'default_language', 'manager', 'created_by']
+        fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'status', 'timezone', 'default_language', 'manager', 'logo']
         read_only_fields = ('created_by', )
 
     def validate(self, attrs):

@@ -11,7 +11,8 @@ from asgiref.sync import sync_to_async
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 
-from .models import Device, generate_device_id
+from .models import Device
+from .utils import generate_device_id
 from .serializers import DeviceSerializer
 from .permissions import DevicePermission
 from zMisc.policies import ScopeAccessPolicy
@@ -291,11 +292,14 @@ class RegisterDeviceView(APIView):
                 return JsonResponse({'error': _('Device ID is required')}, status=400)
             
             try:
+                # print("now in view: ", timezone.now())
                 device = await Device.objects.select_related('branch__restaurant', 'branch__company').aget(device_id=device_id, is_active=True, expiry_date__gte=timezone.now())
+                # print("dev in view: ", device.added_by_id, device.device_id)
                 logo_url = await get_default_logo(device.branch)
             except Device.DoesNotExist:
                 logger.error(f"Device with ID {device_id} not found or inactive")
                 return JsonResponse({'error': _('Device Not Found')}, status=404)
+            print("logo_url: ", logo_url)
             
             branch_dets = {
                 'branch_id': device.branch_id,
@@ -305,8 +309,9 @@ class RegisterDeviceView(APIView):
                 'timezone': device.branch.timezone,
                 "logo_url": logo_url,
             }
+            print("branch_dets: ", branch_dets)
             
-            new_device_id = generate_device_id()
+            new_device_id = await generate_device_id()
             device.device_id = new_device_id
             await device.asave()
             

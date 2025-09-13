@@ -273,8 +273,9 @@ class HardwareConsumer(AsyncWebsocketConsumer):
         elif data['type'] == 'scan_complete':
             await handle_scan_complete(data)
             logger.info(f"Scan {data['scan_id']} completed for device {self.device_id}: {data['count']} printers")
-        elif data['type'] == 'status_update':
-            logger.info(f"Printer status update: {data}")
+        elif data['type'] == 'token_refresh':
+            await handle_token_refresh(self, data)
+            logger.info(f"Token refresh requested: {data}")
 
     async def print_job(self, event):
         message = event['message']

@@ -19,6 +19,7 @@ from django.urls import path, include
 from cre.views__helper import CheckUserExistsView, UserScopeView, AssignmentView
 from cre.views import *
 from rest_framework.routers import DefaultRouter
+from django.conf.urls.static import static
 
 router = DefaultRouter()
 router.register(r'users', UserViewSet, basename='user')
@@ -77,3 +78,7 @@ urlpatterns = [
     path('api/', include('permissions.urls')),
     path('api/', include('printing.urls')),
 ]
+
+# Serve media files during development
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
