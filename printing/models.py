@@ -23,7 +23,7 @@ def generate_device_token():
 
 def default_expiry():
     # return timezone.now() + timedelta(days=10)
-    expiry = timezone.now() + timedelta(hours=12)
+    expiry = timezone.now() + timedelta(hours=3)
     # print("now: ", timezone.now())
     # print("expiry: ", timezone.now() + timedelta(hours=0.1))
     return expiry
