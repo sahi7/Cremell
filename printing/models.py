@@ -22,11 +22,11 @@ def generate_device_token():
     return secrets.token_urlsafe(96)  # ~128 chars when encoded
 
 def default_expiry():
-    # return timezone.now() + timedelta(days=10)
-    expiry = timezone.now() + timedelta(hours=3)
+    return timezone.now() + timedelta(days=3)
+    # expiry = timezone.now() + timedelta(hours=3)
     # print("now: ", timezone.now())
     # print("expiry: ", timezone.now() + timedelta(hours=0.1))
-    return expiry
+    # return expiry
 
 class Device(models.Model):
     device_id = models.CharField(max_length=12, unique=True, default=generate_device_uid)
