@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 KAFKA_RULES_TOPIC = 'payroll.rules.updated'
 KAFKA_OVERRIDES_TOPIC = 'payroll.overrides.updated'
 KAFKA_PAYROLL_TOPIC = 'payroll.generate'
+KAFKA_EVENTS_TOPIC= 'rms.events'
 
 class RuleViewSet(ModelViewSet):
     """
@@ -113,7 +114,7 @@ class RuleViewSet(ModelViewSet):
                     )]
                 }
                 await producer.send_and_wait(
-                    KAFKA_RULES_TOPIC,
+                    KAFKA_EVENTS_TOPIC,
                     key=str(rule.id).encode('utf-8'),
                     value=json.dumps(event).encode('utf-8')
                 )
@@ -167,7 +168,7 @@ class OverrideCreateView(APIView):
                     'percentage': float(override.percentage) if override.percentage is not None else None
                 }
                 await producer.send_and_wait(
-                    KAFKA_OVERRIDES_TOPIC,
+                    KAFKA_EVENTS_TOPIC,
                     key=str(override.id).encode('utf-8'),
                     value=json.dumps(event).encode('utf-8')
                 )
@@ -217,7 +218,7 @@ class GeneratePayrollView(APIView):
         try:
             
             await producer.send_and_wait(
-                KAFKA_PAYROLL_TOPIC,
+                KAFKA_EVENTS_TOPIC,
                 key=str(period.id).encode('utf-8'),
                 value=json.dumps(event).encode('utf-8')
             )
