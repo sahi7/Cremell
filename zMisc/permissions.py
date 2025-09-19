@@ -83,7 +83,7 @@ class UserCreationPermission(BasePermission):
     # Async queryset_filters (for potential future use)
     async def filter_company_users(self, user, max_r_val, company_ids):
         return CustomUser.objects.filter(
-            companies__id__in=company_ids,
+            Q(companies__id__in=company_ids) | Q(branches__restaurant__company_id__in=company_ids) | Q(restaurants__company_id__in=company_ids),
             r_val__gte=max_r_val
         )
 

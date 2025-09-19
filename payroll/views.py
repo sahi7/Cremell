@@ -194,6 +194,7 @@ class GeneratePayrollView(APIView):
 
             event = {
                 'type': KAFKA_PAYROLL_TOPIC,
+                'sender': request.user.id,
                 'period_id': period.id,
                 'month': period.month,
                 'year': period.year

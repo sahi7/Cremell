@@ -59,7 +59,7 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
   8. Add currency field on branch
   9. Add 2 fields on Menu Model; is_pos_menu and is_web_or_app_menu
   10. Add 'Extension ' field to Branch Model; branch, kiosk, food_truck
-  11. ❌When a user logs in, set their staff availaility/logout || We will use in-memory with Redis/WS
+  11. When a user logs in, set their staff availaility/logout || We will use in-memory with Redis/WS
   11. Enable cooks to add orders via custom permissions
         Enable websocket notification on first task creation (via signals) to kitchen and user
   12. Order process should validate menu items
@@ -75,6 +75,8 @@ When deleting a restaurant, branches will be deleted or reassigned if multiple r
 - Print receipts
   1. Save Printer configuration per branch 
 - ❌Improve get_stakeholders when r_val has been corrected
+- ❌Implement pagination on busy endpoints like /users
+- ❌Take filters on get queryset, cases where we might want to pull just users of a particular branch
 - views_helper does not change user.status when they are assigned
 - When cooks are done with an order, they can print a mini receipt which has a barcode and total amount and stick it to the order packaging. For takeout orders runners can just collect the sum and hand to cashier
 
