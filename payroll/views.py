@@ -35,7 +35,10 @@ class RuleViewSet(ModelViewSet):
         "rule_type": "bonus",
         "amount": "30.00", | "percentage": null,
         "scope": "branch",
-        "branch": []
+        "branch": [],
+        "targets": [
+            {"target_type": "role", "target_value": "cashier"}
+        ]
     }
     """
     queryset = Rule.objects.filter(is_active=True)

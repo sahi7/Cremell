@@ -85,7 +85,12 @@ class Rule(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['scope', 'company', 'restaurant', 'branch', 'is_active', 'effective_from']),
+            models.Index(fields=['scope']),
+            models.Index(fields=['company']),
+            models.Index(fields=['restaurant']),
+            models.Index(fields=['branch']),
+            models.Index(fields=['is_active']),
+            models.Index(fields=['effective_from']),
         ]
         constraints = [
             models.CheckConstraint(
@@ -171,7 +176,7 @@ class Override(models.Model):
     """
     rule = models.ForeignKey(Rule, on_delete=models.CASCADE, related_name='overrides',
         help_text=_("The rule being overridden"))
-    period = models.ForeignKey(Period, on_delete=models.CASCADE, related_name='overrides',
+    period = models.ForeignKey(Period, on_delete=models.CASCADE, related_name='overrides', null=True, blank=True,
         help_text=_("Payroll period this override applies to"))
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='overrides',
         help_text=_("User this override applies to"))
@@ -280,7 +285,9 @@ class Record(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['period', 'branch', 'user']),
+            models.Index(fields=['period']),
+            models.Index(fields=['branch']),
+            models.Index(fields=['user']),
         ]
         constraints = [
             models.CheckConstraint(

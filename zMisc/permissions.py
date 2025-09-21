@@ -771,12 +771,36 @@ class EntityUpdatePermission(BasePermission):
     async def _get_object_scope_ids(self, obj, model):
         """Extract scope-relevant IDs from the object (reused from EntityUpdateViewSet)."""
         if model == CustomUser:
-            if await obj.companies.aexists():
-                return {company.id async for company in obj.companies.all()}
-            elif await obj.restaurants.aexists():
-                return {restaurant.id async for restaurant in obj.restaurants.all()}
-            elif await obj.branches.aexists():
-                return {branch.id async for branch in obj.branches.all()}
+            val = obj.r_val
+            id_set = set()
+            match val:
+                case 1:  # company_admin or restaurant_owner
+                    if await obj.companies.aexists():
+                        return {company.id async for company in obj.companies.all()}
+                    elif await obj.restaurants.aexists():
+                        return {restaurant.id async for restaurant in obj.restaurants.all()}
+                case 3:  # country_manager
+                    if await obj.companies.aexists():
+                        return {company.id async for company in obj.companies.all()}
+                case 4:  # restaurant_manager
+                    if await obj.restaurants.aexists():
+                        return {restaurant.id async for restaurant in obj.restaurants.all()}
+                case _ if val and val > 4:  # branch (above 4)
+                    return {branch.id async for branch in obj.branches.all()}
+                case _:  # Default/fallback (no r_val or invalid value)
+                    if await obj.companies.aexists():
+                        return {company.id async for company in obj.companies.all()}
+                    elif await obj.restaurants.aexists():
+                        return {restaurant.id async for restaurant in obj.restaurants.all()}
+                    elif await obj.branches.aexists():
+                        return {branch.id async for branch in obj.branches.all()}
+            return id_set
+            # if await obj.companies.aexists():
+            #     return {company.id async for company in obj.companies.all()}
+            # elif await obj.restaurants.aexists():
+            #     return {restaurant.id async for restaurant in obj.restaurants.all()}
+            # elif await obj.branches.aexists():
+            #     return {branch.id async for branch in obj.branches.all()}
         elif model == Branch:
             if obj.id:  # Always true if object exists, but explicit for clarity
                 return {obj.id}
