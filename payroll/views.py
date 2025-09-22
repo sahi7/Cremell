@@ -188,6 +188,7 @@ class GeneratePayrollView(APIView):
     permission_classes = (ScopeAccessPolicy,)
     async def post(self, request):
         period_str = request.query_params.get('period')
+        auto_notify = request.query_params.get('auto_notify', 'false')
         if not period_str:
             return Response({"error": _("Period is required")}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -197,6 +198,7 @@ class GeneratePayrollView(APIView):
 
             event = {
                 'type': KAFKA_PAYROLL_TOPIC,
+                'notify': auto_notify,
                 'sender': request.user.id,
                 'period_id': period.id,
                 'month': period.month,

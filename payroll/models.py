@@ -65,7 +65,7 @@ class Rule(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True,
         help_text=_("Fixed amount for the rule"))
     percentage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True,
-        help_text=_("Percentage-based amount, if applicable (e.g., 5.00 for 5%)"))
+        help_text=_("Percentage-based amount, if applicable (e.g., 5.00 for 5%)")) # Remove field - frontend will calculate percentage from salary and send as amount
     scope = models.CharField(max_length=20, choices=SCOPE_LEVELS, default='restaurant',
         help_text=_("Scope of rule application (company, restaurant, branch, user)"))
     company = models.ForeignKey(Company, on_delete=models.CASCADE, null=True, blank=True,
@@ -185,7 +185,7 @@ class Override(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True,
         help_text=_("Override amount, if applicable"))
     percentage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True,
-        help_text=_("Override percentage, if applicable"))
+        help_text=_("Override percentage, if applicable")) # Remove field - frontend will calculate percentage from salary and send as amount
     notes = models.TextField(blank=True, help_text=_("Audit notes explaining the override (e.g., 'One-time bonus')"))
     effective_from = models.DateField(default=timezone.now, help_text=_("Date from which the override is effective"))
     expires_at = models.DateField(null=True, blank=True, help_text=_("Date the override expires, if temporary"))
@@ -198,8 +198,11 @@ class Override(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['user', 'period', 'rule']),
-            models.Index(fields=['branch', 'period']),
+            models.Index(fields=['rule']),
+            models.Index(fields=['user']),
+            models.Index(fields=['override_type']),
+            models.Index(fields=['effective_from', 'expires_at']),
+            models.Index(fields=['branch']),
         ]
         constraints = [
             models.CheckConstraint(
@@ -220,46 +223,46 @@ class Override(models.Model):
             period=self.period
         )
     
-class EffectiveRule(models.Model):
-    """
-    Stores precomputed rules for a user, period, and branch after applying overrides.
-    Optimizes payroll generation by avoiding dynamic rule merging.
-    """
-    period = models.ForeignKey(Period, on_delete=models.CASCADE, related_name='effective_rules',
-        help_text=_("Payroll period for this effective rule"))
-    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='effective_rules',
-        help_text=_("User this rule applies to"))
-    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='effective_rules',
-        help_text=_("Branch this rule applies to"))
-    rule = models.ForeignKey(Rule, on_delete=models.CASCADE, related_name='effective_rules',
-        help_text=_("The rule being applied"))
-    amount = models.DecimalField(max_digits=12, decimal_places=2, help_text=_("Final computed amount after overrides"))
-    percentage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True,
-        help_text=_("Final computed percentage after overrides, if applicable"))
-    source = models.CharField(max_length=20, choices=SCOPE_LEVELS,
-        help_text=_("Scope from which the rule originates (company, restaurant, branch, user)"))
-    created_at = models.DateTimeField(auto_now_add=True, help_text=_("Timestamp when the effective rule was created"))
+# class EffectiveRule(models.Model):
+#     """
+#     Stores precomputed rules for a user, period, and branch after applying overrides.
+#     Optimizes payroll generation by avoiding dynamic rule merging.
+#     """
+#     period = models.ForeignKey(Period, on_delete=models.CASCADE, related_name='effective_rules',
+#         help_text=_("Payroll period for this effective rule"))
+#     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='effective_rules',
+#         help_text=_("User this rule applies to"))
+#     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name='effective_rules',
+#         help_text=_("Branch this rule applies to"))
+#     rule = models.ForeignKey(Rule, on_delete=models.CASCADE, related_name='effective_rules',
+#         help_text=_("The rule being applied"))
+#     amount = models.DecimalField(max_digits=12, decimal_places=2, help_text=_("Final computed amount after overrides"))
+#     percentage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True,
+#         help_text=_("Final computed percentage after overrides, if applicable"))
+#     source = models.CharField(max_length=20, choices=SCOPE_LEVELS,
+#         help_text=_("Scope from which the rule originates (company, restaurant, branch, user)"))
+#     created_at = models.DateTimeField(auto_now_add=True, help_text=_("Timestamp when the effective rule was created"))
 
-    class Meta:
-        indexes = [
-            models.Index(fields=['period', 'user', 'branch']),
-        ]
-        constraints = [
-            models.CheckConstraint(
-                check=models.Q(amount__gte=0), name='non_negative_effective_amount'
-            ),
-            models.CheckConstraint(
-                check=models.Q(percentage__gte=0) | models.Q(percentage__isnull=True),
-                name='non_negative_effective_percentage'
-            ),
-        ]
+#     class Meta:
+#         indexes = [
+#             models.Index(fields=['period', 'user', 'branch']),
+#         ]
+#         constraints = [
+#             models.CheckConstraint(
+#                 check=models.Q(amount__gte=0), name='non_negative_effective_amount'
+#             ),
+#             models.CheckConstraint(
+#                 check=models.Q(percentage__gte=0) | models.Q(percentage__isnull=True),
+#                 name='non_negative_effective_percentage'
+#             ),
+#         ]
 
-    def __str__(self):
-        return _("{rule_name} for {user} ({period})").format(
-            rule_name=self.rule.name,
-            user=self.user.username,
-            period=self.period
-        )
+#     def __str__(self):
+#         return _("{rule_name} for {user} ({period})").format(
+#             rule_name=self.rule.name,
+#             user=self.user.username,
+#             period=self.period
+#         )
 
 
 class Record(models.Model):
@@ -281,6 +284,8 @@ class Record(models.Model):
     net_pay = models.DecimalField(max_digits=12, decimal_places=2, help_text=_("Final net pay (base + bonuses - deductions)"))
     status = models.CharField(max_length=20, choices=[('pending', _('Pending')), ('generated', _('Generated')), ('failed', _('Failed'))],
         default='pending', help_text=_("Processing status of the payroll record"))
+    bonus_details = models.JSONField(default=dict)
+    deduction_details = models.JSONField(default=dict)
     generated_at = models.DateTimeField(auto_now_add=True, help_text=_("Timestamp when the payroll record was generated"))
 
     class Meta:
@@ -308,26 +313,26 @@ class Record(models.Model):
         return _("{user} - {period}").format(user=self.user.username, period=self.period)
 
 
-class Component(models.Model):
-    """
-    Represents a single rule’s contribution to a payroll record.
-    Links a payroll record to a rule with the applied amount.
-    """
-    record = models.ForeignKey(Record, on_delete=models.CASCADE, related_name='components',
-        help_text=_("Payroll record this component belongs to"))
-    rule = models.ForeignKey(Rule, on_delete=models.CASCADE, related_name='components',
-        help_text=_("Rule contributing to the payroll record"))
-    amount = models.DecimalField(max_digits=12, decimal_places=2, help_text=_("Amount applied for this rule"))
+# class Component(models.Model):
+#     """
+#     Represents a single rule’s contribution to a payroll record.
+#     Links a payroll record to a rule with the applied amount.
+#     """
+#     record = models.ForeignKey(Record, on_delete=models.CASCADE, related_name='components',
+#         help_text=_("Payroll record this component belongs to"))
+#     rule = models.ForeignKey(Rule, on_delete=models.CASCADE, related_name='components',
+#         help_text=_("Rule contributing to the payroll record"))
+#     amount = models.DecimalField(max_digits=12, decimal_places=2, help_text=_("Amount applied for this rule"))
 
-    class Meta:
-        indexes = [
-            models.Index(fields=['record', 'rule']),
-        ]
-        constraints = [
-            models.CheckConstraint(
-                check=models.Q(amount__gte=0), name='non_negative_component_amount'
-            ),
-        ]
+#     class Meta:
+#         indexes = [
+#             models.Index(fields=['record', 'rule']),
+#         ]
+#         constraints = [
+#             models.CheckConstraint(
+#                 check=models.Q(amount__gte=0), name='non_negative_component_amount'
+#             ),
+#         ]
 
-    def __str__(self):
-        return _("{rule_name}: {amount}").format(rule_name=self.rule.name, amount=self.amount)
+#     def __str__(self):
+#         return _("{rule_name}: {amount}").format(rule_name=self.rule.name, amount=self.amount)

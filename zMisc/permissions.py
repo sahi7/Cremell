@@ -102,8 +102,9 @@ class UserCreationPermission(BasePermission):
 
     async def filter_restaurant_manager_users(self, user, max_r_val, restaurant_ids):
         return CustomUser.objects.filter(
-            Q(restaurants__id__in=restaurant_ids) |
-            (Q(branches__restaurant_id__in=restaurant_ids) & Q(companies__in=user.companies.all())),
+            # Q(restaurants__id__in=restaurant_ids) |
+            # (Q(branches__restaurant_id__in=restaurant_ids) & Q(companies__in=user.companies.all())),
+            Q(restaurants__id__in=restaurant_ids) | Q(branches__restaurant_id__in=restaurant_ids ),
             r_val__gte=max_r_val
         )
 
@@ -831,7 +832,7 @@ class EntityUpdatePermission(BasePermission):
                 return {obj.menu.branch.company_id}
         elif model == Rule:
             if obj.branch_id:
-                return {obj.id}
+                return {obj.branch_id}
             elif obj.restaurant_id:
                 return {obj.restaurant_id}
             elif obj.company_id:

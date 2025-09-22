@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from adrf.serializers import Serializer, ModelSerializer
 from django.utils.translation import gettext as _
-from .models import Rule, RuleTarget, Period, Override, Record, Component
+from .models import Rule, RuleTarget, Period, Override, Record
 from cre.models import Company, Restaurant, Branch, CustomUser
 
 class RuleTargetSerializer(ModelSerializer):
@@ -159,22 +159,22 @@ class OverrideSerializer(ModelSerializer):
         override = await Override.objects.acreate(created_by=self.context['request'].user, **validated_data)
         return override
 
-class ComponentSerializer(ModelSerializer):
-    """
-    Serializes Component model for individual rule contributions in a payslip.
-    """
-    rule_name = serializers.CharField(source='rule.name', read_only=True)
+# class ComponentSerializer(ModelSerializer):
+#     """
+#     Serializes Component model for individual rule contributions in a payslip.
+#     """
+#     rule_name = serializers.CharField(source='rule.name', read_only=True)
 
-    class Meta:
-        model = Component
-        fields = ['rule_name', 'amount']
+#     class Meta:
+#         model = Component
+#         fields = ['rule_name', 'amount']
 
 class RecordSerializer(ModelSerializer):
     """
     Serializes Record model for payslip data.
     Includes components for detailed breakdown.
     """
-    components = ComponentSerializer(many=True, read_only=True)
+    # components = ComponentSerializer(many=True, read_only=True)
     user = serializers.CharField(source='user.username', read_only=True)
     period = serializers.CharField(source='period.__str__', read_only=True)
 
@@ -182,5 +182,5 @@ class RecordSerializer(ModelSerializer):
         model = Record
         fields = [
             'user', 'period', 'base_salary', 'total_bonus',
-            'total_deduction', 'net_pay', 'components'
+            'total_deduction', 'net_pay'
         ]
