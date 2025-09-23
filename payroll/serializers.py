@@ -43,7 +43,7 @@ class RuleSerializer(ModelSerializer):
     class Meta:
         model = Rule
         fields = [
-            'id', 'name', 'rule_type', 'amount', 'percentage', 'scope',
+            'id', 'name', 'rule_type', 'amount', 'scope',
             'company', 'restaurant', 'branch', 'priority', 'effective_from',
             'is_active', 'created_by', 'targets'
         ]
@@ -57,9 +57,9 @@ class RuleSerializer(ModelSerializer):
     def validate(self, data):
         """
         Validates scope and related fields (company, restaurant, branch).
-        Ensures amount or percentage is provided based on rule_type.
+        Ensures amount is provided based on rule_type.
         """
-        print("data: ", data)
+        # print("data: ", data)
         scope = data.get('scope')
         company = data.get('company')
         restaurant = data.get('restaurant')
@@ -74,8 +74,8 @@ class RuleSerializer(ModelSerializer):
         if scope == 'user' and not data.get('targets'):
             raise serializers.ValidationError(_("Targets are required for user-scoped rules"))
 
-        if data.get('amount') is None and data.get('percentage') is None:
-            raise serializers.ValidationError(_("Either amount or percentage must be provided"))
+        if data.get('amount') is None:
+            raise serializers.ValidationError(_("Amount must be provided"))
 
         return data
 
@@ -125,30 +125,28 @@ class OverrideSerializer(ModelSerializer):
         model = Override
         fields = [
             'id', 'rule', 'period', 'user', 'override_type', 'amount',
-            'percentage', 'notes', 'effective_from', 'expires_at', 'branch'
+            'notes', 'effective_from', 'expires_at', 'branch'
         ]
         extra_kwargs = {
             'amount': {'required': False},
-            'percentage': {'required': False},
             'branch': {'required': False},
             'created_by': {'read_only': True}
         }
 
     def validate(self, data):
         """
-        Validates override_type and ensures amount/percentage are provided for add/replace.
+        Validates override_type and ensures amount are provided for add/replace.
         """
         override_type = data.get('override_type')
         amount = data.get('amount')
-        percentage = data.get('percentage')
 
-        if override_type in ['add', 'replace'] and amount is None and percentage is None:
+        if override_type in ['add', 'replace'] and amount is None:
             raise serializers.ValidationError(
-                _("Amount or percentage is required for add/replace overrides")
+                _("Amount is required for add/replace overrides")
             )
-        if override_type == 'remove' and (amount is not None or percentage is not None):
+        if override_type == 'remove' and (amount is not None):
             raise serializers.ValidationError(
-                _("Amount and percentage must be null for remove overrides")
+                _("Amount must be null for remove overrides")
             )
         return data
 
@@ -175,12 +173,12 @@ class RecordSerializer(ModelSerializer):
     Includes components for detailed breakdown.
     """
     # components = ComponentSerializer(many=True, read_only=True)
-    user = serializers.CharField(source='user.username', read_only=True)
+    # user = serializers.CharField(source='user.username', read_only=True)
     period = serializers.CharField(source='period.__str__', read_only=True)
 
     class Meta:
         model = Record
         fields = [
-            'user', 'period', 'base_salary', 'total_bonus',
-            'total_deduction', 'net_pay'
+            'user', 'period', 'branch', 'base_salary', 'total_bonus',
+            'total_deduction', 'net_pay', 'bonus_details', 'deduction_details'
         ]

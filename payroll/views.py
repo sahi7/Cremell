@@ -1,5 +1,5 @@
 import json
-import asyncio
+import time
 
 from adrf.views import APIView
 from adrf.viewsets import ModelViewSet
@@ -10,11 +10,13 @@ from aiokafka import AIOKafkaProducer
 from django.conf import settings
 from django.utils.translation import gettext as _
 from .models import Rule, RuleTarget, Override, Record, Period
-from .serializers import RuleSerializer, OverrideSerializer, RecordSerializer, PeriodSerializer
-from .permissions import RulePermission
+from .serializers import RuleSerializer, OverrideSerializer, RecordSerializer
+from .permissions import *
 from zMisc.policies import ScopeAccessPolicy
+from zMisc.permissions import StaffAccessPolicy
 from zMisc.atransactions import aatomic
 from zMisc.utils import clean_request_data
+from cre.tasks import log_activity
 
 import logging
 
@@ -66,15 +68,6 @@ class RuleViewSet(ModelViewSet):
                 created_by=request.user,
                 **validated_data
             )
-
-            # Bulk create targets if they exist
-            # if targets_data:
-            #     targets = [
-            #         RuleTarget(rule=rule, **target_data)
-            #         for target_data in targets_data
-            #     ]
-            #     await RuleTarget.objects.abulk_create(targets)
-            # Process targets and categorize them for the Kafka event
             target_roles = []
             target_users = []
             
@@ -92,37 +85,31 @@ class RuleViewSet(ModelViewSet):
                 
                 await RuleTarget.objects.abulk_create(targets_to_create)
 
-            # Publish Kafka event for rule update
-            producer = AIOKafkaProducer(bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS)
-            await producer.start()
-            try:
-                event = {
-                    'type': KAFKA_RULES_TOPIC,
-                    'rule_id': rule.id,
-                    'scope': rule.scope,
-                    'company_id': rule.company_id,
-                    'restaurant_id': rule.restaurant_id,
-                    'branch_id': rule.branch_id,
-                    # 'target_roles': [
-                    #     target.target_value async for target in rule.targets.filter(target_type='role')
-                    # ],
-                    # 'target_users': [
-                    #     target.target_value async for target in rule.targets.filter(target_type='user')
-                    # ],
-                    'target_roles': target_roles,
-                    'target_users': target_users,
-                    'periods': [p.id async for p in Period.objects.filter(
-                        year__gte=rule.effective_from.year,
-                        month__gte=rule.effective_from.month
-                    )]
-                }
-                await producer.send_and_wait(
-                    KAFKA_EVENTS_TOPIC,
-                    key=str(rule.id).encode('utf-8'),
-                    value=json.dumps(event).encode('utf-8')
-                )
-            finally:
-                await producer.stop()
+            # # Publish Kafka event for rule update
+            # producer = AIOKafkaProducer(bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS)
+            # await producer.start()
+            # try:
+            #     event = {
+            #         'type': KAFKA_RULES_TOPIC,
+            #         'rule_id': rule.id,
+            #         'scope': rule.scope,
+            #         'company_id': rule.company_id,
+            #         'restaurant_id': rule.restaurant_id,
+            #         'branch_id': rule.branch_id,
+            #         'target_roles': target_roles,
+            #         'target_users': target_users,
+            #         'periods': [p.id async for p in Period.objects.filter(
+            #             year__gte=rule.effective_from.year,
+            #             month__gte=rule.effective_from.month
+            #         )]
+            #     }
+            #     await producer.send_and_wait(
+            #         KAFKA_EVENTS_TOPIC,
+            #         key=str(rule.id).encode('utf-8'),
+            #         value=json.dumps(event).encode('utf-8')
+            #     )
+            # finally:
+            #     await producer.stop()
             serialized_data = await sync_to_async(lambda: serializer.data)()
             return Response(serialized_data, status=status.HTTP_201_CREATED)
             # except Exception as e:
@@ -133,7 +120,37 @@ class RuleViewSet(ModelViewSet):
 
         # return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class OverrideCreateView(APIView):
+    async def partial_update(self, request, *args, **kwargs):
+        # Get ov from URL kwargs
+        start = time.perf_counter()
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
+
+        if request.data.get('companies'):
+            data['company'] = request.data['companies'][0]
+        if request.data.get('restaurants'):  
+            data['restaurant'] = request.data['restaurants'][0]
+        if request.data.get('branches'):
+            data['branch'] = request.data['branches'][0]
+        ov = kwargs.get(self.lookup_field)
+        ov_obj = await sync_to_async(Rule.objects.get)(id=ov)
+
+        changes = {}
+        # Detect changes using serializer (3 lines)
+        current_data = self.get_serializer(ov_obj).data
+        changes = {field: {'from': current_data[field], 'to': request.data[field]} 
+                for field in request.data if field in current_data and current_data[field] != request.data[field]}
+
+        # Save asynchronously, Serialize with partial update
+        serializer = RuleSerializer(ov_obj, data=data, partial=True)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        await sync_to_async(serializer.save)()
+
+        log_activity.delay(request.user.id, 'p_rule_update', changes, ov_obj.branch_id, 'branch')
+        print(f"1st rule partial_update took {(time.perf_counter() - start) * 1000:.3f} ms")
+        return Response(serializer.data, status=status.HTTP_200_OK)        
+
+class OverrideViewSet(ModelViewSet):
     """
     Handles POST /overrides to create special-case overrides asynchronously.
     Request data
@@ -147,38 +164,79 @@ class OverrideCreateView(APIView):
         "notes": "Adjusted bonus for performance"
     }
     """
+    queryset = Override.objects.all()
+    serializer_class = OverrideSerializer
     permission_classes = (ScopeAccessPolicy, RulePermission, )
+
+    async def get_queryset(self):
+        user = self.request.user
+        scope_filter = await ScopeAccessPolicy().get_queryset_scope(user, view=self)
+        return self.queryset.filter(scope_filter)
+
+    async def list(self, request, *args, **kwargs):
+        queryset = await self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        serialized_data = await sync_to_async(lambda: serializer.data)()
+        return Response(serialized_data)
+    
     async def post(self, request):
         cleaned_data = clean_request_data(request.data)
         data = cleaned_data
         data['branch'] = request.data.get('branches', [None])[0]
         serializer = OverrideSerializer(data=data, context={'request': request})
         if await sync_to_async(serializer.is_valid)():
-            override = await serializer.asave()
-            # Publish Kafka event for override update
-            producer = AIOKafkaProducer(bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS)
-            await producer.start()
-            try:
-                event = {
-                    'type': KAFKA_OVERRIDES_TOPIC,
-                    'override_id': override.id,
-                    'rule_id': override.rule_id,
-                    'user_id': override.user_id,
-                    'period_id': override.period_id,
-                    'branch_id': override.branch_id,
-                    'override_type': override.override_type,
-                    'amount': float(override.amount) if override.amount is not None else None,
-                    'percentage': float(override.percentage) if override.percentage is not None else None
-                }
-                await producer.send_and_wait(
-                    KAFKA_EVENTS_TOPIC,
-                    key=str(override.id).encode('utf-8'),
-                    value=json.dumps(event).encode('utf-8')
-                )
-            finally:
-                await producer.stop()
+            await serializer.asave()
+            # override = await serializer.asave()
+            # # Publish Kafka event for override update
+            # producer = AIOKafkaProducer(bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS)
+            # await producer.start()
+            # try:
+            #     event = {
+            #         'type': KAFKA_OVERRIDES_TOPIC,
+            #         'override_id': override.id,
+            #         'rule_id': override.rule_id,
+            #         'user_id': override.user_id,
+            #         'period_id': override.period_id,
+            #         'branch_id': override.branch_id,
+            #         'override_type': override.override_type,
+            #         'amount': float(override.amount) if override.amount is not None else None,
+            #         'percentage': float(override.percentage) if override.percentage is not None else None
+            #     }
+            #     await producer.send_and_wait(
+            #         KAFKA_EVENTS_TOPIC,
+            #         key=str(override.id).encode('utf-8'),
+            #         value=json.dumps(event).encode('utf-8')
+            #     )
+            # finally:
+            #     await producer.stop()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    async def partial_update(self, request, *args, **kwargs):
+        # Get ov from URL kwargs
+        start = time.perf_counter()
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
+        if request.data.get('branches'):
+            data['branch'] = request.data['branches'][0]
+        ov = kwargs.get(self.lookup_field)
+        override = await sync_to_async(Override.objects.get)(id=ov)
+
+        changes = {}
+        # Detect changes using serializer (3 lines)
+        current_data = self.get_serializer(override).data
+        print("current_data: ", current_data)
+        changes = {field: {'from': current_data[field], 'to': request.data[field]} 
+                for field in request.data if field in current_data and current_data[field] != request.data[field]}
+
+        # Save asynchronously, Serialize with partial update
+        serializer = OverrideSerializer(override, data=data, partial=True)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        await sync_to_async(serializer.save)()
+        
+        log_activity.delay(request.user.id, 'p_override_update', changes, override.branch_id, 'branch')
+        print(f"1st override partial_update took {(time.perf_counter() - start) * 1000:.3f} ms")
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 class GeneratePayrollView(APIView):
     """
@@ -237,28 +295,73 @@ class GeneratePayrollView(APIView):
 
         return Response({"message": _("Payroll generation triggered for {period}").format(period=period_str)})
 
-class PayslipView(APIView):
+class PayslipViewSet(ModelViewSet):
     """
     Handles GET /payslip?period=July to retrieve a user's payslip asynchronously.
     """
-    async def get(self, request):
-        period_str = request.query_params.get('period')
-        user = request.user
+    queryset = Record.objects.filter(status='generated')
+    serializer_class = RecordSerializer
 
-        if not period_str:
-            return Response({"error": _("Period is required")}, status=status.HTTP_400_BAD_REQUEST)
+    def get_permissions(self):
+        role_value = self.request.user.r_val
+        self._access_policy = ScopeAccessPolicy if role_value <= 5 else StaffAccessPolicy
+        return [self._access_policy(), PeriodPermission()]
+    
+    async def get_queryset(self):
+        user = self.request.user
+        scope_filter = await self._access_policy().get_queryset_scope(user, view=self)
+        return self.queryset.filter(scope_filter)
+    
+    async def list(self, request, *args, **kwargs):
+        queryset = await self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        data = await sync_to_async(lambda: serializer.data)()
+        return Response(data)
+    
+    # async def get(self, request):
+    #     period_str = request.query_params.get('period')
+    #     user = request.user
 
-        try:
-            month, year = map(int, period_str.split('/'))
-            period = await Period.objects.aget(month=month, year=year)
-        except (ValueError, Period.DoesNotExist):
-            return Response({"error": _("Invalid or non-existent period")}, status=status.HTTP_400_BAD_REQUEST)
+    #     if not period_str:
+    #         return Response({"error": _("Period is required")}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            record = await Record.objects.aget(user=user, period=period)
-            serializer = RecordSerializer(record)
-            # response_data = await sync_to_async(lambda: serializer.data)()
-            return Response(serializer.data)
-        except Record.DoesNotExist:
-            return Response({"error": _("Payslip not found for {period}").format(period=period_str)},
-                            status=status.HTTP_404_NOT_FOUND)
+    #     try:
+    #         month, year = map(int, period_str.split('/'))
+    #         period = await Period.objects.aget(month=month, year=year)
+    #     except (ValueError, Period.DoesNotExist):
+    #         return Response({"error": _("Invalid or non-existent period")}, status=status.HTTP_400_BAD_REQUEST)
+
+    #     try:
+    #         record = await Record.objects.aget(user=user, period=period)
+    #         serializer = RecordSerializer(record)
+    #         # response_data = await sync_to_async(lambda: serializer.data)()
+    #         return Response(serializer.data)
+    #     except Record.DoesNotExist:
+    #         return Response({"error": _("Payslip not found for {period}").format(period=period_str)},
+    #                         status=status.HTTP_404_NOT_FOUND)
+        
+    async def partial_update(self, request, *args, **kwargs):
+        # Get ov from URL kwargs
+        start = time.perf_counter()
+        cleaned_data = clean_request_data(request.data)
+        data = cleaned_data
+        if request.data.get('branches'):
+            data['branch'] = request.data['branches'][0]
+        ov = kwargs.get(self.lookup_field)
+        ov_obj = await sync_to_async(Period.objects.get)(id=ov)
+
+        changes = {}
+        # Detect changes using serializer (3 lines)
+        current_data = self.get_serializer(ov_obj).data
+        print("current_data: ", current_data)
+        changes = {field: {'from': current_data[field], 'to': request.data[field]} 
+                for field in request.data if field in current_data and current_data[field] != request.data[field]}
+
+        # Save asynchronously, Serialize with partial update
+        serializer = self.serializer_class(ov_obj, data=data, partial=True)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        await sync_to_async(serializer.save)()
+
+        log_activity.delay(request.user.id, 'p_payslip_update', changes, ov_obj.branch_id, 'branch')
+        print(f"1st period partial_update took {(time.perf_counter() - start) * 1000:.3f} ms")
+        return Response(serializer.data, status=status.HTTP_200_OK)

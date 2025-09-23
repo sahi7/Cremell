@@ -366,9 +366,8 @@ class StaffAccessPolicy(BasePermission):
         model = view.queryset.model
         scopes = await get_scopes_and_groups(user)
         branch_ids = scopes['branches']
-        role = scopes['role']
         filters = LowRoleQsFilter.FILTER_TEMPLATES.get(model, {})
-        filter_func = filters.get(role, filters.get('default', LowRoleQsFilter.default_empty_filter))
+        filter_func = filters.get(user.role, filters.get('default', LowRoleQsFilter.default_empty_filter))
         return await filter_func(user, branch_ids)
         
         # filter_func = self.QUERYSET_FILTERS.get(model, lambda u, b: Q(pk__in=[]))
@@ -1324,7 +1323,7 @@ class OrderPermission(BasePermission):
         policy = StaffAccessPolicy()
 
         scopes = await get_scopes_and_groups(user)
-        branch_ids = scopes.get('branch', set())
+        branch_ids = scopes.get('branches', set())
         check = policy.OBJECT_CHECKS.get(obj.__class__)
         print("check: ", check)
         if not check:

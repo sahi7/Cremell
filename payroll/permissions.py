@@ -43,16 +43,27 @@ class RulePermission(BasePermission):
             for target in targets:
                 return await self.check_target_permission(request, target)
         view_name = view.__class__.__name__
-        if view_name == 'OverrideCreateView':
+        if view_name == 'OverrideViewSet':
             rule = data.get('rule')
             user = data.get('user')
-            target = {"target_type": "user", "target_value": user}
-            rule = {"target_type": "user", "target_value": rule, "category": "rule"}
-
-            if not await self.check_target_permission(request, target):
-                return False
+            if user:
+                target = {"target_type": "user", "target_value": user}
+                if not await self.check_target_permission(request, target):
+                    return False
+            if rule:
+                rule = {"target_type": "user", "target_value": rule, "category": "rule"}
+                if not await self.check_target_permission(request, rule):
+                    return False
             
-            if not await self.check_target_permission(request, rule):
-                return False
-            
+        return True
+    
+class PeriodPermission(BasePermission):
+    async def has_permission(self, request, view):
+        if request.method == 'GET':
+            return True
+        
+        user = request.user
+        if user.r_val > 5:
+            return False
+        
         return True

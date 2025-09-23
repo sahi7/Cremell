@@ -105,7 +105,7 @@ class CustomUser(AbstractUser):
                                 help_text=_('User’s preferred timezone. Falls back to branch timezone.'))
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', blank=True, null=True)
     role = models.CharField(max_length=30, choices=ROLE_CHOICES, blank=True, null=True)
-    salary = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    salary = models.DecimalField(max_digits=10, decimal_places=2, default=0, blank=True, null=True)
     hire_date = models.DateField(blank=True, null=True)
     bio = models.TextField(blank=True, null=True)
     r_val = models.PositiveIntegerField(default=12)

@@ -16,7 +16,7 @@ from django.contrib.auth.models import Group
 from django.template.loader import render_to_string
 from notifications.models import BranchActivity, RestaurantActivity
 from cre.models import Branch, Restaurant, Company, Country, ShiftSwapRequest
-from payroll.models import Rule
+from payroll.models import *
 from printing.models import Device, Printer
 
 logger = logging.getLogger(__name__)
@@ -773,6 +773,10 @@ class LowRoleQsFilter:
     @staticmethod
     async def default_device_filter(user, branch_ids):
         return Q(user=user, branch_id__in=branch_ids)
+    
+    @staticmethod
+    async def default_record_filter(user, branch_ids):
+        return Q(user_id=user.id, branch_id__in=branch_ids)
 
     @staticmethod
     async def default_empty_filter(user, branch_ids):
@@ -780,6 +784,9 @@ class LowRoleQsFilter:
         return Q(pk__in=[])
 
     FILTER_TEMPLATES = {
+        Record: {
+            'default': default_record_filter
+        },
         Device: {
             'default': default_device_filter
         },
@@ -882,6 +889,7 @@ class HighRoleQsFilter:
         """Filter querysets for CompanyAdmin."""
         companies = scopes['companies']
         return {
+            Override: Q(rule__company__in=companies),
             Device: Q(branch__company__in=companies),
             ShiftSwapRequest: Q(branch__company__in=companies),
             Rule: Q(company_id__in=companies, is_active=True),
@@ -964,6 +972,7 @@ class HighRoleQsFilter:
         companies = scopes['companies']
         countries = scopes['countries']
         return {
+            Override: Q(rule__company__in=companies),
             Device: Q(branch__company__in=companies) & Q(branch__country__in=countries),
             ShiftSwapRequest: Q(branch__company__in=companies) & Q(branch__country__in=countries),
             Rule: Q(company_id__in=companies, is_active=True) & (Q(branch__country__in=countries, is_active=True) & Q(restaurant__country__in=countries, is_active=True)),
@@ -1023,6 +1032,7 @@ class HighRoleQsFilter:
         """Filter querysets for RestaurantOwner."""
         restaurants = scopes['restaurants']
         return {
+            Override: Q(rule__restaurant__in=restaurants),
             Device: Q(branch__restaurant__in=restaurants),
             ShiftSwapRequest: Q(branch__restaurant__in=restaurants),
             Rule: Q(restaurant__in=restaurants, is_active=True),
@@ -1093,6 +1103,7 @@ class HighRoleQsFilter:
         """Filter querysets for RestaurantManager."""
         restaurants = scopes['restaurants']
         return {
+            Override: Q(rule__restaurant__in=restaurants),
             Device: Q(branch__restaurant__in=restaurants),
             ShiftSwapRequest: Q(branch__restaurant__in=restaurants),
             Rule: Q(restaurant__in=restaurants, is_active=True),
@@ -1135,6 +1146,7 @@ class HighRoleQsFilter:
         """Filter querysets for BranchManager."""
         branches = scopes['branches']
         return {
+            Override: Q(rule__branch_id__in=branches),
             Device: Q(branch_id__in=branches),
             ShiftSwapRequest: Q(branch_id__in=branches),
             Rule: Q(branch_id__in=branches, is_active=True),

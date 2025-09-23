@@ -62,10 +62,9 @@ class Rule(models.Model):
     """
     name = models.CharField(max_length=150, help_text=_("Descriptive name of the rule (e.g., 'Transport Bonus')"))
     rule_type = models.CharField(max_length=20, choices=RULE_TYPES, help_text=_("Type of rule: bonus or deduction"))
-    amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True,
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, null=True, blank=True,
         help_text=_("Fixed amount for the rule"))
-    percentage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True,
-        help_text=_("Percentage-based amount, if applicable (e.g., 5.00 for 5%)")) # Remove field - frontend will calculate percentage from salary and send as amount
+     # Removed percentage field - frontend will calculate percentage from salary and send as amount
     scope = models.CharField(max_length=20, choices=SCOPE_LEVELS, default='restaurant',
         help_text=_("Scope of rule application (company, restaurant, branch, user)"))
     company = models.ForeignKey(Company, on_delete=models.CASCADE, null=True, blank=True,
@@ -180,12 +179,11 @@ class Override(models.Model):
         help_text=_("Payroll period this override applies to"))
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='overrides',
         help_text=_("User this override applies to"))
-    override_type = models.CharField(max_length=20, choices=[('replace', _('Replace')), ('add', _('Add')), ('remove', _('Remove'))],
+    override_type = models.CharField(max_length=20, choices=[('replace', _('Replace')), ('add', _('Add')), ('remove', _('Remove')), ('subtract', _('Subtract'))],
         help_text=_("Action: replace rule value, add to it, or remove the rule"))
-    amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True,
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, null=True, blank=True,
         help_text=_("Override amount, if applicable"))
-    percentage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True,
-        help_text=_("Override percentage, if applicable")) # Remove field - frontend will calculate percentage from salary and send as amount
+    # Removed percentage field - frontend will calculate percentage from salary and send as amount
     notes = models.TextField(blank=True, help_text=_("Audit notes explaining the override (e.g., 'One-time bonus')"))
     effective_from = models.DateField(default=timezone.now, help_text=_("Date from which the override is effective"))
     expires_at = models.DateField(null=True, blank=True, help_text=_("Date the override expires, if temporary"))
@@ -215,13 +213,6 @@ class Override(models.Model):
             ),
         ]
 
-    def __str__(self):
-        return _("{override_type} {rule_name} for {user} ({period})").format(
-            override_type=self.override_type,
-            rule_name=self.rule.name,
-            user=self.user.username,
-            period=self.period
-        )
     
 # class EffectiveRule(models.Model):
 #     """
