@@ -179,7 +179,7 @@ class Override(models.Model):
         help_text=_("Payroll period this override applies to"))
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='overrides',
         help_text=_("User this override applies to"))
-    override_type = models.CharField(max_length=20, choices=[('replace', _('Replace')), ('add', _('Add')), ('remove', _('Remove')), ('subtract', _('Subtract'))],
+    override_type = models.CharField(max_length=20, choices=[('replace', _('Replace')), ('add', _('Add')), ('subtract', _('Subtract'))],
         help_text=_("Action: replace rule value, add to it, or remove the rule"))
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, null=True, blank=True,
         help_text=_("Override amount, if applicable"))

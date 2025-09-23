@@ -1,8 +1,10 @@
 from rest_framework import serializers
-from adrf.serializers import Serializer, ModelSerializer
+from adrf.serializers import ModelSerializer
 from django.utils.translation import gettext as _
+from django.contrib.auth import get_user_model
 from .models import Rule, RuleTarget, Period, Override, Record
-from cre.models import Company, Restaurant, Branch, CustomUser
+
+CustomUser = get_user_model()
 
 class RuleTargetSerializer(ModelSerializer):
     """
