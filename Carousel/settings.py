@@ -201,6 +201,8 @@ KAFKA_PRODUCER_CONFIG = {
     # 'linger_ms': 5,  # Batch messages for efficiency
     # 'max_request_size': 1048576  # 1MB, for large order payloads
 }
+KAFKA_CONSUMER_GROUP = 'websocket-notifier-group'
+CONSUMER_TOPIC = 'payroll.generated'
 
 
 # Celery configuration
