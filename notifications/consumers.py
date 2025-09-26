@@ -41,6 +41,7 @@ class StakeholderConsumer(AsyncWebsocketConsumer):
         """
         Handle stakeholder notification, sending message to client.
         """
+        # print("event['message']: ", event['message'])
         message = event['message']
         signal = event.get('signal', 'stakeholder')
         await self.send(text_data=json.dumps({

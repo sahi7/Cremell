@@ -275,7 +275,7 @@ class GeneratePayrollView(APIView):
                 event[field] = requested_ids[0]
         except (ValueError, Period.DoesNotExist):
             return Response({"error": _("Invalid or non-existent period")}, status=status.HTTP_400_BAD_REQUEST)
-        print("event: ", event)
+        # print("event: ", event)
         # Fetch the user's scope company and country
         producer = AIOKafkaProducer(bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS)
         await producer.start()

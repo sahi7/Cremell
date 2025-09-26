@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'payroll.apps.PayrollConfig',
     'permissions.apps.PermissionsConfig',
     'printing.apps.PrintingConfig',
+    'kafka_consumer.apps.KafkaConsumerConfig',
 
     # django-allauth
     'allauth',
