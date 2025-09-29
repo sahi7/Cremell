@@ -198,18 +198,7 @@ class Command(BaseCommand):
         if self.consumer:
             await self.consumer.stop()
         logger.info("Kafka consumer stopped.")
-
-    # def handle(self, *args, **options):
-    #     logger.info("Starting Kafka consumer management command...")
-    #     loop = asyncio.new_event_loop()
-    #     asyncio.set_event_loop(loop)
-    #     try:
-    #         loop.run_until_complete(self.start_consumer())
-    #     except Exception as e:
-    #         logger.error(f"Consumer failed with error: {str(e)}")
-    #     finally:
-    #         loop.run_until_complete(self.stop_consumer())
-    #         loop.close()
+    
     def handle(self, *args, **options):
         logger.info("Starting Kafka consumer management command...")
         loop = asyncio.new_event_loop()
@@ -225,7 +214,12 @@ class Command(BaseCommand):
         finally:
             self.running = False
             loop.run_until_complete(self.stop_consumer())
-            loop.close()
+            loop.close()  
+    #     except Exception as e:
+    #         logger.error(f"Consumer failed with error: {str(e)}")
+    #     finally:
+    #         loop.run_until_complete(self.stop_consumer())
+    #         loop.close()
 
 # # Signal handling for graceful shutdown
 # async def handle_shutdown(signum, frame):
