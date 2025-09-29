@@ -84,10 +84,11 @@ class RegistrationView(APIView):
         serializer = RegistrationSerializer(data=request.data, context={'request': request})
         if await sync_to_async(serializer.is_valid)():
             # Create either company or restaurant based on the data
-            user_type = 'company' if 'company_data' in request.data else 'restaurant'
-            serializer.context['role'] = 'company_admin' if user_type == 'company' else 'restaurant_owner'
+            user_type = 'company' if 'company_data' in request.data else 'restaurant' if 'restaurant_data' in request.data else 'branch'
+            serializer.context['role'] = 'company_admin' if user_type == 'company' else 'restaurant_owner' if user_type == 'restaurant' else 'branch_manager'
             serializer.context['status'] = 'active'
             serializer.context['wind_direction'] = 'wind_direction'
+            serializer.context['entity_type'] = user_type
             
             # Create and return the user/restaurant/company
             start = time.perf_counter()

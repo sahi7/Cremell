@@ -95,10 +95,6 @@ class Rule(models.Model):
             models.CheckConstraint(
                 check=models.Q(amount__gte=0), name='non_negative_amount'
             ),
-            models.CheckConstraint(
-                check=models.Q(percentage__gte=0) | models.Q(percentage__isnull=True),
-                name='non_negative_percentage'
-            ),
         ]
 
     def __str__(self):
@@ -206,10 +202,6 @@ class Override(models.Model):
             models.CheckConstraint(
                 check=models.Q(amount__gte=0) | models.Q(amount__isnull=True),
                 name='non_negative_override_amount'
-            ),
-            models.CheckConstraint(
-                check=models.Q(percentage__gte=0) | models.Q(percentage__isnull=True),
-                name='non_negative_override_percentage'
             ),
         ]
 

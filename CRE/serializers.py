@@ -252,11 +252,6 @@ class  RegistrationSerializer(Serializer):
         user_data = validated_data.pop('user_data')
         user_serializer = UserSerializer(context=context)
         user = async_to_sync(user_serializer.create)(user_data)  # Raw SQL create
-
-        #         user_data = validated_data.pop('user_data')  # Contains objects already
-#         user = await UserSerializer(context=self.context).create(validated_data=user_data)
-#         print(f"user creation took {(time.perf_counter() - start) * 1000:.3f} ms")
-        
         print(f"1 user creation took {(time.perf_counter() - start) * 1000:.3f} ms")
 
         # Get email_sent from context
@@ -273,13 +268,14 @@ class  RegistrationSerializer(Serializer):
             company = async_to_sync(CompanySerializer().create)(company_data)
 
             # Add M2M relationship
+            entity_id = company.id
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
                     INSERT INTO cre_customuser_companies (customuser_id, company_id)
                     VALUES (%s, %s)
                     """,
-                    [user.id, company.id]
+                    [user.id, entity_id]
                 )
 
             # Add to CompanyAdmin group (assume sync add_to_group)
@@ -291,7 +287,7 @@ class  RegistrationSerializer(Serializer):
                 start = time.perf_counter()
                 restaurant_data = validated_data.pop('restaurant_data')
                 restaurant_data['created_by_id'] = user.id
-                restaurant_data['company_id'] = company.id
+                restaurant_data['company_id'] = entity_id
                 restaurant = async_to_sync(RestaurantSerializer().create)(restaurant_data)
 
                 # Add M2M relationship
@@ -313,22 +309,62 @@ class  RegistrationSerializer(Serializer):
             restaurant = async_to_sync(RestaurantSerializer().create)(restaurant_data)
 
             # Add M2M relationship
+            entity_id = restaurant.id
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
                     INSERT INTO cre_customuser_restaurants (customuser_id, restaurant_id)
                     VALUES (%s, %s)
                     """,
-                    [user.id, restaurant.id]
+                    [user.id, entity_id]
                 )
 
             # Add to RestaurantOwner group
             async_to_sync(user.add_to_group)(user.role)  # If async, wrap in sync_to_async
             print(f"4 restaurant creation took {(time.perf_counter() - start) * 1000:.3f} ms")
-        else:
-            raise serializers.ValidationError("Either company or restaurant data must be provided.")
 
-        return {'user': user, 'email_sent': email_sent}
+        # 4. Create Restaurant without Company
+        elif 'branch_data' in validated_data:
+            start = time.perf_counter()
+            branch_data = validated_data.pop('branch_data')
+            branch_data['created_by_id'] = user.id
+            branch = async_to_sync(BranchSerializer().create)(restaurant_data)
+
+            # Add M2M relationship
+            entity_id = branch.id
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO cre_customuser_branches (customuser_id, branch_id)
+                    VALUES (%s, %s)
+                    """,
+                    [user.id, entity_id]
+                )
+            # Add to BranchManager group
+            async_to_sync(user.add_to_group)(user.role)  # If async, wrap in sync_to_async
+            print(f"5 branch creation took {(time.perf_counter() - start) * 1000:.3f} ms")
+        else:
+            raise serializers.ValidationError(_("Unable to detect user scope."))
+        
+        subscription_data = validated_data.pop('subscription_data')
+        # Generate unique IDs
+        request_id = str(uuid.uuid4())
+        subscription_id = str(uuid.uuid4())
+        entity_type = context.get("entity_type", None)
+        
+        # from redis import Redis
+        redis_conn = settings.SYNC_REDIS
+        redis_conn.xadd('rms.stream', {
+            'type': 'subscrition.create',
+            'request_id': request_id,
+            'subscription_id': subscription_id,
+            'entity_type': entity_type,
+            'entity_id': entity_id,
+            'plan_id': subscription_data['plan_id'],
+            'feature_ids': json.dumps(subscription_data.get('feature_ids')),
+        })
+
+        return {'user': user, 'email_sent': email_sent, 'subscription_id': subscription_id,}
 
     async def create(self, validated_data):
         start = time.perf_counter()

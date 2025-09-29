@@ -339,6 +339,7 @@ class Company(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     contact_email = models.EmailField(blank=True, null=True)
     contact_phone = models.CharField(max_length=15, blank=True, null=True)
+    wa_number = models.CharField(max_length=20, unique=True, blank=True, null=True)
     created_by = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="created_company")
     default_language = models.CharField(max_length=10, choices=settings.LANGUAGES, default='en',
                                 help_text=_('Default language for the company.'))
@@ -406,6 +407,9 @@ class Restaurant(models.Model):
     address = models.TextField()
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='restaurants')
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='restaurants')
+    contact_email = models.EmailField(blank=True, null=True)
+    contact_phone = models.CharField(max_length=15, blank=True, null=True)
+    wa_number = models.CharField(max_length=20, unique=True, blank=True, null=True)
     region_or_state = models.ForeignKey(RegionOrState, null=True, on_delete=models.CASCADE, related_name='restaurants')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     manager = models.ForeignKey( settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
@@ -446,6 +450,9 @@ class Branch(models.Model):
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='branches')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='branches')
+    contact_email = models.EmailField(blank=True, null=True)
+    contact_phone = models.CharField(max_length=15, blank=True, null=True)
+    wa_number = models.CharField(max_length=20, unique=True, blank=True, null=True)
     manager = models.ForeignKey( settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="managed_branch",
         help_text="User assigned as the manager of this branch",

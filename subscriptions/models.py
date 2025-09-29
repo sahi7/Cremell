@@ -5,7 +5,7 @@ import uuid
 
 class BillingType(models.TextChoices):
     MONTHLY_FIXED = 'monthly_fixed', 'Monthly Fixed'
-    PAY_PER_REQUEST = 'pay_per_request', 'Pay Per Request'
+    PAY_PER_ORDER = 'pay_per_order', 'Pay Per Order'
 
 class SubscriptionStatus(models.TextChoices):
     TRIAL = 'trial', 'Trial'
@@ -51,7 +51,7 @@ class Plan(models.Model):
             models.CheckConstraint(
                 check=(
                     models.Q(billing_type='monthly_fixed', monthly_price__isnull=False, included_credits__isnull=True) |
-                    models.Q(billing_type='pay_per_request', monthly_price__isnull=True, included_credits__isnull=False)
+                    models.Q(billing_type='pay_per_order', monthly_price__isnull=True, included_credits__isnull=False)
                 ),
                 name='valid_pricing'
             ),
@@ -79,14 +79,14 @@ class Feature(models.Model):
 class Subscription(models.Model):
     subscription_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     entity_type = models.CharField(max_length=20, choices=EntityType.choices)
-    entity_id = models.UUIDField()
+    entity_id = models.PositiveIntegerField()
     plan = models.ForeignKey(Plan, on_delete=models.RESTRICT)
     features = models.ManyToManyField(Feature, related_name='subscriptions')
     status = models.CharField(max_length=20, choices=SubscriptionStatus.choices)
     start_date = models.DateTimeField(default=timezone.now)
     current_period_start = models.DateTimeField(default=timezone.now)
     current_period_end = models.DateTimeField(null=True, blank=True)
-    auto_renew = models.BooleanField(default=True)
+    auto_renew = models.BooleanField(default=False)
     cancel_at_period_end = models.BooleanField(default=False)
     balance = models.IntegerField(default=0)  # Can go negative up to grace_credits
     plan_name = models.CharField(max_length=100)  # Denormalized for read efficiency
@@ -119,8 +119,8 @@ class History(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['subscription'], name='idx_subscription_history_subscription_id'),
-            models.Index(fields=['created_at'], name='idx_subscription_history_created_at'),
+            models.Index(fields=['subscription'], name='idx_history_subscription_id'),
+            models.Index(fields=['created_at'], name='idx_history_created_at'),
         ]
 
     def __str__(self):
@@ -158,8 +158,8 @@ class CouponRedemption(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['subscription'], name='idx_coupon_redemption_subscription_id'),
-            models.Index(fields=['coupon'], name='idx_coupon_redemption_coupon_id'),
+            models.Index(fields=['subscription'], name='idx_coupon_subscription_id'),
+            models.Index(fields=['coupon'], name='idx_coupon_coupon_id'),
         ]
 
     def __str__(self):
