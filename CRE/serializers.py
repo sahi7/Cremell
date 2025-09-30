@@ -1,5 +1,4 @@
-import asyncio
-
+import ujson
 from rest_framework import serializers
 from adrf.serializers import Serializer, ModelSerializer
 from allauth.account.adapter import get_adapter
@@ -289,7 +288,6 @@ class  RegistrationSerializer(Serializer):
     def create_transaction(self, validated_data, context):
         start = time.perf_counter()
         # 1. Create User
-        print("validated_data: ", validated_data)
         # user_data = validated_data.pop('user_data')
         # user_serializer = UserSerializer(context=context)
         # user = async_to_sync(user_serializer.create)(user_data)  # Raw SQL create
@@ -376,10 +374,11 @@ class  RegistrationSerializer(Serializer):
             branch_data = validated_data.pop('branch_data')
             # branch_data['created_by_id'] = user.id
             branch_data['created_by_id'] = user['id']
-            branch = async_to_sync(BranchSerializer().create)(branch_data)
+            branch_data['status'] = 'active'
+            # branch = async_to_sync(BranchSerializer().create)(branch_data)
 
             # Add M2M relationship
-            entity_id = branch.id
+            # entity_id = branch.id
             # with connection.cursor() as cursor:
             #     cursor.execute(
             #         """
@@ -394,22 +393,24 @@ class  RegistrationSerializer(Serializer):
         else:
             raise serializers.ValidationError(_("Unable to detect user scope."))
         
-        subscription_data = validated_data.pop('subscription_data')
         # Generate unique IDs
-        request_id = str(uuid.uuid4())
+        subscription_data = validated_data.pop('subscription_data')
         subscription_id = str(uuid.uuid4())
         entity_type = context.get("entity_type", None)
+        feature_ids = [str(f) for f in subscription_data.get('features', [])]
+        message = {
+            'type': 'subscription.create',
+            'subscription_id': subscription_id,
+            'entity_type': entity_type,
+            'entity_id': 1,
+            'plan_id': str(subscription_data['plan_id']),
+            'feature_ids': json.dumps(subscription_data.get('features', []))
+        }
         
         # from redis import Redis
         redis_conn = settings.SYNC_REDIS
-        redis_conn.xadd('rms.stream', {
-            'type': 'subscrition.create',
-            'subscription_id': subscription_id,
-            'entity_type': entity_type,
-            'entity_id': entity_id,
-            'plan_id': str(subscription_data['plan_id']),
-            'feature_ids': json.dumps(subscription_data.get('feature_ids')),
-        })
+        print(f"Sending to Redis: {message}")
+        redis_conn.xadd('rms.stream', message)
 
         return {'user': user, 'email_sent': email_sent, 'subscription_id': subscription_id,}
 

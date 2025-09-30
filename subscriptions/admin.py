@@ -12,7 +12,7 @@ class PlanAdmin(admin.ModelAdmin):
     ordering = ('-created_at',)
     fieldsets = (
         (None, {
-            'fields': ('plan_id', 'name', 'billing_type', 'monthly_price', 'included_credits', 'grace_credits', 'grace_days', 'is_active')
+            'fields': ('plan_id', 'name', 'billing_type', 'monthly_price', 'included_credits', 'grace_credits', 'grace_days', 'trial_days', 'is_active')
         }),
         (_('Metadata'), {
             'fields': ('created_at',),

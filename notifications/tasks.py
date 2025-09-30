@@ -17,7 +17,7 @@ from zMisc.utils import get_user_data, render_notification_template, get_stakeho
 import logging
 logger = logging.getLogger(__name__)
 
-cache = Redis.from_url(settings.REDIS_URL)
+cache = settings.SYNC_REDIS
 
 @shared_task
 def monitor_task_timeouts():
@@ -643,17 +643,27 @@ def invalidate_cache_keys(cache_patterns, object_ids):
     # invalidate_cache_keys.delay(['user_scopes:{id}'], [96, 97, 98])
     # invalidate_cache_keys.delay(['user_{id}_profile', 'org_{id}_settings'], [101, 102])
     """
-    if not cache_patterns or not object_ids:
-        return
     
-    # redis = Redis.from_url(settings.REDIS_URL)
-    
-    with cache.pipeline() as pipe:
-        for obj_id in object_ids:
-            for pattern in cache_patterns:
-                key = pattern.format(id=obj_id)
+    try:
+        # Handle keys with {id} placeholder
+        keys_to_delete = []
+        for pattern in cache_patterns:
+            if '{id}' in pattern:
+                for obj_id in object_ids:
+                    keys_to_delete.append(pattern.format(id=obj_id))
+            else:
+                keys_to_delete.append(pattern)
+        
+        # Delete keys using pipeline for efficiency
+        if keys_to_delete:
+            pipe = cache.pipeline()
+            for key in keys_to_delete:
                 pipe.delete(key)
-        try:
             pipe.execute()
-        except cache.RedisError as e:
-            logger.error(f"Cache invalidation failed: {str(e)}")
+            
+    except cache.RedisError as e:
+        logger.error(f"Failed to invalidate cache keys {keys_to_delete}: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during cache invalidation: {e}")
+        raise

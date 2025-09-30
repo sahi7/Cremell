@@ -7,6 +7,7 @@ import uuid
 class BillingType(models.TextChoices):
     MONTHLY_FIXED = 'monthly_fixed', _('Monthly Fixed')
     PAY_PER_ORDER = 'pay_per_order', _('Pay Per Order')
+    YEARLY_FIXED = 'yearly_fixed', _('Yearly Fixed')
 
 class SubscriptionStatus(models.TextChoices):
     TRIAL = 'trial', _('Trial')
@@ -63,6 +64,7 @@ class Plan(models.Model):
     included_credits = models.IntegerField(default=0, validators=[MinValueValidator(0)], verbose_name=_('Included Credits'))
     grace_credits = models.IntegerField(default=0, validators=[MinValueValidator(0)], verbose_name=_('Grace Credits'))
     grace_days = models.IntegerField(default=0, validators=[MinValueValidator(0)], verbose_name=_('Grace Days'))
+    trial_days = models.IntegerField(default=0, validators=[MinValueValidator(0)], verbose_name=_('Trial Days'))
     is_active = models.BooleanField(default=True, verbose_name=_('Is Active'))
     created_at = models.DateTimeField(default=timezone.now, verbose_name=_('Created At'))
 
@@ -74,7 +76,8 @@ class Plan(models.Model):
             models.CheckConstraint(
                 check=(
                     models.Q(billing_type='monthly_fixed', monthly_price__gt=0, included_credits__gte=0) |
-                    models.Q(billing_type='pay_per_order', monthly_price__gte=0, included_credits__gt=0)
+                    models.Q(billing_type='pay_per_order', monthly_price__gte=0, included_credits__gt=0) |
+                    models.Q(billing_type='yearly_fixed', monthly_price__gt=0, included_credits__gte=0)
                 ),
                 name='valid_pricing'
             ),
@@ -144,7 +147,7 @@ class History(models.Model):
     new_plan = models.ForeignKey(Plan, on_delete=models.SET_NULL, null=True, blank=True, related_name='new_plan_history', verbose_name=_('New Plan'))
     old_feature = models.ForeignKey(Feature, on_delete=models.SET_NULL, null=True, blank=True, related_name='old_feature_history', verbose_name=_('Old Feature'))
     new_feature = models.ForeignKey(Feature, on_delete=models.SET_NULL, null=True, blank=True, related_name='new_feature_history', verbose_name=_('New Feature'))
-    notes = models.TextField(blank=True, verbose_name=_('Notes'))
+    notes = models.TextField(null=True, blank=True, verbose_name=_('Notes'))
     created_at = models.DateTimeField(default=timezone.now, verbose_name=_('Created At'))
 
     class Meta:
