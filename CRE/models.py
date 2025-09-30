@@ -37,6 +37,7 @@ class CustomUserManager(BaseUserManager):
     async def create_superuser(self, email=None, username=None, phone_number=None, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
+        extra_fields.setdefault('status', 'active')
         return await self.create_user(email, username, phone_number, password, **extra_fields)
 
     async def create_user_with_role(self, role, email, phone_number, password=None, **extra_fields):
@@ -443,7 +444,7 @@ class Branch(models.Model):
         ('kiosk', _('Station Kiosk')),
         ('food_truck', _('Food Truck')),
     )
-    restaurant = models.ForeignKey(Restaurant, on_delete=models.CASCADE, related_name='branches')
+    restaurant = models.ForeignKey(Restaurant, null=True, on_delete=models.CASCADE, related_name='branches')
     company = models.ForeignKey(Company, null=True, blank=True, on_delete=models.CASCADE, related_name='branches')  # Required, as branches belong to a company
     name = models.CharField(max_length=100)  # Name of the branch (e.g., "Downtown Branch")
     address = models.TextField()

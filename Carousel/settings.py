@@ -16,6 +16,7 @@ from datetime import timedelta
 from dotenv import load_dotenv
 from django.utils.translation import gettext_lazy as _
 from redis import Redis as syncRedis
+from redis.asyncio import Redis as asyncRedis
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -216,6 +217,7 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 
 SYNC_REDIS = syncRedis.from_url(REDIS_URL, decode_responses=True)
+ASYNC_REDIS = asyncRedis.from_url(REDIS_URL, decode_responses=True)
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators

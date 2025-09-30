@@ -238,20 +238,67 @@ class RestaurantSerializer(ModelSerializer):
         log_activity.delay(validated_data['created_by_id'] , 'restaurant_create', details, restaurant.id)
 
         return restaurant
+    
+class BranchSerializer(ModelSerializer):
+    # restaurant = serializers.IntegerField(source='restaurant_id', required=False)
+    # company = serializers.IntegerField(source='company_id', required=False)
+    # country = serializers.IntegerField(source='country_id', required=True)
+
+    class Meta:
+        model = Branch
+        fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'status', 'timezone', 'default_language', 'manager', 'logo']
+        read_only_fields = ('created_by', )
+
+    def validate(self, attrs):
+        # print("attrs: ", attrs)
+        return attrs
+
+    async def create(self, validated_data):
+        from notifications.tasks import invalidate_cache_keys
+        request = self.context.get('request')
+        is_RO = self.context.get('is_CEO', False)
+        if is_RO:
+            validated_data['status'] = 'active'
+        user_id = (request.user.id if request and request.user else None) or validated_data['created_by_id']
+        validated_data['created_by_id'] = user_id
+        branch = await Branch.objects.acreate(**validated_data)
+        details = {}
+        details['name'] = branch.name
+        details['restaurant'] = branch.restaurant_id
+        log_activity.delay(validated_data['created_by_id'], 'branch_create', details, branch.id, 'branch')
+
+        # Build cache keys
+        user_role = (request.user.role if request and request.user else None) or validated_data.get('role', 'default')
+        cache_keys = [f'user_scopes:{user_id}', f'scopes:{user_role}:{user_id}']
+        invalidate_cache_keys.delay(cache_keys, [user_id])
+        
+        return branch
+    
 import time
 # General Registration Serializer that will dynamically decide between company and restaurant registration
 class  RegistrationSerializer(Serializer):
-    user_data = UserSerializer()
+    from subscriptions.serializers import SubscriptionSerializer
+
+    # user_data = UserSerializer()
     company_data = CompanySerializer(required=False)
     restaurant_data = RestaurantSerializer(required=False)
+    branch_data = BranchSerializer(required=False)
+    subscription_data = SubscriptionSerializer()
 
     @aatomic()
     def create_transaction(self, validated_data, context):
         start = time.perf_counter()
         # 1. Create User
-        user_data = validated_data.pop('user_data')
-        user_serializer = UserSerializer(context=context)
-        user = async_to_sync(user_serializer.create)(user_data)  # Raw SQL create
+        print("validated_data: ", validated_data)
+        # user_data = validated_data.pop('user_data')
+        # user_serializer = UserSerializer(context=context)
+        # user = async_to_sync(user_serializer.create)(user_data)  # Raw SQL create
+        user = {
+            'id': 66,
+            'role': "user_role",
+            'username': "username",
+            'email': "email@gmail.com"
+        }
         print(f"1 user creation took {(time.perf_counter() - start) * 1000:.3f} ms")
 
         # Get email_sent from context
@@ -327,21 +374,22 @@ class  RegistrationSerializer(Serializer):
         elif 'branch_data' in validated_data:
             start = time.perf_counter()
             branch_data = validated_data.pop('branch_data')
-            branch_data['created_by_id'] = user.id
-            branch = async_to_sync(BranchSerializer().create)(restaurant_data)
+            # branch_data['created_by_id'] = user.id
+            branch_data['created_by_id'] = user['id']
+            branch = async_to_sync(BranchSerializer().create)(branch_data)
 
             # Add M2M relationship
             entity_id = branch.id
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    INSERT INTO cre_customuser_branches (customuser_id, branch_id)
-                    VALUES (%s, %s)
-                    """,
-                    [user.id, entity_id]
-                )
+            # with connection.cursor() as cursor:
+            #     cursor.execute(
+            #         """
+            #         INSERT INTO cre_customuser_branches (customuser_id, branch_id)
+            #         VALUES (%s, %s)
+            #         """,
+            #         [user.id, entity_id]
+            #     )
             # Add to BranchManager group
-            async_to_sync(user.add_to_group)(user.role)  # If async, wrap in sync_to_async
+            # async_to_sync(user.add_to_group)(user.role)  # If async, wrap in sync_to_async
             print(f"5 branch creation took {(time.perf_counter() - start) * 1000:.3f} ms")
         else:
             raise serializers.ValidationError(_("Unable to detect user scope."))
@@ -356,11 +404,10 @@ class  RegistrationSerializer(Serializer):
         redis_conn = settings.SYNC_REDIS
         redis_conn.xadd('rms.stream', {
             'type': 'subscrition.create',
-            'request_id': request_id,
             'subscription_id': subscription_id,
             'entity_type': entity_type,
             'entity_id': entity_id,
-            'plan_id': subscription_data['plan_id'],
+            'plan_id': str(subscription_data['plan_id']),
             'feature_ids': json.dumps(subscription_data.get('feature_ids')),
         })
 
@@ -384,130 +431,12 @@ class  RegistrationSerializer(Serializer):
         return {
             'message': "Registration successful!",
             'email_sent': instance['email_sent'],
-            'user': {
-                'username': instance['user'].username,
-                'email': instance['user'].email,  # Fixed user_id to email
-            }
+            'subscription_id': instance['subscription_id'],
+            # 'user': {
+            #     'username': instance['user'].username,
+            #     'email': instance['user'].email,  # Fixed user_id to email
+            # }
         }
-
-
-# class  RegistrationSerializer(Serializer):
-#     start = time.perf_counter()
-#     user_data = UserSerializer()
-#     company_data = CompanySerializer(required=False)
-#     restaurant_data = RestaurantSerializer(required=False)
-
-#     def validate(self, attrs):
-#         # Check if either company_data or restaurant_data is provided
-#         if 'user_data' not in attrs :
-#             raise serializers.ValidationError(_("Please provide user information"))
-#         if 'company_data' in attrs and 'restaurant_data' not in attrs :
-#             raise serializers.ValidationError(_("Main Restaurant branch must be added for Brands"))
-#         if 'company_data' not in attrs and 'restaurant_data' not in attrs:
-#             raise serializers.ValidationError(_("You must provide either 'company data' or 'restaurant data' data."))
-#         return attrs
-#     print(f"validate took {(time.perf_counter() - start) * 1000:.3f} ms")
-
-#     async def create(self, validated_data):
-#         # Create the user using UserSerializer
-#         start = time.perf_counter()
-#         user_data = validated_data.pop('user_data')  # Contains objects already
-#         user = await UserSerializer(context=self.context).create(validated_data=user_data)
-#         print(f"user creation took {(time.perf_counter() - start) * 1000:.3f} ms")
-
-#         # Get email_sent from context (set by UserSerializer)
-#         email_sent = self.context.get("email_sent", False)
-
-#         company = None
-#         restaurant = None
-
-#         if 'company_data' in validated_data:
-#             start = time.perf_counter()
-#             company_data = validated_data.pop('company_data')
-#             company_data['created_by_id'] = user.id
-#             company = await CompanySerializer().create(company_data)
-
-#             await user.companies.aadd(company)
-
-#             # Add the user to the CompanyAdmin group
-#             await user.add_to_group(user.role)
-#             print(f"company in company took {(time.perf_counter() - start) * 1000:.3f} ms")
-
-#             # Create the restaurant if provided
-#             if 'restaurant_data' in validated_data:
-#                 start = time.perf_counter()
-#                 restaurant_data = validated_data.pop('restaurant_data')
-#                 restaurant_data['created_by_id'] = user.id
-#                 if company:
-#                     restaurant_data['company_id'] = company.id
-                    
-#                 restaurant = await RestaurantSerializer().create(restaurant_data)
-#                 await user.restaurants.aadd(restaurant)
-#                 print(f"restaurant in company took {(time.perf_counter() - start) * 1000:.3f} ms")
-
-#         elif 'restaurant_data' in validated_data:
-#             start = time.perf_counter()
-#             restaurant_data = validated_data.pop('restaurant_data')
-#             restaurant_data['created_by_id'] = user.id
-#             restaurant = await RestaurantSerializer().create(restaurant_data)
-
-#             await user.restaurants.aadd(restaurant)
-
-#             # Assign the user to the RestaurantOwner group
-#             # restaurant_owner_group, created = await Group.objects.aget_or_create(name='RestaurantOwner')
-#             # await user.groups.aadd(restaurant_owner_group)
-#             await user.add_to_group(user.role)
-#             print(f"Restaurant creation only took {(time.perf_counter() - start) * 1000:.3f} ms")
-
-
-#         else:
-#             raise serializers.ValidationError(_("Either company or restaurant data must be provided."))
-
-#         return { 'user': user, 'email_sent': email_sent }
-
-#     async def to_representation(self, instance):
-#         if hasattr(instance, '__await__'):  # Another way to check for coroutines
-#             instance = await instance
-        
-#         return {
-#             'message': _("Registration successful!"),
-#             'email_sent': instance['email_sent'],
-#             'user': {
-#                 "username": instance['user'].username,
-#                 "user_id": instance['user'].email,
-#             }
-#         }
-
-class BranchSerializer(ModelSerializer):
-    # restaurant = serializers.IntegerField(source='restaurant_id', required=False)
-    # company = serializers.IntegerField(source='company_id', required=False)
-    # country = serializers.IntegerField(source='country_id', required=True)
-
-    class Meta:
-        model = Branch
-        fields = ['id', 'restaurant', 'company', 'name', 'address', 'city', 'country', 'status', 'timezone', 'default_language', 'manager', 'logo']
-        read_only_fields = ('created_by', )
-
-    def validate(self, attrs):
-        print("attrs: ", attrs)
-        return attrs
-
-    async def create(self, validated_data):
-        from notifications.tasks import invalidate_cache_keys
-        request = self.context.get('request')
-        is_RO = self.context.get('is_CEO', False)
-        if is_RO:
-            validated_data['status'] = 'active'
-        user_id = request.user.id
-        validated_data['created_by_id'] = user_id
-        branch = await Branch.objects.acreate(**validated_data)
-        details = {}
-        details['name'] = branch.name
-        details['restaurant'] = branch.restaurant_id
-        log_activity.delay(validated_data['created_by_id'], 'branch_create', details, branch.id, 'branch')
-        invalidate_cache_keys.delay(['user_scopes:{id}', f'scopes:{request.user.role}:{user_id}'], [user_id])
-        
-        return branch
 
 class MenuSerializer(ModelSerializer):
     class Meta:
