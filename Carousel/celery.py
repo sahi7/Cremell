@@ -25,6 +25,12 @@ app.conf.beat_schedule = {
         'task': 'permissions.tasks.expire_permissions',
         'schedule': crontab(hour='*/24'), 
     },
+    'manage-subscription-status': {
+        'task': 'subscriptions.tasks.manage_subscription_status',
+        'schedule': crontab(minute='*/5'),  # Every 5 minutes
+        # 'schedule': crontab(hour=2, minute=0),  # Run daily at 2 AM 
+        # 'options': {'queue': 'subscription_queue'},
+    },
 }
 
 @app.task(bind=True, ignore_result=True)

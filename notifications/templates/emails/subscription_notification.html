@@ -1,0 +1,39 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ subject }}</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+    <p>{% trans "Dear Customer," %}</p>
+
+    {% if subscription_type == 'pay_per_order' and days_remaining %}
+        <p>{% blocktrans with plan_name=plan_name days_remaining=days_remaining trial_end_date=trial_end_date %}
+            Your <strong>{{ plan_name }}</strong> trial subscription is set to expire in <strong>{{ days_remaining }} day(s)</strong> on {{ trial_end_date }}.
+        {% endblocktrans %}</p>
+        <p>{% blocktrans %}
+            To continue enjoying all features, please <a href="{{ extra_context.topup_url|default:'#' }}">top up your credits</a> before the trial ends.
+        {% endblocktrans %}</p>
+    {% elif subscription_type == 'pay_per_order' and activation_date %}
+        <p>{% blocktrans with plan_name=plan_name activation_date=activation_date %}
+            Congratulations! Your <strong>{{ plan_name }}</strong> subscription is now fully active as of {{ activation_date }}.
+        {% endblocktrans %}</p>
+        <p>{% blocktrans %}
+            Your credits will be added to your balance when you top up. Visit <a href="{{ extra_context.topup_url|default:'#' }}">your account</a> to manage your subscription.
+        {% endblocktrans %}</p>
+    {% elif subscription_type in 'monthly yearly' %}
+        <p>{% blocktrans with plan_name=plan_name subscription_type=subscription_type days_remaining=days_remaining current_period_end=current_period_end %}
+            Your <strong>{{ plan_name }}</strong> {{ subscription_type }} subscription is set to renew in <strong>{{ days_remaining }} day(s)</strong> on {{ current_period_end }}.
+        {% endblocktrans %}</p>
+        <p>{% blocktrans %}
+            Ensure your payment method is up to date to avoid interruption. Manage your subscription <a href="{{ extra_context.account_url|default:'#' }}">here</a>.
+        {% endblocktrans %}</p>
+    {% endif %}
+
+    <p>{% blocktrans %}
+        If you have any questions, contact our support team at <a href="mailto:support@example.com">support@example.com</a>.
+    {% endblocktrans %}</p>
+    <p>{% trans "Thank you for choosing us!" %}</p>
+    <p>{% trans "Best regards," %}<br>{% trans "The RMS Team" %}</p>
+</body>
+</html>

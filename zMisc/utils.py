@@ -520,8 +520,9 @@ async def get_stakeholders(
             user_ids.append(user_id)
 
     # Bulk fetch users for further processing
-    users = {u.id: u async for u in CustomUser.objects.filter(id__in=user_ids).only('id', 'username', 'email', 'role')}
+    users = {u.id: u async for u in CustomUser.objects.filter(id__in=user_ids).only('id', 'username', 'email', 'role', 'r_val')}
     timezones = await CustomUser.get_timezone_language(user_ids) 
+    # print(f"In get stake - users: {users}")
     # Process users in chunks
     for start in range(0, count, chunk_size):
         async for user_data in queryset.aiterator(chunk_size=chunk_size):
@@ -531,7 +532,8 @@ async def get_stakeholders(
             user = users.get(user_id)
             if not user:
                 continue
-            role_value = await user.get_role_value()
+            # role_value = await user.get_role_value()
+            role_value = user.r_val
             if role_value > max_role_value and not include_lower_roles:
                 continue
 

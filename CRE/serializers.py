@@ -351,6 +351,7 @@ class  RegistrationSerializer(Serializer):
             start = time.perf_counter()
             restaurant_data = validated_data.pop('restaurant_data')
             restaurant_data['created_by_id'] = user.id
+            restaurant_data['manager_id'] = user.id
             restaurant = async_to_sync(RestaurantSerializer().create)(restaurant_data)
 
             # Add M2M relationship
@@ -373,6 +374,7 @@ class  RegistrationSerializer(Serializer):
             start = time.perf_counter()
             branch_data = validated_data.pop('branch_data')
             # branch_data['created_by_id'] = user.id
+            # branch_data['manager_id'] = user.id
             branch_data['created_by_id'] = user['id']
             branch_data['status'] = 'active'
             # branch = async_to_sync(BranchSerializer().create)(branch_data)
@@ -404,7 +406,7 @@ class  RegistrationSerializer(Serializer):
             'entity_type': entity_type,
             'entity_id': 1,
             'plan_id': str(subscription_data['plan_id']),
-            'feature_ids': json.dumps(subscription_data.get('features', []))
+            'feature_ids': json.dumps(feature_ids) 
         }
         
         # from redis import Redis
