@@ -15,7 +15,7 @@ from cre.models import Order, CustomUser
 from zMisc.utils import get_user_data, render_notification_template, get_stakeholders
 
 import logging
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 cache = settings.SYNC_REDIS
 

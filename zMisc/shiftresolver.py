@@ -15,7 +15,7 @@ from cre.models import Branch, Shift, StaffShift, ShiftPattern, CustomUser, Staf
 from cre.serializers import ShiftPatternSerializer
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 # For date_range() implementation
 def date_range(start_date, end_date):

@@ -7,10 +7,9 @@ from django.conf import settings
 from aiokafka import AIOKafkaConsumer
 from channels.layers import get_channel_layer
 import logging
-import signal
 
 # Configure logging
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('streams')
 
 class Command(BaseCommand):
     help = 'Runs an async Kafka consumer with Queue for WebSocket notifications.'

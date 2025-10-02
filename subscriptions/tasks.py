@@ -6,7 +6,7 @@ from django.db import transaction
 from subscriptions.models import Subscription, History, EventType, BillingType
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 from .models import History
 from notifications.tasks import send_batch_notifications

@@ -23,7 +23,7 @@ from zMisc.permissions import TransferPermission, UserCreationPermission, RoleAs
 from zMisc.atransactions import aatomic
 
 import logging
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 CustomUser = get_user_model()
 

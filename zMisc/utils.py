@@ -19,7 +19,7 @@ from cre.models import Branch, Restaurant, Company, Country, ShiftSwapRequest
 from payroll.models import *
 from printing.models import Device, Printer
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 CustomUser = get_user_model()
 
 def validate_scope(user, data, allowed_scopes):

@@ -21,7 +21,7 @@ from .models import StaffShift, Restaurant, Branch, Order, StaffAvailability, Sh
 from zMisc.utils import determine_activity_model, render_notification_template
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 CustomUser = get_user_model()
 
 @shared_task

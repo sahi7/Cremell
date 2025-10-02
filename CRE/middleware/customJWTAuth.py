@@ -8,7 +8,7 @@ from django.conf import settings
 
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 class CustomJWTAuthentication(JWTAuthentication):
     async def get_validated_token(self, raw_token):

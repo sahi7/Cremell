@@ -13,7 +13,7 @@ from zMisc.utils import send_del_notification
 import logging
 
 CustomUser = get_user_model()
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 @shared_task(bind=True)
 def finalize_deletion(self, object_type, object_id, user_id):

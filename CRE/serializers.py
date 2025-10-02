@@ -16,7 +16,7 @@ from zMisc.atransactions import aatomic
 
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 class CustomRegisterSerializer(RegisterSerializer):
     first_name = serializers.CharField(required=True)
@@ -412,7 +412,18 @@ class  RegistrationSerializer(Serializer):
         # from redis import Redis
         redis_conn = settings.SYNC_REDIS
         print(f"Sending to Redis: {message}")
-        redis_conn.xadd('rms.stream', message)
+        # stream_id = redis_conn.xadd('rms.stream', message)
+        pending_data = {
+            # 'stream_id': stream_id,
+            'message': json.dumps(message),
+            'retry_count': 0,
+            'created_at': time.time(),
+        }
+        redis_conn.setex(
+            f'pending_subscriptions:{subscription_id}',
+            settings.REDIS_STREAM_ACK_TIMEOUT,
+            json.dumps(pending_data)
+        )
 
         return {'user': user, 'email_sent': email_sent, 'subscription_id': subscription_id,}
 

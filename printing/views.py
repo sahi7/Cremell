@@ -21,7 +21,7 @@ from zMisc.utils import clean_request_data, get_branch_device
 
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 channel_layer = get_channel_layer()
 
 class DeviceViewSet(ModelViewSet):

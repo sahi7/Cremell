@@ -7,7 +7,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 from printing.models import Device
 from zMisc.utils import get_scopes_and_groups

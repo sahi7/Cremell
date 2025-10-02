@@ -2,7 +2,7 @@ from aiokafka import AIOKafkaProducer
 import json
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 async def publish_event(event_type, data):
     try:

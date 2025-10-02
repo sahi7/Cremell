@@ -20,7 +20,7 @@ from cre.tasks import log_activity
 
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 # Kafka configuration
 KAFKA_RULES_TOPIC = 'payroll.rules.updated'

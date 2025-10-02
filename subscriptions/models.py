@@ -131,23 +131,23 @@ class Subscription(models.Model):
             models.Index(fields=['status'], name='idx_subscription_status'),
             models.Index(fields=['plan'], name='idx_subscription_plan_id'),
             models.Index(fields=['current_period_start', 'current_period_end'], name='idx_subscription_period'),
-            models.Index(
-                fields=['plan__billing_type', 'status', 'trial_end_date'],
-                name='idx_subscription_trial',
-                condition=models.Q(
-                    plan__billing_type='pay_per_order',
-                    status='trial'
-                )
-            ),
-            models.Index(
-                fields=['plan__billing_type', 'status', 'auto_renew', 'current_period_end'],
-                name='idx_subscription_renewal',
-                condition=models.Q(
-                    plan__billing_type__in=['monthly_fixed', 'yearly_fixed'],
-                    status='active',
-                    # auto_renew=True
-                )
-            )
+            # models.Index(
+            #     fields=['plan__billing_type', 'status', 'trial_end_date'],
+            #     name='idx_subscription_trial',
+            #     condition=models.Q(
+            #         plan__billing_type='pay_per_order',
+            #         status='trial'
+            #     )
+            # ),
+            # models.Index(
+            #     fields=['plan__billing_type', 'status', 'auto_renew', 'current_period_end'],
+            #     name='idx_subscription_renewal',
+            #     condition=models.Q(
+            #         plan__billing_type__in=['monthly_fixed', 'yearly_fixed'],
+            #         status='active',
+            #         # auto_renew=True
+            #     )
+            # )
         ]
         verbose_name = _('Subscription')
         verbose_name_plural = _('Subscriptions')

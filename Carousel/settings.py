@@ -218,6 +218,7 @@ CELERY_TIMEZONE = 'UTC'
 
 SYNC_REDIS = syncRedis.from_url(REDIS_URL, decode_responses=True)
 ASYNC_REDIS = asyncRedis.from_url(REDIS_URL, decode_responses=True)
+REDIS_STREAM_ACK_TIMEOUT = 30
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
@@ -356,18 +357,46 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
         },
-        'monthly_file': {
+        'web_file': {
             'class': 'logging.handlers.TimedRotatingFileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'app.log'),
+            'filename': os.path.join(BASE_DIR, 'logs', 'app_web.log'),
             'when': 'midnight',
-            'interval': 30,  # Rotate every 30 days (approximate month)
+            'interval': 30,  # Rotate every 30 days
             'backupCount': 12,  # Keep 12 months of logs
             'formatter': 'verbose',
             'encoding': 'utf8',
+            'delay': True,  # Defer file opening until first write
+        },
+        'stream_file': {
+            'class': 'logging.handlers.TimedRotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'app_streams.log'),
+            'when': 'midnight',
+            'interval': 30,  # Rotate every 30 days
+            'backupCount': 12,  # Keep 12 months of logs
+            'formatter': 'verbose',
+            'encoding': 'utf8',
+            'delay': True,  # Defer file opening until first write
+        },
+    },
+    'loggers': {
+        'web': {
+            'handlers': ['console', 'web_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'streams': {
+            'handlers': ['console', 'stream_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        '': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
         },
     },
     'root': {
-        'handlers': ['console', 'monthly_file'],
+        'handlers': ['console'],  # Root logger uses console; named loggers handle file output
         'level': 'INFO',
     },
 }

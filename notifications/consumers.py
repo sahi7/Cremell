@@ -10,7 +10,7 @@ from django.conf import settings
 from datetime import datetime
 from printing.handlers import *
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
 pipe = redis.pipeline()
 

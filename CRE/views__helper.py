@@ -26,7 +26,7 @@ from zMisc.permissions import EntityUpdatePermission, ObjectStatusPermission
 import logging
 import time
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 CustomUser = get_user_model()
 cache = Redis.from_url(settings.REDIS_URL, decode_responses=True)

@@ -12,7 +12,7 @@ import asyncio
 
 from cre.models import Order
 import logging
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 class PrinterListener:
     """Listener for zeroconf network printer discovery."""

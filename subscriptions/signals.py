@@ -6,7 +6,7 @@ from .models import Plan, Feature, Subscription
 from notifications.tasks import invalidate_cache_keys
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 # Initialize Redis connection
 @receiver([post_save, post_delete], sender=Plan)

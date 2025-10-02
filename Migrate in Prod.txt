@@ -34,4 +34,5 @@ gunicorn \
   --bind 0.0.0.0:8000 \
   app:app
 
+Receive redis streams command: python manage.py manage_redis_streams --timeout 10 --max-retries 3
 

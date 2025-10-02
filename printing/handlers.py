@@ -8,7 +8,7 @@ from .utils import get_branch_printers
 
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 channel_layer = get_channel_layer()
 redis_client = Redis.from_url(settings.REDIS_URL)
 

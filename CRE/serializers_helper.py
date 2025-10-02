@@ -8,7 +8,7 @@ from django.conf import settings
 
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 redis = Redis.from_url(settings.REDIS_URL)
 CustomUser = get_user_model()
 

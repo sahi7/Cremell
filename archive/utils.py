@@ -9,7 +9,7 @@ from celery.app.control import Control
 from .models import DeletedObject, ObjectHistory
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 def get_object_graph(target_model, target_id):
     """
     Returns complete dependency graph for an object in JSON-serializable format

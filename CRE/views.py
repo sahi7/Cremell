@@ -37,7 +37,7 @@ from zMisc.atransactions import aatomic
 from services.sequences import generate_order_number
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('web')
 
 CustomUser = get_user_model()
 def email_confirm_redirect(request, key):
